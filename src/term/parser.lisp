@@ -1,0 +1,307 @@
+;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
+
+(in-package #:vt)
+
+(declaim (optimize (speed 3) (safety 1)))
+
+(defun term-process-output (term string)
+  (let ((len (length string))
+        (index 0))
+    (loop while (< index len) do
+      (let ((state (term-parser-state term)))
+        (cond
+          ((null state)
+           (let ((span-start index))
+             (loop while (and (< index len)
+                              (let ((ch (char string index)))
+                                (not (or (char<= #\Nul ch #\Us)
+                                         (char= ch #\Rubout)
+                                         (char= ch #\Escape)))))
+                   do (incf index))
+             (when (> index span-start)
+               (term-write term string span-start index))
+             (when (< index len)
+               (let ((ch (char string index)))
+                 (incf index)
+                 (case ch
+                   (#\Bel (when (term-bell-fn term)
+                            (funcall (term-bell-fn term) term)))
+                   (#\Backspace (term-cursor-left term 1))
+                   (#\Tab (term-horizontal-tab term 1))
+                   (#\Newline (term-line-feed term))
+                   (#\Vt (term-index term))
+                   (#\Page (term-index term))
+                   (#\Return
+                    (unless (and (< index len)
+                                 (char= (char string index) #\Newline))
+                      (term-carriage-return term)))
+                   (#\So (setf (term-active-charset term) :g1))
+                   (#\Si (setf (term-active-charset term) :g0))
+                   (#\Escape
+                    (setf (term-parser-state term) :read-esc)))))))
+
+          ((eq state :read-esc)
+           (let ((ch (char string index)))
+             (incf index)
+             (setf (term-parser-state term) nil)
+             (case ch
+               (#\( (setf (term-parser-state term) '(:read-charset :g0)))
+               (#\) (setf (term-parser-state term) '(:read-charset :g1)))
+               (#\* (setf (term-parser-state term) '(:read-charset :g2)))
+               (#\+ (setf (term-parser-state term) '(:read-charset :g3)))
+               (#\7 (term-save-cursor term))
+               (#\8 (term-restore-cursor term))
+               (#\D (term-index term))
+               (#\E (term-carriage-return term)
+                    (term-line-feed term))
+               (#\M (term-reverse-index term))
+               (#\[ (setf (term-parser-state term) :read-csi-format))
+               (#\] (setf (term-parser-state term) :read-osc
+                          (fill-pointer (term-osc-buf term)) 0))
+               (#\P (setf (term-parser-state term) :read-dcs))
+               (#\c (term-reset term))
+               (#\n (setf (term-active-charset term) :g2))
+               (#\o (setf (term-active-charset term) :g3)))))
+
+          ((and (listp state) (eq (car state) :read-charset))
+           (let ((ch (char string index))
+                 (slot (cadr state)))
+             (incf index)
+             (setf (term-parser-state term) nil)
+             (let ((charset (case ch
+                              (#\0 :dec-line-drawing)
+                              (#\B :us-ascii)
+                              (t :us-ascii))))
+               (case slot
+                 (:g0 (setf (term-g0 term) charset))
+                 (:g1 (setf (term-g1 term) charset))
+                 (:g2 (setf (term-g2 term) charset))
+                 (:g3 (setf (term-g3 term) charset))))))
+
+          ((eq state :read-csi-format)
+           (let ((ch (char string index)))
+             (cond
+               ((char= ch #\?) (setf (term-csi-format term) #\?
+                                      (term-parser-state term) :read-csi-params
+                                      (term-csi-params term) (list nil))
+                                (incf index))
+               ((char= ch #\>) (setf (term-csi-format term) #\>
+                                      (term-parser-state term) :read-csi-params
+                                      (term-csi-params term) (list nil))
+                                (incf index))
+               ((char= ch #\=) (setf (term-csi-format term) #\=
+                                      (term-parser-state term) :read-csi-params
+                                      (term-csi-params term) (list nil))
+                                (incf index))
+               (t (setf (term-csi-format term) nil
+                         (term-parser-state term) :read-csi-params
+                         (term-csi-params term) (list nil))))))
+
+          ((eq state :read-csi-params)
+           (let ((ch (char string index))
+                 (params (term-csi-params term)))
+             (cond
+               ((and (char<= #\0 ch) (char<= ch #\9))
+                (let ((digit (- (char-code ch) (char-code #\0))))
+                  (if (consp (car params))
+                      (setf (caar params) (+ (* (or (caar params) 0) 10) digit))
+                      (setf (car params) (+ (* (or (car params) 0) 10) digit))))
+                (incf index))
+               ((char= ch #\;)
+                (push nil (term-csi-params term))
+                (incf index))
+               ((char= ch #\:)
+                (if (consp (car params))
+                    (push nil (car (term-csi-params term)))
+                    (push (list nil) (term-csi-params term)))
+                (incf index))
+               (t
+                (setf (term-parser-state term) :read-csi-function)))))
+
+          ((eq state :read-csi-function)
+           (let ((ch (char string index)))
+             (incf index)
+             (when (and (char>= ch #\@) (char<= ch #\~))
+               (setf (term-parser-state term) nil)
+               (let ((params (mapcar (lambda (p) (if (consp p) (nreverse p) p))
+                                     (nreverse (term-csi-params term))))
+                     (fmt (term-csi-format term)))
+                 (dispatch-csi term ch fmt params)))))
+
+          ((eq state :read-osc)
+           (let ((end-pos (position-if
+                           (lambda (c) (or (char= c #\Bel)
+                                           (char= c #\Escape)))
+                           string :start index))
+                 (buf (term-osc-buf term)))
+             (if end-pos
+                 (progn
+                   (loop for i from index below end-pos do
+                     (vector-push-extend (char string i) buf))
+                   (setf index (1+ end-pos))
+                   (if (char= (char string end-pos) #\Bel)
+                       (progn (dispatch-osc term buf)
+                              (setf (term-parser-state term) nil))
+                       (setf (term-parser-state term) :read-osc-esc)))
+                 (progn
+                   (loop for i from index below len do
+                     (vector-push-extend (char string i) buf))
+                   (setf index len)))))
+
+          ((eq state :read-osc-esc)
+           (let ((ch (char string index)))
+             (dispatch-osc term (term-osc-buf term))
+             (if (char= ch #\\)
+                 (progn (setf (term-parser-state term) nil)
+                        (incf index))
+                 (setf (term-parser-state term) :read-esc))))
+
+          ((eq state :read-dcs)
+           (let ((end-pos nil))
+             (loop for i from index below len do
+               (when (char= (char string i) #\Escape)
+                 (when (and (< (1+ i) len)
+                            (char= (char string (1+ i)) #\\))
+                   (setf end-pos (+ i 2))
+                   (return))))
+             (if end-pos
+                 (setf index end-pos
+                       (term-parser-state term) nil)
+                 (setf index len))))
+
+          (t
+           (setf (term-parser-state term) nil)))))))
+
+(defun dispatch-csi (term ch fmt params)
+  (let ((p1 (car params))
+        (p2 (cadr params)))
+    (case ch
+      (#\@ (term-insert-char term (or p1 1)))
+      ((#\A #\k) (term-cursor-up term (or p1 1)))
+      ((#\B #\e) (term-cursor-down term (or p1 1)))
+      ((#\C #\a) (term-cursor-right term (or p1 1)))
+      ((#\D #\j) (term-cursor-left term (or p1 1)))
+      (#\E
+       (term-cursor-down term (or p1 1))
+       (term-carriage-return term))
+      (#\F
+       (term-cursor-up term (or p1 1))
+       (term-carriage-return term))
+      ((#\G #\`) (term-cursor-horizontal-abs term (or p1 1)))
+      ((#\H #\f) (term-goto term (or p1 1) (or p2 1)))
+      (#\I (term-horizontal-tab term (or p1 1)))
+      (#\J (term-erase-in-display term (or p1 0)))
+      (#\K (term-erase-in-line term (or p1 0)))
+      (#\L (term-insert-line term (or p1 1)))
+      (#\M (term-delete-line term (or p1 1)))
+      (#\P (term-delete-char term (or p1 1)))
+      (#\S (unless (eql fmt #\?)
+             (term-scroll-up term (or p1 1))))
+      (#\T (term-scroll-down term (or p1 1)))
+      (#\X (term-erase-char term (or p1 1)))
+      (#\Z (term-horizontal-backtab term (or p1 1)))
+      (#\b (let ((n (or p1 1)))
+             (when (graphic-char-p (term-last-char term))
+               (term-write term (make-string n
+                                             :initial-element
+                                             (term-last-char term))))))
+      (#\c (dispatch-device-attrs term (or p1 0) fmt))
+      (#\d (term-cursor-vertical-abs term (or p1 1)))
+      (#\h (dispatch-set-modes term params fmt t))
+      (#\l (dispatch-set-modes term params fmt nil))
+      (#\m (unless fmt
+             (process-sgr term params)))
+      (#\n (dispatch-device-status term (or p1 0)))
+      (#\q (when (and (>= (length params) 1)
+                      (null fmt))
+             (dispatch-cursor-style term (or p1 0))))
+      (#\r (term-set-scroll-region term p1 p2))
+      (#\s (when (null fmt) (term-save-cursor term)))
+      (#\u (when (null fmt) (term-restore-cursor term))))))
+
+(defun dispatch-device-attrs (term n fmt)
+  (when (term-input-fn term)
+    (case fmt
+      ((nil)
+       (when (zerop n)
+         (funcall (term-input-fn term) term (format nil "~C[?12;4c" #\Escape))))
+      (#\>
+       (when (zerop n)
+         (funcall (term-input-fn term) term (format nil "~C[>0;0;0c" #\Escape)))))))
+
+(defun dispatch-device-status (term n)
+  (when (term-input-fn term)
+    (case n
+      (5 (funcall (term-input-fn term) term (format nil "~C[0n" #\Escape)))
+      (6 (funcall (term-input-fn term) term
+                  (format nil "~C[~D;~DR" #\Escape
+                          (1+ (term-cursor-y term))
+                          (1+ (term-cursor-x term))))))))
+
+(defun dispatch-cursor-style (term style)
+  (when (<= 0 style 6)
+    (setf (term-cursor-style term)
+          (aref #(:blinking-block :blinking-block :block
+                  :blinking-underline :underline
+                  :blinking-bar :bar)
+                style))))
+
+(defun dispatch-set-modes (term params fmt set-p)
+  (dolist (p params)
+    (when p
+      (case fmt
+        ((nil)
+         (case p
+           (4 (setf (term-insert-mode term) set-p))))
+        (#\?
+         (case p
+           (1 (setf (term-keypad-mode term) set-p))
+           (7 (setf (term-auto-margin term) set-p))
+           (12 (when set-p
+                 (case (term-cursor-style term)
+                   (:block (setf (term-cursor-style term) :blinking-block))
+                   (:underline (setf (term-cursor-style term) :blinking-underline))
+                   (:bar (setf (term-cursor-style term) :blinking-bar))))
+               (unless set-p
+                 (case (term-cursor-style term)
+                   (:blinking-block (setf (term-cursor-style term) :block))
+                   (:blinking-underline (setf (term-cursor-style term) :underline))
+                   (:blinking-bar (setf (term-cursor-style term) :bar)))))
+           (25 (setf (term-cursor-visible term) set-p))
+           (1047 (if set-p
+                     (term-enter-alt-screen term)
+                     (term-exit-alt-screen term)))
+           (1048 (if set-p
+                     (term-save-cursor term)
+                     (term-restore-cursor term)))
+           (1049 (if set-p
+                     (progn (term-save-cursor term)
+                            (term-enter-alt-screen term))
+                     (progn (term-exit-alt-screen term)
+                            (term-restore-cursor term))))
+           (2004 (setf (term-bracketed-paste term) set-p))))))))
+
+(defun dispatch-osc (term str)
+  (let ((semi (position #\; str)))
+    (when semi
+      (let ((code-str (subseq str 0 semi))
+            (data (subseq str (1+ semi))))
+        (cond
+          ((or (string= code-str "0") (string= code-str "2"))
+           (setf (term-title term) data)
+           (when (term-title-fn term)
+             (funcall (term-title-fn term) term data)))
+          ((string= code-str "7")
+           (setf (term-cwd term) data)
+           (when (term-cwd-fn term)
+             (funcall (term-cwd-fn term) term data)))
+          ((string= code-str "10")
+           (when (and (string= data "?") (term-input-fn term))
+             (funcall (term-input-fn term) term
+                      (format nil "~C]10;rgb:d8d8/d8d8/d8d8~C\\"
+                              #\Escape #\Escape))))
+          ((string= code-str "11")
+           (when (and (string= data "?") (term-input-fn term))
+             (funcall (term-input-fn term) term
+                      (format nil "~C]11;rgb:1818/1818/1818~C\\"
+                              #\Escape #\Escape)))))))))

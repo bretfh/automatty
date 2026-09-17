@@ -1,0 +1,136 @@
+#+TITLE: cl-vt
+
+A terminal emulator in Common Lisp. It reads what a program wrote and keeps the
+screen that means: a grid of cells, each with the face it was written in, a
+cursor, a scroll region, an alternate screen and a scrollback. It draws nothing
+itself. What you do with the grid -- paint it, put it in a buffer, diff it
+against the last frame -- is yours.
+
+* The shape of it
+
+A terminal is a struct. You make one, you tell it what a program said, and you
+read the screen back:
+
+#+begin_src lisp
+  (let ((term (vt:make-term :width 80 :height 24)))
+    (vt:term-process-output term (format nil "~C[1;32mhello~C[0m" #\Escape #\Escape))
+    (vt:term-dump-row-string term 0))          ; => "hello ..."
+#+end_src
+
+Output arrives in whatever pieces it arrives in. A sequence split across two
+reads is still one sequence: the parser keeps its state on the term, so feeding
+it a byte at a time and feeding it a megabyte give the same screen.
+
+A cell is a character and a face. A face is shared: every cell written under the
+same SGR points at one =face-attrs=, so a screen of coloured text is a screen of
+pointers and a diff can compare with =eq=.
+
+#+begin_src lisp
+  (vt:cell-char (aref (vt:term-grid-row term 0) 0))   ; => #\h
+  (vt:face-fg (vt:cell-face (aref (vt:term-grid-row term 0) 0)))  ; => 2
+#+end_src
+
+A colour is an index into the 256-colour palette, or a =(r g b)= list when the
+program asked for one. =color-index-to-rgb= answers what an index is worth.
+
+** Reading a line
+
+Three ways, depending on who is looking:
+
+#+begin_src lisp
+  (vt:term-render-line term 0)      ; => "hello ...", ((0 (:fg 2 :bold t)) (5 nil))
+  (vt:term-render-ansi-line term 0) ; => the line with its escapes put back
+  (vt:term-dump-row-string term 0)  ; => just the characters
+#+end_src
+
+=term-render-line= is the one a drawing loop wants: the characters, and a list of
+the columns where the face turns, as a plist each. =term-render-ansi-line= writes
+the line back out as a program would have written it, which is what you print at
+a real terminal and what a round trip is tested against.
+
+** What it answers
+
+A program asks a terminal questions -- where is the cursor, what are you, what
+colour is your background -- and expects an answer on its input. Give the term an
+=input-fn= and it answers them:
+
+#+begin_src lisp
+  (vt:make-term :input-fn (lambda (term said) (pty:pty-write-string fd said))
+                :title-fn (lambda (term title) (setf (window-name) title))
+                :bell-fn  (lambda (term) (flash))
+                :cwd-fn   (lambda (term cwd) (remember cwd)))
+#+end_src
+
+** Typing at it
+
+The other direction is =key-event-to-escape-sequence=: a character, or a key and
+its modifiers, into the bytes the program reads. It knows which mode the keypad
+is in, because the program said.
+
+#+begin_src lisp
+  (vt:key-event-to-escape-sequence term #\a)             ; => "a"
+  (vt:key-event-to-escape-sequence term '(:up))          ; => ESC [ A
+  (vt:key-event-to-escape-sequence term '(:up :ctrl))    ; => ESC [ 1 ; 5 A
+  (vt:key-event-to-escape-sequence term '(:f5))          ; => ESC [ 1 5 ~
+#+end_src
+
+* A program to read
+
+=vt/pty= is the other half: a program on a pseudo-terminal of its own, spawned
+through a small C shim. posix_spawn, not forkpty -- fork in a threaded image runs
+the runtime's atfork handlers in the child, and those take locks another thread
+was holding, so the child never execs and never dies.
+
+#+begin_src lisp
+  (multiple-value-bind (fd pid) (pty:spawn-pty-process "htop" :rows 24 :cols 80)
+    (loop :while (pty:pty-wait fd 100)
+          :for said := (pty:pty-read-string fd 8192)
+          :while said
+          :do (vt:term-process-output term said))
+    (pty:pty-close fd)
+    (pty:pty-reap pid))
+#+end_src
+
+=pty-wait= is why there is a poll and not a blocking read: a blocking read cannot
+be interrupted. Closing the descriptor under it does not wake it, and killing the
+thread inside a foreign call wedges the image at the next GC. So a reader waits
+with a timeout and looks at its own flag between waits.
+
+The two systems are separate: =vt= alone has no dependencies and no C, and is
+what you load if the bytes come from somewhere else -- a socket, a file, a log.
+
+* What it knows
+
+Cursor movement and addressing, save and restore. Erase in line, in display, in
+character. Insert and delete characters and lines. Scroll regions, index and
+reverse index. Auto-margin and insert mode. The alternate screen, and a
+scrollback that the alternate screen does not write to. Tab stops every eight
+columns, forward and back. Titles and working directory through OSC 0, 2 and 7,
+and the colour queries. Device attributes and device status. Cursor shape, both
+ways it is asked for. Bracketed paste. The DEC line drawing charset in all four
+slots, with shift out and shift in. Wide characters, which take two columns and
+will not be split across the margin, and combining marks, which take none.
+
+SGR: bold, faint, italic, underline, blink, inverse, conceal, crossed out; the
+eight colours, the bright eight, the 256, and true colour; underline colour and
+underline style, said with semicolons or with colons.
+
+DCS is parsed far enough to be skipped.
+
+* Building it
+
+Two ways, and every target works under either. Guix is what it develops against
+and what plain =make= uses; =FOREIGN=1= is for a machine without it, where the
+lisp systems come from wherever asdf already finds them.
+
+#+begin_src sh
+  make libs              # the pty shim, built once into lib/
+  make test              # the fiveam suite
+  make check             # load everything and say so
+  make repl
+  make run CMD='top -b -n 1'    # a command on a pty, and the screen it drew
+  make FOREIGN=1 test
+#+end_src
+
+=make run= is the short demonstration: it puts a command on a pty, reads until it
+stops talking, and prints the screen back with its escapes.

@@ -1,0 +1,97 @@
+(in-package #:vt/test)
+
+(def-suite pty :in all)
+(in-suite pty)
+
+(defmacro with-pty ((fd pid command &rest args) &body body)
+  `(multiple-value-bind (,fd ,pid) (pty:spawn-pty-process ,command ,@args)
+     (unwind-protect (progn ,@body)
+       (pty:pty-close ,fd)
+       (pty:pty-reap ,pid))))
+
+(defun drain (term fd &key (seconds 5))
+  (let ((deadline (+ (get-internal-real-time)
+                     (* seconds internal-time-units-per-second))))
+    (loop :while (< (get-internal-real-time) deadline)
+          :do (if (pty:pty-wait fd 50)
+                  (let ((said (pty:pty-read-string fd 4096)))
+                    (if said
+                        (vt:term-process-output term said)
+                        (return)))
+                  (return)))
+    term))
+
+(defun until (test &key (seconds 5))
+  (let ((deadline (+ (get-internal-real-time)
+                     (* seconds internal-time-units-per-second))))
+    (loop :until (funcall test)
+          :do (when (> (get-internal-real-time) deadline) (return nil))
+          :finally (return t))))
+
+(test a-program-on-a-pty-says-what-it-printed
+  (if (not (pty:pty-library-p))
+      (skip "libvt-pty is not built: make libs")
+      (let ((term (a-term :width 40 :height 10)))
+        (with-pty (fd pid "printf 'from-the-pty\\n'" :rows 10 :cols 40)
+          (is (plusp fd))
+          (is (plusp pid))
+          (until (lambda ()
+                   (drain term fd :seconds 1)
+                   (search "from-the-pty" (vt:term-dump-to-string term))))
+          (is (search "from-the-pty" (vt:term-dump-to-string term)))))))
+
+(test what-a-program-coloured-is-a-face-on-the-grid
+  (if (not (pty:pty-library-p))
+      (skip "libvt-pty is not built: make libs")
+      (let ((term (a-term :width 40 :height 10)))
+        (with-pty (fd pid "printf '\\033[31mred\\033[0m\\n'" :rows 10 :cols 40)
+          (until (lambda ()
+                   (drain term fd :seconds 1)
+                   (search "red" (vt:term-dump-to-string term))))
+          (let ((x (search "red" (vt:term-dump-row-string term 0))))
+            (is-true x)
+            (when x
+              (is (eql 1 (vt:face-fg (face-at term x 0))))))))))
+
+(test a-program-is-told-how-big-its-terminal-is
+  (if (not (pty:pty-library-p))
+      (skip "libvt-pty is not built: make libs")
+      (let ((term (a-term :width 77 :height 11)))
+        (with-pty (fd pid "stty size" :rows 11 :cols 77)
+          (until (lambda ()
+                   (drain term fd :seconds 1)
+                   (search "11 77" (vt:term-dump-to-string term))))
+          (is (search "11 77" (vt:term-dump-to-string term)))))))
+
+(test what-is-written-to-a-pty-the-program-reads
+  (if (not (pty:pty-library-p))
+      (skip "libvt-pty is not built: make libs")
+      (let ((term (a-term :width 40 :height 10)))
+        (with-pty (fd pid "read line; printf 'heard %s\\n' \"$line\"")
+          (pty:pty-write-string fd (format nil "spoken~C" #\Newline))
+          (until (lambda ()
+                   (drain term fd :seconds 1)
+                   (search "heard spoken" (vt:term-dump-to-string term))))
+          (is (search "heard spoken" (vt:term-dump-to-string term)))))))
+
+(test a-resized-pty-tells-the-program-its-new-size
+  (if (not (pty:pty-library-p))
+      (skip "libvt-pty is not built: make libs")
+      (let ((term (a-term :width 40 :height 10)))
+        (with-pty (fd pid "read x; stty size")
+          (pty:pty-set-size fd 30 90)
+          (vt:term-resize term 90 30)
+          (pty:pty-write-string fd (format nil "go~C" #\Newline))
+          (until (lambda ()
+                   (drain term fd :seconds 1)
+                   (search "30 90" (vt:term-dump-to-string term))))
+          (is (search "30 90" (vt:term-dump-to-string term)))))))
+
+(test a-pty-that-is-done-with-is-reaped
+  (if (not (pty:pty-library-p))
+      (skip "libvt-pty is not built: make libs")
+      (multiple-value-bind (fd pid) (pty:spawn-pty-process "sleep 30")
+        (is (plusp pid))
+        (pty:pty-close fd)
+        (is (integerp (pty:pty-reap pid)))
+        (is (null (pty:pty-reap pid))))))
