@@ -1,4 +1,4 @@
-.PHONY: libs repl check test run bench compare eval clean
+.PHONY: libs repl check test run bench latency compare eval clean
 
 # Two ways to get what cl-vt needs, and every target works under either. Guix is
 # what it develops against and what plain `make' uses. FOREIGN=1 is for a mac or
@@ -81,9 +81,13 @@ run: libs
 bench: libs
 	$(IN) '$(ENV) BENCH_DIR="$(BENCH_DIR)" $(SBCL) --non-interactive --load bench/throughput.lisp'
 
+# what one read costs, how long a collection stops it, and what it weighs
+latency: libs
+	$(IN) '$(ENV) BENCH_DIR="$(BENCH_DIR)" $(SBCL) --non-interactive --load bench/latency.lisp'
+
 # the same corpora through tmux and through alacritty, under cl-vt's own
 # numbers, so the three are read off one screen
-compare: bench
+compare: bench latency
 	$(IN) 'BENCH_DIR="$(BENCH_DIR)" ROUNDS="$(ROUNDS)" sh bench/compare.sh'
 
 # evaluate one form in an image with the test system loaded, in VT/TEST, with
