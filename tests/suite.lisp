@@ -1,6 +1,6 @@
 (defpackage #:vt/test
   (:use #:cl #:fiveam)
-  (:local-nicknames (#:pty #:vt/pty))
+  (:local-nicknames (#:pty #:vt/pty) (#:mux #:vt/mux))
   (:export #:run-them #:all))
 (in-package #:vt/test)
 
@@ -42,3 +42,19 @@
 
 (defun cursor (term)
   (list (vt:term-cursor-x term) (vt:term-cursor-y term)))
+
+(defun a-screen (&rest args)
+  (apply #'mux:make-screen args))
+
+(defun shown (screen y)
+  (let* ((row (mux:screen-row screen y))
+         (s (make-string (mux:screen-width screen))))
+    (dotimes (x (length s) (string-right-trim " " s))
+      (setf (schar s x) (vt:cell-char (aref row x))))))
+
+(defun cell-at (screen x y)
+  (aref (mux:screen-row screen y) x))
+
+(defun laid-out (runs)
+  (mapcar (lambda (r) (list (mux:run-row r) (mux:run-start r) (mux:run-end r)))
+          runs))

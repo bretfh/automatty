@@ -92,6 +92,16 @@ is nearer -- for a terminal that does not take rgb."
             (+ 16 (* 36 ri) (* 6 gi) bi)
             (+ 232 step))))))
 
+(defun write-number (n s)
+  (declare (type (integer 0 #.most-positive-fixnum) n))
+  (when (>= n 10) (write-number (floor n 10) s))
+  (write-char (code-char (+ 48 (mod n 10))) s))
+
+(defun write-string-chars (str s)
+  (declare (type simple-string str))
+  (dotimes (i (length str))
+    (write-char (schar str i) s)))
+
 (defun taken (what takes)
   (or (eq takes t) (and (member what takes) t)))
 
@@ -99,19 +109,22 @@ is nearer -- for a terminal that does not take rgb."
   (let ((short (case base (38 30) (48 40) (t nil))))
     (cond
       ((and short (integerp color) (<= 0 color 7))
-       (format s "~D" (+ short color)))
+       (write-number (+ short color) s))
       ((and short (integerp color) (<= 8 color 15))
-       (format s "~D" (+ (if (= base 38) 90 100) (- color 8))))
+       (write-number (+ (if (= base 38) 90 100) (- color 8)) s))
       ((and (integerp color) (<= 0 color 255))
-       (format s "~D;5;~D" base color))
+       (write-number base s) (write-string-chars ";5;" s) (write-number color s))
       ((and (listp color) (= (length color) 3))
        (if (taken :rgb takes)
-           (format s "~D;2;~D;~D;~D" base
-                   (first color) (second color) (third color))
-           (format s "~D;5;~D" base
-                   (rgb-to-color-index (first color) (second color)
-                                       (third color)))))
-      (t (format s "~D" (if (= base 58) 59 (+ base 9)))))))
+           (progn (write-number base s) (write-string-chars ";2;" s)
+                  (write-number (first color) s) (write-char #\; s)
+                  (write-number (second color) s) (write-char #\; s)
+                  (write-number (third color) s))
+           (progn (write-number base s) (write-string-chars ";5;" s)
+                  (write-number (rgb-to-color-index (first color) (second color)
+                                                    (third color))
+                                s))))
+      (t (write-number (if (= base 58) 59 (+ base 9)) s)))))
 
 (defun write-sgr (face s &optional (takes t))
   "Write FACE's SGR escape sequence directly to stream S, no intermediates.
@@ -120,54 +133,60 @@ TAKES is what the terminal it is going to will accept: t for all of it, or a
 list of :rgb, :blink, :underline-style and :underline-color. What it will not
 take is left out, except an rgb colour, which becomes the nearest of the 256.
 
+It always leads with a reset, because a face is what the cell is, not what
+changed: without it an attribute the last face set and this one does not stays
+on, and every cell after it is wrong.
+
 Inverse and conceal are said rather than worked out: the colours written are the
 ones in the face, and the terminal does the swapping, so what is read back is
 what was there."
   (write-char #\Escape s)
   (write-char #\[ s)
-  (if (null face)
-      (write-char #\0 s)
-      (let ((any nil))
-        (flet ((sep () (if any (write-char #\; s) (setf any t))))
-          (when (face-bold face) (sep) (write-char #\1 s))
-          (when (face-faint face) (sep) (write-char #\2 s))
-          (when (face-italic face) (sep) (write-char #\3 s))
-          (let ((underline (face-underline face)))
-            (when underline
-              (sep)
-              (if (and (taken :underline-style takes)
-                       (not (eq underline :single)))
-                  (format s "4:~D" (case underline
+  (write-char #\0 s)
+  (when face
+    (flet ((sep () (write-char #\; s)))
+      (when (face-bold face) (sep) (write-char #\1 s))
+      (when (face-faint face) (sep) (write-char #\2 s))
+      (when (face-italic face) (sep) (write-char #\3 s))
+      (let ((underline (face-underline face)))
+        (when underline
+          (sep)
+          (if (and (taken :underline-style takes)
+                   (not (eq underline :single)))
+              (progn (write-string-chars "4:" s)
+                     (write-number (case underline
                                      (:double 2) (:curly 3)
-                                     (:dotted 4) (:dashed 5) (t 1)))
-                  (write-char #\4 s))))
-          (let ((blink (face-blink face)))
-            (when (and blink (taken :blink takes))
-              (sep)
-              (write-char (if (eq blink :fast) #\6 #\5) s)))
-          (when (face-inverse face) (sep) (write-char #\7 s))
-          (when (face-conceal face) (sep) (write-char #\8 s))
-          (when (face-crossed face) (sep) (write-char #\9 s))
-          (when (face-fg face) (sep) (write-color-code (face-fg face) 38 s takes))
-          (when (face-bg face) (sep) (write-color-code (face-bg face) 48 s takes))
-          (let ((under (face-underline-color face)))
-            (when (and under (taken :underline-color takes))
-              (sep)
-              (write-color-code under 58 s takes))))
-        (unless any (write-char #\0 s))))
+                                     (:dotted 4) (:dashed 5) (t 1))
+                                   s))
+              (write-char #\4 s))))
+      (let ((blink (face-blink face)))
+        (when (and blink (taken :blink takes))
+          (sep)
+          (write-char (if (eq blink :fast) #\6 #\5) s)))
+      (when (face-inverse face) (sep) (write-char #\7 s))
+      (when (face-conceal face) (sep) (write-char #\8 s))
+      (when (face-crossed face) (sep) (write-char #\9 s))
+      (when (face-fg face) (sep) (write-color-code (face-fg face) 38 s takes))
+      (when (face-bg face) (sep) (write-color-code (face-bg face) 48 s takes))
+      (let ((under (face-underline-color face)))
+        (when (and under (taken :underline-color takes))
+          (sep)
+          (write-color-code under 58 s takes)))))
   (write-char #\m s))
 
 (defun term-render-ansi-line (term y)
   (let* ((w (term-width term))
          (row (aref (term-grid term) y))
-         (prev-face nil))
+         (prev-face nil)
+         (x 0))
     (with-output-to-string (s)
-      (dotimes (x w)
+      (loop while (< x w) do
         (let* ((cell (aref row x))
                (ch (cell-char cell))
                (face (cell-face cell)))
           (unless (face-attrs-equal face prev-face)
             (write-sgr face s)
             (setf prev-face face))
-          (write-char (if (graphic-char-p ch) ch #\Space) s)))
+          (write-char (if (graphic-char-p ch) ch #\Space) s)
+          (incf x (if (and (= 2 (char-display-width ch)) (< (1+ x) w)) 2 1))))
       (write-sgr nil s))))

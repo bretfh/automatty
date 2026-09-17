@@ -3,7 +3,7 @@
 
 (defpackage #:vt/bench
   (:use #:cl)
-  (:local-nicknames (#:pty #:vt/pty))
+  (:local-nicknames (#:pty #:vt/pty) (#:mux #:vt/mux))
   (:export #:corpus-dir #:make-corpora #:corpora))
 (in-package #:vt/bench)
 

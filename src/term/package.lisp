@@ -12,6 +12,7 @@
    #:make-face-attrs
    #:copy-face-attrs
    #:face-attrs-equal
+   #:face-default-p
    #:face-fg
    #:face-bg
    #:face-bold
@@ -90,6 +91,7 @@
    #:term-render-line
    #:term-render-ansi-line
    #:write-sgr
+   #:write-number
    #:rgb-to-color-index
    #:term-dump-row-string
    #:term-dump-to-string

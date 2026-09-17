@@ -26,9 +26,21 @@ that means"
                 :components ((:file "package")
                              (:file "pty")))
 
+(asdf:defsystem #:vt/mux
+                :description "Many terminals inside one: a server that holds
+them, and a client that shows one"
+                :depends-on (#:vt #:vt/pty
+                             (:require #:sb-posix)
+                             (:require #:sb-bsd-sockets))
+                :serial t
+                :pathname "src/mux/"
+                :components ((:file "package")
+                             (:file "screen")
+                             (:file "encode")))
+
 (asdf:defsystem #:vt/all
                 :description "Every system cl-vt ships"
-                :depends-on (#:vt #:vt/pty))
+                :depends-on (#:vt #:vt/pty #:vt/mux))
 
 (asdf:defsystem #:vt/test
                 :depends-on (#:vt/all #:fiveam)
@@ -41,6 +53,8 @@ that means"
                              (:file "parser")
                              (:file "render")
                              (:file "input")
-                             (:file "pty"))
+                             (:file "pty")
+                             (:file "screen")
+                             (:file "encode"))
                 :perform (asdf:test-op (o c)
                            (uiop:symbol-call :vt/test :run-them)))

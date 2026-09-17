@@ -44,10 +44,23 @@ numbers, and the first two are what nearly every comparison is between."
            (eql (second a) (second b))
            (eql (third a) (third b)))))
 
+(defun face-default-p (f)
+  "Whether F is the face a cell nothing has written to already has. A cleared
+cell holds nil and a cell written under a fresh SGR 0 holds a face of all
+defaults; they draw the same, so nothing that compares faces may call them
+different."
+  (or (null f)
+      (and (null (face-fg f)) (null (face-bg f))
+           (not (face-bold f)) (not (face-faint f)) (not (face-italic f))
+           (null (face-underline f)) (null (face-underline-color f))
+           (null (face-blink f))
+           (not (face-inverse f)) (not (face-conceal f))
+           (not (face-crossed f)))))
+
 (defun face-attrs-equal (a b)
   (cond
     ((and (null a) (null b)) t)
-    ((or (null a) (null b)) nil)
+    ((or (null a) (null b)) (and (face-default-p a) (face-default-p b)))
     (t (and (color-equal (face-fg a) (face-fg b))
             (color-equal (face-bg a) (face-bg b))
             (eq (face-bold a) (face-bold b))

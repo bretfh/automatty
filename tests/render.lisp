@@ -8,7 +8,8 @@
     (say term (csi "31m") "ab" (csi "0m") "cd")
     (multiple-value-bind (chars changes) (vt:term-render-line term 0)
       (is (equal "abcd    " chars))
-      (is (equal '(0 2 4) (mapcar #'first changes)))
+      (is (equal '(0 2) (mapcar #'first changes))
+          "nothing turns where a reset face meets a cell never written to")
       (is (eql 1 (getf (second (first changes)) :fg))))))
 
 (test a-line-of-one-face-turns-once
@@ -51,8 +52,7 @@
     (is (equal (vt:term-dump-row-string term 0)
                (vt:term-dump-row-string again 0)))
     (dotimes (x 20)
-      (is (equal (vt:face-attrs-to-plist (face-at term x 0))
-                 (vt:face-attrs-to-plist (face-at again x 0)))
+      (is (vt:face-attrs-equal (face-at term x 0) (face-at again x 0))
           "column ~D came back differently" x))))
 
 (test a-true-colour-line-is-read-back-the-same
@@ -132,3 +132,23 @@ Answers the two faces at column 0, which a complete encoder makes equal."
     (is (eql 16 (vt:face-fg now)) "black is the bottom of it"))
   (is (eql 244 (vt:rgb-to-color-index 128 128 128)) "grey lands on the ramp")
   (is (eql 196 (vt:rgb-to-color-index 255 0 0)) "red lands on the cube"))
+
+(test a-face-that-drops-an-attribute-drops-it
+  (let ((term (a-term :width 4 :height 1))
+        (again (a-term :width 4 :height 1)))
+    (say term (csi "1;31m") "a" (csi "22m") "b")
+    (say again (vt:term-render-ansi-line term 0))
+    (is (vt:face-bold (face-at again 0 0)) "the first cell kept its bold")
+    (is (null (vt:face-bold (face-at again 1 0)))
+        "the second dropped it rather than catching it from the first")
+    (is (eql 1 (vt:face-fg (face-at again 1 0))))))
+
+(test a-wide-character-does-not-move-the-columns-after-it
+  (let ((term (a-term :width 8 :height 1))
+        (again (a-term :width 8 :height 1)))
+    (say term (format nil "a~Cb" (code-char #x6F22)))
+    (say again (vt:term-render-ansi-line term 0))
+    (is (equal (vt:term-dump-row-string term 0)
+               (vt:term-dump-row-string again 0))
+        "~S came back as ~S" (vt:term-dump-row-string term 0)
+        (vt:term-dump-row-string again 0))))
