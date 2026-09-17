@@ -74,7 +74,7 @@
             (multiple-value-bind (s c) (parser-round said)
               (push s seconds) (push c consed)))
           (say-rate "parser" bytes seconds (median consed)))
-        (when (pty:pty-library-p)
+        (progn
           (pty-round path)
           (let ((seconds nil) (read nil))
             (dotimes (i +rounds+)

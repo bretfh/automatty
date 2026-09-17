@@ -20,7 +20,7 @@ that means"
 
 (asdf:defsystem #:vt/pty
                 :description "A program on a pseudo-terminal of its own"
-                :depends-on (#:cffi #:uiop)
+                :depends-on ()
                 :serial t
                 :pathname "src/pty/"
                 :components ((:file "package")

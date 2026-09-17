@@ -3,8 +3,7 @@
 (defpackage #:vt/pty
   (:use #:cl)
   (:export
-   #:*helper*
-   #:pty-library-p
+   #:open-pty
    #:spawn-pty-process
    #:pty-set-size
    #:pty-wait

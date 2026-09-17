@@ -2,56 +2,179 @@
 
 (in-package #:vt/pty)
 
-(defvar *helper* nil)
+;;; What a system calls a thing. These are the only per-system numbers here, and
+;;; every one of them is frozen ABI -- TIOCSWINSZ has not moved since the 1980s.
+;;; A system nobody has checked stops at load with the name of what it is
+;;; missing, rather than running and silently handing back a pipe that looks
+;;; like a terminal.
 
-(cffi:define-foreign-library libvt-pty
-  (t (:default "libvt-pty")))
+(defconstant +o-rdwr+ 2)
 
-(defvar *pty-loaded* nil)
+(defconstant +o-noctty+
+  #+linux #o400
+  #+darwin #x20000
+  #+(or freebsd openbsd netbsd) #x8000
+  #-(or linux darwin freebsd openbsd netbsd)
+  (error "vt/pty has no O_NOCTTY for this system."))
 
-(defun lib-dirs ()
-  (remove nil
-          (list (uiop:getenv "VT_LIB")
-                (uiop:getenv "GUIX_ENVIRONMENT")
-                (ignore-errors
-                 (namestring (asdf:system-source-directory :vt/pty))))))
+(defconstant +posix-spawn-setsid+
+  #+linux #x80
+  #+darwin #x400
+  #-(or linux darwin)
+  (error "vt/pty has no checked POSIX_SPAWN_SETSID for this system. It is in
+spawn.h; the pty suite says whether the one you put here is right, because it
+asserts the child comes up with a controlling terminal."))
 
-(defun attend ()
-  (dolist (root (lib-dirs))
-    (let ((dir (pathname (format nil "~a/lib/" (string-right-trim "/" root)))))
-      (pushnew dir cffi:*foreign-library-directories* :test #'equal))))
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defun bsd-ioctl-write (group number length)
+    "What a BSD calls an ioctl that writes LENGTH bytes. The number is a bit
+layout rather than a list, so the whole family follows from the one rule."
+    (logior #x80000000
+            (ash (logand length #x1fff) 16)
+            (ash (char-code group) 8)
+            number)))
 
-(defun helper-path ()
-  (or *helper*
-      (loop :for root :in (lib-dirs)
-            :for path := (format nil "~a/lib/vt-pty-helper"
-                                 (string-right-trim "/" root))
-            :when (probe-file path) :return path)))
+(defconstant +tiocswinsz+
+  #+linux #x5414
+  #+(or darwin freebsd openbsd netbsd) (bsd-ioctl-write #\t 103 8)
+  #-(or linux darwin freebsd openbsd netbsd)
+  (error "vt/pty has no TIOCSWINSZ for this system."))
 
-(defun pty-library-p ()
-  (unless *pty-loaded*
-    (attend)
-    (handler-case
-        (progn (cffi:load-foreign-library 'libvt-pty)
-               (setf *pty-loaded* t))
-      (error () nil)))
-  *pty-loaded*)
+;;; libc. Nothing here is compiled; it is all already on the machine.
 
-(cffi:defcfun ("vt_pty_spawn" %pty-spawn) :int
-  (command :string) (helper :string) (rows :int) (cols :int) (pid :pointer))
+(sb-alien:define-alien-routine ("posix_openpt" %openpt) sb-alien:int
+  (flags sb-alien:int))
 
-(cffi:defcfun ("vt_pty_set_size" pty-set-size) :void
-  (fd :int) (rows :int) (cols :int))
+(sb-alien:define-alien-routine ("grantpt" %grantpt) sb-alien:int
+  (fd sb-alien:int))
 
-(defun spawn-pty-process (command &key (rows 24) (cols 80))
-  "Run COMMAND under /bin/sh in a new pty. Returns (values master-fd pid)."
-  (unless (pty-library-p)
-    (error "libvt-pty is not loaded: build it with make libs"))
-  (cffi:with-foreign-object (pid :int)
-    (let ((master (%pty-spawn command (or (helper-path) "") rows cols pid)))
-      (values master (cffi:mem-ref pid :int)))))
+(sb-alien:define-alien-routine ("unlockpt" %unlockpt) sb-alien:int
+  (fd sb-alien:int))
 
-(defparameter +pollin+ 1)
+(sb-alien:define-alien-routine ("ptsname" %ptsname) sb-alien:c-string
+  (fd sb-alien:int))
+
+(sb-alien:define-alien-routine ("posix_spawn_file_actions_init" %actions-init)
+    sb-alien:int (actions sb-alien:system-area-pointer))
+
+(sb-alien:define-alien-routine ("posix_spawn_file_actions_destroy" %actions-destroy)
+    sb-alien:int (actions sb-alien:system-area-pointer))
+
+(sb-alien:define-alien-routine ("posix_spawn_file_actions_addopen" %actions-addopen)
+    sb-alien:int
+  (actions sb-alien:system-area-pointer) (fd sb-alien:int)
+  (path sb-alien:c-string) (flags sb-alien:int) (mode sb-alien:int))
+
+(sb-alien:define-alien-routine ("posix_spawn_file_actions_adddup2" %actions-adddup2)
+    sb-alien:int
+  (actions sb-alien:system-area-pointer) (fd sb-alien:int) (to sb-alien:int))
+
+(sb-alien:define-alien-routine ("posix_spawnattr_init" %attr-init) sb-alien:int
+  (attr sb-alien:system-area-pointer))
+
+(sb-alien:define-alien-routine ("posix_spawnattr_destroy" %attr-destroy) sb-alien:int
+  (attr sb-alien:system-area-pointer))
+
+(sb-alien:define-alien-routine ("posix_spawnattr_setflags" %attr-setflags) sb-alien:int
+  (attr sb-alien:system-area-pointer) (flags sb-alien:short))
+
+(sb-alien:define-alien-routine ("posix_spawn" %spawn) sb-alien:int
+  (pid sb-alien:system-area-pointer) (path sb-alien:c-string)
+  (actions sb-alien:system-area-pointer) (attr sb-alien:system-area-pointer)
+  (argv sb-alien:system-area-pointer) (envp sb-alien:system-area-pointer))
+
+(sb-alien:define-alien-routine ("kill" %kill) sb-alien:int
+  (pid sb-alien:int) (signal sb-alien:int))
+
+(sb-alien:define-alien-routine ("waitpid" %waitpid) sb-alien:int
+  (pid sb-alien:int) (status sb-alien:system-area-pointer) (flags sb-alien:int))
+
+;;; posix_spawn_file_actions_t and posix_spawnattr_t are opaque, and every
+;;; system makes them a different size. Nothing here needs to know which: the
+;;; init call fills whatever it owns inside room that is more than enough.
+(defconstant +opaque+ 1024)
+
+(defun c-strings (strings)
+  (let* ((n (length strings))
+         (array (sb-alien:make-alien (* sb-alien:char) (1+ n))))
+    (loop :for string :in strings
+          :for i :from 0
+          :do (setf (sb-alien:deref array i) (sb-alien:make-alien-string string)))
+    (setf (sb-alien:deref array n)
+          (sb-alien:sap-alien (sb-sys:int-sap 0) (* sb-alien:char)))
+    array))
+
+(defun free-c-strings (array n)
+  (dotimes (i n)
+    (sb-alien:free-alien (sb-alien:deref array i)))
+  (sb-alien:free-alien array))
+
+(defvar *ptsname-lock* (sb-thread:make-mutex :name "ptsname")
+  "ptsname answers out of one buffer it keeps, so only one caller may be in it.")
+
+(defun open-pty ()
+  "A pseudo-terminal. Answers (values master-fd slave-path)."
+  (let ((master (%openpt (logior +o-rdwr+ +o-noctty+))))
+    (when (minusp master)
+      (error "no pseudo-terminal to be had"))
+    (%grantpt master)
+    (%unlockpt master)
+    (values master
+            (sb-thread:with-mutex (*ptsname-lock*)
+              (%ptsname master)))))
+
+(defun spawn-pty-process (command &key (rows 24) (cols 80) (shell "/bin/sh"))
+  "Run COMMAND under a shell on a pseudo-terminal of its own. Answers
+ (values master-fd pid).
+
+The child is made a session leader by the spawn itself, and then opens the
+slave by name rather than inheriting it already open: opening a terminal is how
+a session leader with none takes one as its controlling terminal. That is what
+makes ^C a signal and a resize a SIGWINCH, and it is why no code has to run in
+the child between the fork and the exec -- which is the only thing posix_spawn
+cannot do, and the reason this used to want a helper program written in C."
+  (multiple-value-bind (master slave) (open-pty)
+    (sb-alien:with-alien ((actions (sb-alien:array sb-alien:char #.+opaque+))
+                          (attr (sb-alien:array sb-alien:char #.+opaque+))
+                          (pid sb-alien:int))
+      (let ((actions-sap (sb-alien:alien-sap actions))
+            (attr-sap (sb-alien:alien-sap attr))
+            (arguments (list (file-namestring shell) "-c" command))
+            (environment (list* "TERM=xterm-256color" "COLORTERM=truecolor"
+                                (sb-ext:posix-environ))))
+        (%actions-init actions-sap)
+        (%attr-init attr-sap)
+        (unwind-protect
+             (let ((argv (c-strings arguments))
+                   (envp (c-strings environment)))
+               (unwind-protect
+                    (progn
+                      (%actions-addopen actions-sap 0 slave +o-rdwr+ 0)
+                      (%actions-adddup2 actions-sap 0 1)
+                      (%actions-adddup2 actions-sap 0 2)
+                      (%attr-setflags attr-sap +posix-spawn-setsid+)
+                      (let ((rc (%spawn (sb-alien:alien-sap (sb-alien:addr pid))
+                                        shell actions-sap attr-sap
+                                        (sb-alien:alien-sap argv)
+                                        (sb-alien:alien-sap envp))))
+                        (unless (zerop rc)
+                          (sb-unix:unix-close master)
+                          (error "could not start ~S: posix_spawn said ~D"
+                                 command rc))
+                        (pty-set-size master rows cols)
+                        (values master pid)))
+                 (free-c-strings argv (length arguments))
+                 (free-c-strings envp (length environment))))
+          (%actions-destroy actions-sap)
+          (%attr-destroy attr-sap))))))
+
+(defun pty-set-size (fd rows cols)
+  (sb-alien:with-alien ((size (sb-alien:array sb-alien:unsigned-short 4)))
+    (setf (sb-alien:deref size 0) rows
+          (sb-alien:deref size 1) cols
+          (sb-alien:deref size 2) 0
+          (sb-alien:deref size 3) 0)
+    (sb-unix:unix-ioctl fd +tiocswinsz+ (sb-alien:alien-sap size))))
 
 (defun pty-wait (fd milliseconds)
   "Whether FD has something to read within MILLISECONDS.
@@ -60,35 +183,35 @@ A blocking read cannot be interrupted: closing the descriptor under it does not
 wake it, and killing the thread inside a foreign call wedges the image at the
 next GC. So a reader waits with a timeout and looks at its own flag between
 waits."
-  (cffi:with-foreign-object (pfd :char 8)   ; struct pollfd
-    (setf (cffi:mem-ref pfd :int 0) fd
-          (cffi:mem-ref pfd :short 4) +pollin+
-          (cffi:mem-ref pfd :short 6) 0)
-    (plusp (cffi:foreign-funcall "poll" :pointer pfd :unsigned-long 1
-                                        :int milliseconds :int))))
+  (and (sb-unix:unix-simple-poll fd :input milliseconds) t))
 
 (defun pty-read-string (fd size)
-  "Read up to SIZE bytes from FD as a string, or nil at EOF/error."
-  (cffi:with-foreign-object (buf :unsigned-char size)
-    (let ((n (cffi:foreign-funcall "read" :int fd :pointer buf :long size :long)))
-      (when (plusp n)
-        (cffi:foreign-string-to-lisp buf :count n :encoding :latin-1)))))
+  "Read up to SIZE bytes from FD as a string, or nil at EOF. A byte is a
+character, so a character split across two reads is not made nonsense of; what
+the bytes mean is for whoever knows the encoding."
+  (let ((octets (make-array size :element-type '(unsigned-byte 8))))
+    (sb-sys:with-pinned-objects (octets)
+      (let ((n (sb-unix:unix-read fd (sb-sys:vector-sap octets) size)))
+        (when (and n (plusp n))
+          (let ((said (make-string n)))
+            (dotimes (i n said)
+              (setf (schar said i) (code-char (aref octets i))))))))))
 
 (defun pty-write-string (fd string)
-  (cffi:with-foreign-string ((s len) string :encoding :utf-8)
-    (cffi:foreign-funcall "write" :int fd :pointer s :long len :long)))
+  (let ((octets (sb-ext:string-to-octets string :external-format :utf-8)))
+    (sb-sys:with-pinned-objects (octets)
+      (sb-unix:unix-write fd (sb-sys:vector-sap octets) 0 (length octets)))))
 
 (defun pty-close (fd)
-  (cffi:foreign-funcall "close" :int fd :int))
+  (sb-unix:unix-close fd))
 
 (defun pty-kill (pid &optional (signal 15))
-  (cffi:foreign-funcall "kill" :int pid :int signal :int))
+  (%kill pid signal))
 
 (defun pty-reap (pid)
   "Signal PID and wait for it, so it is not left a zombie. Answers its status."
   (when (and pid (plusp pid))
     (pty-kill pid)
-    (cffi:with-foreign-object (status :int)
-      (let ((got (cffi:foreign-funcall "waitpid" :int pid :pointer status
-                                                 :int 0 :int)))
-        (when (plusp got) (cffi:mem-ref status :int))))))
+    (sb-alien:with-alien ((status sb-alien:int))
+      (let ((got (%waitpid pid (sb-alien:alien-sap (sb-alien:addr status)) 0)))
+        (when (plusp got) status)))))

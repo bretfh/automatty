@@ -6,92 +6,109 @@
 (defmacro with-pty ((fd pid command &rest args) &body body)
   `(multiple-value-bind (,fd ,pid) (pty:spawn-pty-process ,command ,@args)
      (unwind-protect (progn ,@body)
-       (pty:pty-close ,fd)
-       (pty:pty-reap ,pid))))
+       (ignore-errors (pty:pty-close ,fd))
+       (ignore-errors (pty:pty-reap ,pid)))))
 
-(defun drain (term fd &key (seconds 5))
+(defun soak (term fd &key (seconds 5))
+  "Read until the program has nothing more to say, or until SECONDS is up. Not
+until the first quiet moment: a program that is asleep has not finished."
   (let ((deadline (+ (get-internal-real-time)
                      (* seconds internal-time-units-per-second))))
     (loop :while (< (get-internal-real-time) deadline)
-          :do (if (pty:pty-wait fd 50)
-                  (let ((said (pty:pty-read-string fd 4096)))
-                    (if said
-                        (vt:term-process-output term said)
-                        (return)))
-                  (return)))
+          :do (when (pty:pty-wait fd 100)
+                (let ((said (pty:pty-read-string fd 8192)))
+                  (if said
+                      (vt:term-process-output term said)
+                      (return)))))
     term))
 
-(defun until (test &key (seconds 5))
+(defun until-said (term fd wanted &key (seconds 5))
   (let ((deadline (+ (get-internal-real-time)
                      (* seconds internal-time-units-per-second))))
-    (loop :until (funcall test)
+    (loop :until (search wanted (vt:term-dump-to-string term))
           :do (when (> (get-internal-real-time) deadline) (return nil))
+             (when (pty:pty-wait fd 100)
+               (let ((said (pty:pty-read-string fd 8192)))
+                 (if said
+                     (vt:term-process-output term said)
+                     (return (search wanted (vt:term-dump-to-string term))))))
           :finally (return t))))
 
+(defun screen (term) (vt:term-dump-to-string term))
+
 (test a-program-on-a-pty-says-what-it-printed
-  (if (not (pty:pty-library-p))
-      (skip "libvt-pty is not built: make libs")
-      (let ((term (a-term :width 40 :height 10)))
-        (with-pty (fd pid "printf 'from-the-pty\\n'" :rows 10 :cols 40)
-          (is (plusp fd))
-          (is (plusp pid))
-          (until (lambda ()
-                   (drain term fd :seconds 1)
-                   (search "from-the-pty" (vt:term-dump-to-string term))))
-          (is (search "from-the-pty" (vt:term-dump-to-string term)))))))
+  (let ((term (a-term :width 40 :height 10)))
+    (with-pty (fd pid "printf 'from-the-pty\\n'" :rows 10 :cols 40)
+      (is (plusp fd))
+      (is (plusp pid))
+      (is-true (until-said term fd "from-the-pty")))))
 
 (test what-a-program-coloured-is-a-face-on-the-grid
-  (if (not (pty:pty-library-p))
-      (skip "libvt-pty is not built: make libs")
-      (let ((term (a-term :width 40 :height 10)))
-        (with-pty (fd pid "printf '\\033[31mred\\033[0m\\n'" :rows 10 :cols 40)
-          (until (lambda ()
-                   (drain term fd :seconds 1)
-                   (search "red" (vt:term-dump-to-string term))))
-          (let ((x (search "red" (vt:term-dump-row-string term 0))))
-            (is-true x)
-            (when x
-              (is (eql 1 (vt:face-fg (face-at term x 0))))))))))
+  (let ((term (a-term :width 40 :height 10)))
+    (with-pty (fd pid "printf '\\033[31mred\\033[0m\\n'" :rows 10 :cols 40)
+      (until-said term fd "red")
+      (let ((x (search "red" (vt:term-dump-row-string term 0))))
+        (is-true x)
+        (when x
+          (is (eql 1 (vt:face-fg (face-at term x 0)))))))))
 
 (test a-program-is-told-how-big-its-terminal-is
-  (if (not (pty:pty-library-p))
-      (skip "libvt-pty is not built: make libs")
-      (let ((term (a-term :width 77 :height 11)))
-        (with-pty (fd pid "stty size" :rows 11 :cols 77)
-          (until (lambda ()
-                   (drain term fd :seconds 1)
-                   (search "11 77" (vt:term-dump-to-string term))))
-          (is (search "11 77" (vt:term-dump-to-string term)))))))
+  (let ((term (a-term :width 77 :height 11)))
+    (with-pty (fd pid "stty size" :rows 11 :cols 77)
+      (is-true (until-said term fd "11 77")))))
 
 (test what-is-written-to-a-pty-the-program-reads
-  (if (not (pty:pty-library-p))
-      (skip "libvt-pty is not built: make libs")
-      (let ((term (a-term :width 40 :height 10)))
-        (with-pty (fd pid "read line; printf 'heard %s\\n' \"$line\"")
-          (pty:pty-write-string fd (format nil "spoken~C" #\Newline))
-          (until (lambda ()
-                   (drain term fd :seconds 1)
-                   (search "heard spoken" (vt:term-dump-to-string term))))
-          (is (search "heard spoken" (vt:term-dump-to-string term)))))))
-
-(test a-resized-pty-tells-the-program-its-new-size
-  (if (not (pty:pty-library-p))
-      (skip "libvt-pty is not built: make libs")
-      (let ((term (a-term :width 40 :height 10)))
-        (with-pty (fd pid "read x; stty size")
-          (pty:pty-set-size fd 30 90)
-          (vt:term-resize term 90 30)
-          (pty:pty-write-string fd (format nil "go~C" #\Newline))
-          (until (lambda ()
-                   (drain term fd :seconds 1)
-                   (search "30 90" (vt:term-dump-to-string term))))
-          (is (search "30 90" (vt:term-dump-to-string term)))))))
+  (let ((term (a-term :width 40 :height 10)))
+    (with-pty (fd pid "read line; printf 'heard %s\\n' \"$line\"")
+      (pty:pty-write-string fd (format nil "spoken~C" #\Newline))
+      (is-true (until-said term fd "heard spoken")))))
 
 (test a-pty-that-is-done-with-is-reaped
-  (if (not (pty:pty-library-p))
-      (skip "libvt-pty is not built: make libs")
-      (multiple-value-bind (fd pid) (pty:spawn-pty-process "sleep 30")
-        (is (plusp pid))
-        (pty:pty-close fd)
-        (is (integerp (pty:pty-reap pid)))
-        (is (null (pty:pty-reap pid))))))
+  (multiple-value-bind (fd pid) (pty:spawn-pty-process "sleep 30")
+    (is (plusp pid))
+    (pty:pty-close fd)
+    (is (integerp (pty:pty-reap pid)))
+    (is (null (pty:pty-reap pid)))))
+
+;;; What separates a terminal from a pipe that answers isatty. Each of these is
+;;; also what says whether this system's numbers up in pty.lisp are the right
+;;; ones: get POSIX_SPAWN_SETSID wrong and every one of them fails at once.
+
+(test the-child-is-a-session-of-its-own-on-this-terminal
+  (let ((term (a-term :width 80 :height 10)))
+    (with-pty (fd pid "ps -o pid,sid,tty= -p $$" :rows 10 :cols 80)
+      (soak term fd :seconds 3)
+      (let ((said (screen term)))
+        (is (search "pts" said) "the child is on a pty: ~S" said)
+        (let* ((line (string-trim " " (vt:term-dump-row-string term 1)))
+               (numbers (with-input-from-string (s line)
+                          (list (read s nil) (read s nil)))))
+          (is (eql (first numbers) (second numbers))
+              "pid and session id are the same, so it leads its own session: ~S"
+              line))))))
+
+(test the-child-can-open-its-controlling-terminal
+  (let ((term (a-term :width 40 :height 10)))
+    (with-pty (fd pid "echo opened > /dev/tty 2>/dev/null || echo no-dev-tty")
+      (soak term fd :seconds 3)
+      (is (search "opened" (screen term)))
+      (is (not (search "no-dev-tty" (screen term)))))))
+
+(test a-resize-reaches-the-program-as-a-signal
+  (let ((term (a-term :width 80 :height 24)))
+    (with-pty (fd pid "trap 'echo GOT-WINCH; stty size' WINCH; sleep 1; echo done"
+                   :rows 24 :cols 80)
+      (sleep 0.3)
+      (pty:pty-set-size fd 40 100)
+      (vt:term-resize term 100 40)
+      (soak term fd :seconds 4)
+      (is (search "GOT-WINCH" (screen term)))
+      (is (search "40 100" (screen term))))))
+
+(test an-interrupt-character-becomes-a-signal
+  (let ((term (a-term :width 80 :height 24)))
+    (with-pty (fd pid "trap 'echo GOT-SIGINT' INT; sleep 1; echo done")
+      (sleep 0.3)
+      (pty:pty-write-string fd (string (code-char 3)))
+      (soak term fd :seconds 4)
+      (is (search "GOT-SIGINT" (screen term))))))

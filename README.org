@@ -76,10 +76,9 @@ is in, because the program said.
 
 * A program to read
 
-=vt/pty= is the other half: a program on a pseudo-terminal of its own, spawned
-through a small C shim. posix_spawn, not forkpty -- fork in a threaded image runs
-the runtime's atfork handlers in the child, and those take locks another thread
-was holding, so the child never execs and never dies.
+=vt/pty= is the other half: a program on a pseudo-terminal of its own, with a
+session and a controlling terminal, so that ^C is a signal and a resize is a
+SIGWINCH rather than a byte nobody reads.
 
 #+begin_src lisp
   (multiple-value-bind (fd pid) (pty:spawn-pty-process "htop" :rows 24 :cols 80)
@@ -91,13 +90,54 @@ was holding, so the child never execs and never dies.
     (pty:pty-reap pid))
 #+end_src
 
+There is no C here and nothing to compile. The pty is =posix_openpt=, the spawn
+is =posix_spawn=, and both are in libc, which is already under every sbcl there
+is; =sb-alien= calls them and =sb-unix= does the reading, writing, polling and
+ioctl.
+
+fork is not an option and not merely a risk: =sb-posix:fork= refuses outright in
+an image with threads, and any real application has threads. posix_spawn is the
+only door -- but posix_spawn has no hook to run code in the child, which is the
+one thing a controlling terminal traditionally needs, and is why this used to
+ship a helper program written in C. It does not need one. =POSIX_SPAWN_SETSID=
+makes the child a session leader with no terminal, and then the child *opens the
+slave by name* instead of inheriting it already open, because opening a terminal
+is how a session leader with none takes one. That is the whole difference between
+=addopen= and =adddup2=, and it is what removed the C.
+
 =pty-wait= is why there is a poll and not a blocking read: a blocking read cannot
 be interrupted. Closing the descriptor under it does not wake it, and killing the
 thread inside a foreign call wedges the image at the next GC. So a reader waits
 with a timeout and looks at its own flag between waits.
 
-The two systems are separate: =vt= alone has no dependencies and no C, and is
-what you load if the bytes come from somewhere else -- a socket, a file, a log.
+The two systems are separate. =vt= is portable Common Lisp with no dependencies
+at all, and is what you load if the bytes come from somewhere else -- a socket, a
+file, a log. =vt/pty= is the sbcl-shaped half.
+
+** What a system calls a thing
+
+Four numbers differ between systems, and they are all at the top of
+=src/pty/pty.lisp=: =O_RDWR=, =O_NOCTTY=, =POSIX_SPAWN_SETSID= and =TIOCSWINSZ=.
+Every one of them is frozen ABI -- TIOCSWINSZ has not moved since the 1980s -- so
+the table is written once and does not rot. The BSD ioctl numbers are not
+tabulated but derived, because a BSD ioctl number is a documented bit layout
+rather than a list, so one rule covers macos and every BSD. A system nobody has
+checked stops at load saying which number it wants, rather than running and
+handing back a pipe that answers isatty.
+
+Nothing here defines a struct that differs between systems. =struct winsize= is
+four unsigned shorts everywhere, which is why it is safe to write down;
+=posix_spawn_file_actions_t= and =posix_spawnattr_t= are opaque, so they get
+more room than any system needs and their own init call fills them. =termios= is
+the one that really differs, and nothing here touches it: a master does not need
+it and a shell sets what it wants on the slave.
+
+Which is to say the answer to "is it right on this system" is not a header, it
+is the pty suite. Four of its tests assert what a terminal is and a pipe is not:
+that the child leads its own session on this pty, that it can open =/dev/tty=,
+that a resize arrives as a signal and =stty size= agrees, and that an interrupt
+character becomes SIGINT. Get =POSIX_SPAWN_SETSID= wrong for a system and all
+four fail at once, loudly, in two seconds.
 
 * What it knows
 
@@ -119,16 +159,22 @@ DCS is parsed far enough to be skipped.
 
 * Building it
 
-Two ways, and every target works under either. Guix is what it develops against
-and what plain =make= uses; =FOREIGN=1= is for a machine without it, where the
-lisp systems come from wherever asdf already finds them.
+Nothing is built. There is no C, so there is no compile step, no shared library
+and no helper program -- =(asdf:load-system :vt/all)= is the whole of it.
+
+Two ways to get an sbcl and the test systems, and every target works under
+either. Guix is what it develops against and what plain =make= uses; =FOREIGN=1=
+is for a machine without it, where the lisp systems come from wherever asdf
+already finds them.
 
 #+begin_src sh
-  make libs              # the pty shim, built once into lib/
   make test              # the fiveam suite
   make check             # load everything and say so
   make repl
   make run CMD='top -b -n 1'    # a command on a pty, and the screen it drew
+  make bench             # bytes a second
+  make latency           # what one read costs, and what a terminal weighs
+  make compare           # the same corpora through tmux and alacritty
   make FOREIGN=1 test
 #+end_src
 
