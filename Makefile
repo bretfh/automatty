@@ -1,4 +1,4 @@
-.PHONY: libs repl check test run eval clean
+.PHONY: libs repl check test run bench compare eval clean
 
 # Two ways to get what cl-vt needs, and every target works under either. Guix is
 # what it develops against and what plain `make' uses. FOREIGN=1 is for a mac or
@@ -31,6 +31,10 @@ LIBDIR := lib
 # what make run puts on the pty, quoted so a shell does not read it first
 CMD ?= ls --color=always -la /
 CMD_Q = '$(subst ','\'',$(CMD))'
+
+# where make bench and make compare put the corpora they read
+BENCH_DIR ?= /tmp/cl-vt-bench
+ROUNDS ?= 5
 
 
 CC := $(shell command -v cc 2>/dev/null || command -v gcc 2>/dev/null)
@@ -71,6 +75,16 @@ test: libs
 #   make run CMD='top -b -n 1'
 run: libs
 	CMD=$(CMD_Q) $(IN) '$(ENV) $(SBCL) --non-interactive --load examples/screen.lisp'
+
+# how many bytes a second it reads, over plain, coloured and redrawing output,
+# through the parser and through a real pty. BENCH_DIR is where the corpora go.
+bench: libs
+	$(IN) '$(ENV) BENCH_DIR="$(BENCH_DIR)" $(SBCL) --non-interactive --load bench/throughput.lisp'
+
+# the same corpora through tmux and through alacritty, under cl-vt's own
+# numbers, so the three are read off one screen
+compare: bench
+	$(IN) 'BENCH_DIR="$(BENCH_DIR)" ROUNDS="$(ROUNDS)" sh bench/compare.sh'
 
 # evaluate one form in an image with the test system loaded, in VT/TEST, with
 # the debugger left on so a fault prints its backtrace: make eval FORM='(...)'
