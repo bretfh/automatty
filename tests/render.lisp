@@ -73,3 +73,62 @@
   (is (= 2 (vt:char-display-width #\漢)))
   (is (= 0 (vt:char-display-width (code-char #x301))))
   (is (= 0 (vt:char-display-width #\Nul))))
+
+(defun round-trips (said &key (takes t))
+  "Say SAID to a terminal, write that line back out, and read it into another.
+Answers the two faces at column 0, which a complete encoder makes equal."
+  (let ((term (a-term :width 8 :height 1))
+        (again (a-term :width 8 :height 1)))
+    (say term said "x")
+    (say again (with-output-to-string (s)
+                 (vt:write-sgr (face-at term 0 0) s takes)
+                 (write-char #\x s)))
+    (values (face-at term 0 0) (face-at again 0 0))))
+
+(test inverse-is-said-not-worked-out
+  (multiple-value-bind (was now) (round-trips (csi "31;44;7m"))
+    (is (eql 1 (vt:face-fg now)) "the fg that was written is the fg read back")
+    (is (eql 4 (vt:face-bg now)))
+    (is (vt:face-inverse now))
+    (is (vt:face-attrs-equal was now))))
+
+(test a-concealed-face-comes-back-concealed
+  (multiple-value-bind (was now) (round-trips (csi "31;44;8m"))
+    (is (vt:face-conceal now))
+    (is (eql 1 (vt:face-fg now)))
+    (is (vt:face-attrs-equal was now))))
+
+(test the-underline-style-survives-the-round-trip
+  (dolist (style '((2 . :double) (3 . :curly) (4 . :dotted) (5 . :dashed)))
+    (multiple-value-bind (was now) (round-trips (csi "4:~Dm" (car style)))
+      (is (eql (cdr style) (vt:face-underline now))
+          "4:~D came back as ~S" (car style) (vt:face-underline now))
+      (is (vt:face-attrs-equal was now)))))
+
+(test blink-and-the-underline-colour-survive-the-round-trip
+  (multiple-value-bind (was now) (round-trips (csi "5;4;58;5;9m"))
+    (is (eql :slow (vt:face-blink now)))
+    (is (eql 9 (vt:face-underline-color now)))
+    (is (vt:face-attrs-equal was now)))
+  (multiple-value-bind (was now) (round-trips (csi "6m"))
+    (is (eql :fast (vt:face-blink now)))
+    (is (vt:face-attrs-equal was now))))
+
+(test a-terminal-that-takes-less-is-told-less
+  (multiple-value-bind (was now) (round-trips (csi "5;4:3;58;5;9m")
+                                              :takes '(:rgb))
+    (declare (ignore was))
+    (is (null (vt:face-blink now)) "blink was left out")
+    (is (eql :single (vt:face-underline now)) "the style flattened to one line")
+    (is (null (vt:face-underline-color now)) "the underline colour was left out")))
+
+(test an-rgb-colour-becomes-the-nearest-of-the-256
+  (multiple-value-bind (was now) (round-trips (csi "38;2;255;255;255m")
+                                              :takes '(:blink))
+    (declare (ignore was))
+    (is (eql 231 (vt:face-fg now)) "white is the top of the cube"))
+  (multiple-value-bind (was now) (round-trips (csi "38;2;0;0;0m") :takes nil)
+    (declare (ignore was))
+    (is (eql 16 (vt:face-fg now)) "black is the bottom of it"))
+  (is (eql 244 (vt:rgb-to-color-index 128 128 128)) "grey lands on the ramp")
+  (is (eql 196 (vt:rgb-to-color-index 255 0 0)) "red lands on the cube"))

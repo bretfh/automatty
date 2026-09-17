@@ -89,6 +89,8 @@
 
    #:term-render-line
    #:term-render-ansi-line
+   #:write-sgr
+   #:rgb-to-color-index
    #:term-dump-row-string
    #:term-dump-to-string
    #:face-attrs-to-plist

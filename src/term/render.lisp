@@ -77,21 +77,52 @@
         (dotimes (x w s)
           (setf (schar s x) (cell-char (aref row x))))))))
 
-(defun write-color-code (color base s)
-  (cond
-    ((and (integerp color) (<= 0 color 7))
-     (format s "~D" (+ (if (= base 38) 30 40) color)))
-    ((and (integerp color) (<= 8 color 15))
-     (format s "~D" (+ (if (= base 38) 90 100) (- color 8))))
-    ((and (integerp color) (<= 0 color 255))
-     (format s "~D;5;~D" base color))
-    ((and (listp color) (= (length color) 3))
-     (format s "~D;2;~D;~D;~D" base
-             (first color) (second color) (third color)))
-    (t (format s "~D" (+ base 9)))))
+(defun rgb-to-color-index (r g b)
+  "The palette index nearest R G B -- the 6x6x6 cube or the grey ramp, whichever
+is nearer -- for a terminal that does not take rgb."
+  (let ((levels #(0 95 135 175 215 255)))
+    (flet ((level (v) (cond ((< v 48) 0) ((< v 115) 1) (t (floor (- v 35) 40))))
+           (off (a b) (let ((d (- a b))) (* d d))))
+      (let* ((ri (level r)) (gi (level g)) (bi (level b))
+             (cr (aref levels ri)) (cg (aref levels gi)) (cb (aref levels bi))
+             (step (max 0 (min 23 (round (- (/ (+ r g b) 3) 8) 10))))
+             (grey (+ 8 (* 10 step))))
+        (if (<= (+ (off cr r) (off cg g) (off cb b))
+                (+ (off grey r) (off grey g) (off grey b)))
+            (+ 16 (* 36 ri) (* 6 gi) bi)
+            (+ 232 step))))))
 
-(defun write-sgr (face s)
-  "Write FACE's SGR escape sequence directly to stream S, no intermediates."
+(defun taken (what takes)
+  (or (eq takes t) (and (member what takes) t)))
+
+(defun write-color-code (color base s &optional (takes t))
+  (let ((short (case base (38 30) (48 40) (t nil))))
+    (cond
+      ((and short (integerp color) (<= 0 color 7))
+       (format s "~D" (+ short color)))
+      ((and short (integerp color) (<= 8 color 15))
+       (format s "~D" (+ (if (= base 38) 90 100) (- color 8))))
+      ((and (integerp color) (<= 0 color 255))
+       (format s "~D;5;~D" base color))
+      ((and (listp color) (= (length color) 3))
+       (if (taken :rgb takes)
+           (format s "~D;2;~D;~D;~D" base
+                   (first color) (second color) (third color))
+           (format s "~D;5;~D" base
+                   (rgb-to-color-index (first color) (second color)
+                                       (third color)))))
+      (t (format s "~D" (if (= base 58) 59 (+ base 9)))))))
+
+(defun write-sgr (face s &optional (takes t))
+  "Write FACE's SGR escape sequence directly to stream S, no intermediates.
+
+TAKES is what the terminal it is going to will accept: t for all of it, or a
+list of :rgb, :blink, :underline-style and :underline-color. What it will not
+take is left out, except an rgb colour, which becomes the nearest of the 256.
+
+Inverse and conceal are said rather than worked out: the colours written are the
+ones in the face, and the terminal does the swapping, so what is read back is
+what was there."
   (write-char #\Escape s)
   (write-char #\[ s)
   (if (null face)
@@ -101,15 +132,28 @@
           (when (face-bold face) (sep) (write-char #\1 s))
           (when (face-faint face) (sep) (write-char #\2 s))
           (when (face-italic face) (sep) (write-char #\3 s))
-          (when (face-underline face) (sep) (write-char #\4 s))
+          (let ((underline (face-underline face)))
+            (when underline
+              (sep)
+              (if (and (taken :underline-style takes)
+                       (not (eq underline :single)))
+                  (format s "4:~D" (case underline
+                                     (:double 2) (:curly 3)
+                                     (:dotted 4) (:dashed 5) (t 1)))
+                  (write-char #\4 s))))
+          (let ((blink (face-blink face)))
+            (when (and blink (taken :blink takes))
+              (sep)
+              (write-char (if (eq blink :fast) #\6 #\5) s)))
           (when (face-inverse face) (sep) (write-char #\7 s))
+          (when (face-conceal face) (sep) (write-char #\8 s))
           (when (face-crossed face) (sep) (write-char #\9 s))
-          (let ((fg (if (face-inverse face) (face-bg face) (face-fg face)))
-                (bg (if (face-inverse face) (face-fg face) (face-bg face))))
-            (when (face-conceal face)
-              (setf fg bg))
-            (when fg (sep) (write-color-code fg 38 s))
-            (when bg (sep) (write-color-code bg 48 s))))
+          (when (face-fg face) (sep) (write-color-code (face-fg face) 38 s takes))
+          (when (face-bg face) (sep) (write-color-code (face-bg face) 48 s takes))
+          (let ((under (face-underline-color face)))
+            (when (and under (taken :underline-color takes))
+              (sep)
+              (write-color-code under 58 s takes))))
         (unless any (write-char #\0 s))))
   (write-char #\m s))
 
