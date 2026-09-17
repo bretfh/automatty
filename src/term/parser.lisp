@@ -5,6 +5,12 @@
 (declaim (optimize (speed 3) (safety 1)))
 
 (defun term-process-output (term string)
+  (if (typep string '(simple-array character (*)))
+      (%term-process-output term string)
+      (%term-process-output term (coerce string '(simple-array character (*))))))
+
+(defun %term-process-output (term string)
+  (declare (type (simple-array character (*)) string))
   (let ((len (length string))
         (index 0))
     (loop while (< index len) do
@@ -19,7 +25,7 @@
                                          (char= ch #\Escape)))))
                    do (incf index))
              (when (> index span-start)
-               (term-write term string span-start index))
+               (%term-write term string span-start index))
              (when (< index len)
                (let ((ch (char string index)))
                  (incf index)

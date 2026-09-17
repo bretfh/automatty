@@ -16,6 +16,7 @@
              (list r g b)))))))
 
 (defun process-sgr (term params)
+  (setf (term-face-now term) nil)
   (let ((attrs (term-attrs term))
         (i 0)
         (len (length params)))

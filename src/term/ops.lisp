@@ -47,7 +47,8 @@
 
 (defun term-restore-cursor (term)
   (setf (term-cursor-x term) (term-saved-cursor-x term)
-        (term-cursor-y term) (term-saved-cursor-y term))
+        (term-cursor-y term) (term-saved-cursor-y term)
+        (term-face-now term) nil)
   (when (term-saved-attrs term)
     (let ((saved (term-saved-attrs term))
           (cur (term-attrs term)))
@@ -72,7 +73,7 @@
   (let* ((y (term-cursor-y term))
          (x (term-cursor-x term))
          (w (term-width term))
-         (row (aref (term-grid term) y))
+         (row (term-grid-row term y))
          (bg-face (term-current-bg-face term)))
     (case mode
       (0
@@ -97,10 +98,10 @@
       (0
        (term-erase-in-line term 0)
        (loop for row-idx from (1+ y) below h do
-         (clear-row (aref grid row-idx) bg-face)))
+         (clear-row (the simple-vector (aref grid row-idx)) bg-face)))
       (1
        (loop for row-idx from 0 below y do
-         (clear-row (aref grid row-idx) bg-face))
+         (clear-row (the simple-vector (aref grid row-idx)) bg-face))
        (term-erase-in-line term 1))
       ((2 3)
        (clear-grid grid bg-face)
@@ -114,7 +115,7 @@
   (let* ((y (term-cursor-y term))
          (x (term-cursor-x term))
          (w (term-width term))
-         (row (aref (term-grid term) y))
+         (row (term-grid-row term y))
          (count (min n (- w x)))
          (bg-face (term-current-bg-face term)))
     (loop for i from x below (+ x count) do
@@ -126,7 +127,7 @@
   (let* ((y (term-cursor-y term))
          (x (term-cursor-x term))
          (w (term-width term))
-         (row (aref (term-grid term) y))
+         (row (term-grid-row term y))
          (count (min n (- w x)))
          (bg-face (term-current-bg-face term)))
     (loop for i from (1- w) downto (+ x count) do
@@ -142,7 +143,7 @@
   (let* ((y (term-cursor-y term))
          (x (term-cursor-x term))
          (w (term-width term))
-         (row (aref (term-grid term) y))
+         (row (term-grid-row term y))
          (count (min n (- w x)))
          (bg-face (term-current-bg-face term)))
     (loop for i from x below (- w count) do
@@ -208,7 +209,7 @@ pointer moves with no consing."
         (loop for i from top to (- bot count) do
           (setf (aref grid i) (aref grid (+ i count))))
         (dotimes (i count)
-          (let* ((row (aref saved i))
+          (let* ((row (the simple-vector (aref saved i)))
                  (repl (and record (push-scrollback term row))))
             (unless repl
               (clear-row row)
@@ -229,7 +230,7 @@ pointer moves with no consing."
         (loop for i from bot downto (+ top count) do
           (setf (aref grid i) (aref grid (- i count))))
         (dotimes (i count)
-          (let ((row (aref saved i)))
+          (let ((row (the simple-vector (aref saved i))))
             (clear-row row)
             (setf (aref grid (+ top i)) row)))))))
 
@@ -341,6 +342,7 @@ pointer moves with no consing."
         (term-g2 term) :us-ascii
         (term-g3 term) :us-ascii)
   (reset-face-attrs (term-attrs term))
+  (setf (term-face-now term) nil)
   (clear-grid (term-grid term))
   (when (term-in-alt-screen term)
     (term-exit-alt-screen term)))

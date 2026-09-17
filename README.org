@@ -140,15 +140,21 @@ puts the same bytes through tmux and through an alacritty in a headless sway of
 its own, so the three numbers are read off one screen. On a Ryzen AI Max+ 395,
 80x24, through a pty:
 
-|         | cl-vt     | tmux, detached | alacritty |
-|---------+-----------+----------------+-----------|
-| plain   | 42 MB/s   | 75 MB/s        | 105 MB/s  |
-| colour  | 39 MB/s   | 43 MB/s        | 120 MB/s  |
-| redraw  | 47 MB/s   | 44 MB/s        | 29 MB/s   |
+|        | cl-vt    | tmux, detached | alacritty |
+|--------+----------+----------------+-----------|
+| plain  | 79 MB/s  | 75 MB/s        | 105 MB/s  |
+| colour | 60 MB/s  | 44 MB/s        | 120 MB/s  |
+| redraw | 89 MB/s  | 45 MB/s        | 30 MB/s   |
 
 tmux detached is the fair comparison: no client is attached, so it is parsing
 and keeping a grid and drawing nothing, which is all cl-vt does. alacritty is
 drawing as well, in software, which is what its redraw column costs it.
+
+Nothing in here is written for speed -- no unsafe declarations, no unrolling,
+no special-cased fast paths. What the numbers took was telling the compiler what
+it was already holding: a row is a =simple-vector=, output is a
+=(simple-array character (*))=, and a colour is nearly always a number, so it is
+compared with =eql= before anything asks =equal=. Before that it read 40 MB/s.
 
 =make run= is the short demonstration: it puts a command on a pty, reads until it
 stops talking, and prints the screen back with its escapes.

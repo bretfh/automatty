@@ -34,12 +34,22 @@
   (char #\Space :type character)
   (face nil :type (or null face-attrs)))
 
+(declaim (inline color-equal))
+(defun color-equal (a b)
+  "Whether two colours are the same one. A colour is nil, an index, or three
+numbers, and the first two are what nearly every comparison is between."
+  (or (eql a b)
+      (and (consp a) (consp b)
+           (eql (first a) (first b))
+           (eql (second a) (second b))
+           (eql (third a) (third b)))))
+
 (defun face-attrs-equal (a b)
   (cond
     ((and (null a) (null b)) t)
     ((or (null a) (null b)) nil)
-    (t (and (equal (face-fg a) (face-fg b))
-            (equal (face-bg a) (face-bg b))
+    (t (and (color-equal (face-fg a) (face-fg b))
+            (color-equal (face-bg a) (face-bg b))
             (eq (face-bold a) (face-bold b))
             (eq (face-faint a) (face-faint b))
             (eq (face-italic a) (face-italic b))
@@ -47,7 +57,7 @@
             (eq (face-inverse a) (face-inverse b))
             (eq (face-conceal a) (face-conceal b))
             (eq (face-crossed a) (face-crossed b))
-            (equal (face-underline-color a) (face-underline-color b))
+            (color-equal (face-underline-color a) (face-underline-color b))
             (eq (face-blink a) (face-blink b))))))
 
 (defun make-osc-buf ()
@@ -105,12 +115,17 @@
   (last-char #\Space :type character)
   (in-alt-screen nil :type boolean)
   (face-cache (make-array 16 :initial-element nil) :type simple-vector)
-  (face-cache-pos 0 :type fixnum))
+  (face-cache-pos 0 :type fixnum)
+  (face-now nil))
 
 (defun intern-face (term)
   "A shared face-attrs equal to TERM's current attrs. A small ring cache keeps
 the working set of faces shared, so SGR-heavy output stops copying a struct per
-color change."
+color change, and the answer stands until something says an attribute moved."
+  (or (term-face-now term)
+      (setf (term-face-now term) (%intern-face term))))
+
+(defun %intern-face (term)
   (let ((cur (term-attrs term))
         (cache (term-face-cache term)))
     (or (loop for i from 0 below (length cache)
@@ -141,7 +156,7 @@ color change."
                             (make-array 64 :initial-element nil))))
 
 (defun term-grid-row (term y)
-  (aref (term-grid term) y))
+  (the simple-vector (aref (the simple-vector (term-grid term)) y)))
 
 (defun grid-cell (term x y)
   (aref (aref (term-grid term) y) x))
@@ -150,12 +165,14 @@ color change."
   (setf (aref (aref (term-grid term) y) x) cell))
 
 (defun clear-row (row &optional face)
+  (declare (type simple-vector row))
   (dotimes (x (length row))
     (let ((c (aref row x)))
       (setf (cell-char c) #\Space
             (cell-face c) face))))
 
 (defun clear-grid (grid &optional face)
+  (declare (type simple-vector grid))
   (dotimes (y (length grid))
-    (clear-row (aref grid y) face)))
+    (clear-row (the simple-vector (aref grid y)) face)))
 

@@ -25,6 +25,9 @@
   (let ((code (char-code ch)))
     (cond ((< code 32) 0)
           ((= code #x7F) 0)
+          ;; nothing below the first combining mark is anything but one column,
+          ;; and that is every character most output is made of
+          ((< code #x0300) 1)
           ((or (and (<= #x0300 code) (<= code #x036F))
                (and (<= #x0483 code) (<= code #x0489))
                (and (<= #x0591 code) (<= code #x05C7))
@@ -58,9 +61,17 @@
     (t :us-ascii)))
 
 (defun term-write (term str &optional (start 0) (end (length str)))
+  (if (typep str '(simple-array character (*)))
+      (%term-write term str start end)
+      (%term-write term (coerce str '(simple-array character (*))) start end)))
+
+(defun %term-write (term str start end)
+  (declare (type (simple-array character (*)) str) (type fixnum start end))
   (let* ((w (term-width term))
+         (grid (the simple-vector (term-grid term)))
          (charset (current-charset-mapping term))
          (face (intern-face term)))
+    (declare (type fixnum w))
     (do ((idx start (1+ idx)))
         ((>= idx end))
       (let* ((raw-ch (char str idx))
@@ -80,7 +91,7 @@
                 (setf (term-cursor-x term) (1- w))))
           (let ((x (term-cursor-x term))
                 (y (term-cursor-y term))
-                (row (aref (term-grid term) (term-cursor-y term))))
+                (row (the simple-vector (aref grid (term-cursor-y term)))))
             (when (and (= cw 2) (>= (1+ x) w))
               (setf (cell-char (aref row x)) #\Space
                     (cell-face (aref row x)) face)
@@ -90,7 +101,7 @@
                   (incf (term-cursor-y term)))
               (setf x (term-cursor-x term)
                     y (term-cursor-y term)
-                    row (aref (term-grid term) y)))
+                    row (the simple-vector (aref grid y))))
             (setf (cell-char (aref row x)) ch
                   (cell-face (aref row x)) face)
             (when (= cw 2)
