@@ -92,4 +92,4 @@ eval: libs
 	FORM='$(FORM)' $(IN) '$(ENV) $(SBCL) --disable-debugger --eval "(asdf:load-system :vt/test)" --eval "(in-package :vt/test)" --eval "(eval (read-from-string (uiop:getenv \"FORM\")))" --quit'
 
 clean:
-	rm -rf $(LIBDIR) "$$HOME/.cache/common-lisp/cl-vt"
+	rm -rf $(LIBDIR) $(BENCH_DIR) "$$HOME/.cache/common-lisp/cl-vt"
