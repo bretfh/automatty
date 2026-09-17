@@ -10,6 +10,10 @@
 
 (defconstant +o-rdwr+ 2)
 
+;; the low errnos are the same number on every unix there is; sb-unix happens
+;; to name some of them and not this one
+(defconstant +esrch+ 3)
+
 (defconstant +o-noctty+
   #+linux #o400
   #+darwin #x20000
@@ -94,6 +98,18 @@ layout rather than a list, so the whole family follows from the one rule."
 ;;; init call fills whatever it owns inside room that is more than enough.
 (defconstant +opaque+ 1024)
 
+(defun check (rc what)
+  "The posix_spawn calls answer an errno rather than setting one."
+  (unless (zerop rc)
+    (error "~A: ~A" what (sb-int:strerror rc)))
+  rc)
+
+(defun check-errno (value what)
+  "The rest set errno and answer -1, or nil through sb-unix."
+  (when (or (null value) (and (realp value) (minusp value)))
+    (error "~A: ~A" what (sb-int:strerror (sb-alien:get-errno))))
+  value)
+
 (defun c-strings (strings)
   (let* ((n (length strings))
          (array (sb-alien:make-alien (* sb-alien:char) (1+ n))))
@@ -114,14 +130,17 @@ layout rather than a list, so the whole family follows from the one rule."
 
 (defun open-pty ()
   "A pseudo-terminal. Answers (values master-fd slave-path)."
-  (let ((master (%openpt (logior +o-rdwr+ +o-noctty+))))
-    (when (minusp master)
-      (error "no pseudo-terminal to be had"))
-    (%grantpt master)
-    (%unlockpt master)
-    (values master
-            (sb-thread:with-mutex (*ptsname-lock*)
-              (%ptsname master)))))
+  (let ((master (check-errno (%openpt (logior +o-rdwr+ +o-noctty+))
+                             "posix_openpt")))
+    (handler-bind ((error (lambda (e) (declare (ignore e))
+                            (sb-unix:unix-close master))))
+      (check-errno (%grantpt master) "grantpt")
+      (check-errno (%unlockpt master) "unlockpt")
+      (let ((slave (sb-thread:with-mutex (*ptsname-lock*)
+                     (%ptsname master))))
+        (unless slave
+          (error "ptsname: ~A" (sb-int:strerror (sb-alien:get-errno))))
+        (values master slave)))))
 
 (defun spawn-pty-process (command &key (rows 24) (cols 80) (shell "/bin/sh"))
   "Run COMMAND under a shell on a pseudo-terminal of its own. Answers
@@ -142,25 +161,27 @@ cannot do, and the reason this used to want a helper program written in C."
             (arguments (list (file-namestring shell) "-c" command))
             (environment (list* "TERM=xterm-256color" "COLORTERM=truecolor"
                                 (sb-ext:posix-environ))))
-        (%actions-init actions-sap)
-        (%attr-init attr-sap)
+        (check (%actions-init actions-sap) "posix_spawn_file_actions_init")
+        (check (%attr-init attr-sap) "posix_spawnattr_init")
         (unwind-protect
              (let ((argv (c-strings arguments))
                    (envp (c-strings environment)))
                (unwind-protect
                     (progn
-                      (%actions-addopen actions-sap 0 slave +o-rdwr+ 0)
-                      (%actions-adddup2 actions-sap 0 1)
-                      (%actions-adddup2 actions-sap 0 2)
-                      (%attr-setflags attr-sap +posix-spawn-setsid+)
+                      (check (%actions-addopen actions-sap 0 slave +o-rdwr+ 0)
+                             "addopen of the slave")
+                      (check (%actions-adddup2 actions-sap 0 1) "adddup2 to stdout")
+                      (check (%actions-adddup2 actions-sap 0 2) "adddup2 to stderr")
+                      (check (%attr-setflags attr-sap +posix-spawn-setsid+)
+                             "setflags SETSID")
                       (let ((rc (%spawn (sb-alien:alien-sap (sb-alien:addr pid))
                                         shell actions-sap attr-sap
                                         (sb-alien:alien-sap argv)
                                         (sb-alien:alien-sap envp))))
                         (unless (zerop rc)
                           (sb-unix:unix-close master)
-                          (error "could not start ~S: posix_spawn said ~D"
-                                 command rc))
+                          (error "could not start ~S: ~A"
+                                 command (sb-int:strerror rc)))
                         (pty-set-size master rows cols)
                         (values master pid)))
                  (free-c-strings argv (length arguments))
@@ -174,7 +195,8 @@ cannot do, and the reason this used to want a helper program written in C."
           (sb-alien:deref size 1) cols
           (sb-alien:deref size 2) 0
           (sb-alien:deref size 3) 0)
-    (sb-unix:unix-ioctl fd +tiocswinsz+ (sb-alien:alien-sap size))))
+    (check-errno (sb-unix:unix-ioctl fd +tiocswinsz+ (sb-alien:alien-sap size))
+                 "TIOCSWINSZ")))
 
 (defun pty-wait (fd milliseconds)
   "Whether FD has something to read within MILLISECONDS.
@@ -185,28 +207,61 @@ next GC. So a reader waits with a timeout and looks at its own flag between
 waits."
   (and (sb-unix:unix-simple-poll fd :input milliseconds) t))
 
+(defvar *read-buffer* nil)
+
+(defun read-buffer (size)
+  (let ((buffer *read-buffer*))
+    (if (and buffer (>= (length buffer) size))
+        buffer
+        (setf *read-buffer* (make-array size :element-type '(unsigned-byte 8))))))
+
 (defun pty-read-string (fd size)
-  "Read up to SIZE bytes from FD as a string, or nil at EOF. A byte is a
-character, so a character split across two reads is not made nonsense of; what
-the bytes mean is for whoever knows the encoding."
-  (let ((octets (make-array size :element-type '(unsigned-byte 8))))
+  "Read up to SIZE bytes from FD as a string. A byte is a character, so a
+character split across two reads is not made nonsense of; what the bytes mean is
+for whoever knows the encoding.
+
+Answers nil when the program is done -- an end of file, or the EIO a master is
+given once the last slave is closed -- and an empty string when a signal
+interrupted the read, which is not the program being done and must not be read
+as it. Anything else is a fault and is signalled."
+  (let ((octets (read-buffer size)))
     (sb-sys:with-pinned-objects (octets)
-      (let ((n (sb-unix:unix-read fd (sb-sys:vector-sap octets) size)))
-        (when (and n (plusp n))
-          (let ((said (make-string n)))
-            (dotimes (i n said)
-              (setf (schar said i) (code-char (aref octets i))))))))))
+      (multiple-value-bind (n errno)
+          (sb-unix:unix-read fd (sb-sys:vector-sap octets) size)
+        (cond ((and n (plusp n))
+               (sb-ext:octets-to-string octets :external-format :latin-1 :end n))
+              (n nil)
+              ((or (eql errno sb-unix:eintr) (eql errno sb-unix:eagain)) "")
+              ((eql errno sb-unix:eio) nil)
+              (t (error "reading the terminal: ~A" (sb-int:strerror errno))))))))
 
 (defun pty-write-string (fd string)
-  (let ((octets (sb-ext:string-to-octets string :external-format :utf-8)))
+  "Say STRING to the program. Answers how many bytes of it were taken. A write
+can be a short one, so it is finished rather than assumed."
+  (let* ((octets (sb-ext:string-to-octets string :external-format :utf-8))
+         (len (length octets))
+         (sent 0))
     (sb-sys:with-pinned-objects (octets)
-      (sb-unix:unix-write fd (sb-sys:vector-sap octets) 0 (length octets)))))
+      (loop :while (< sent len)
+            :do (multiple-value-bind (n errno)
+                    (sb-unix:unix-write fd (sb-sys:vector-sap octets) sent
+                                        (- len sent))
+                  (cond ((and n (plusp n)) (incf sent n))
+                        ((or (eql errno sb-unix:eintr) (eql errno sb-unix:eagain)))
+                        (t (error "writing to the terminal: ~A"
+                                  (sb-int:strerror errno)))))))
+    sent))
 
 (defun pty-close (fd)
   (sb-unix:unix-close fd))
 
 (defun pty-kill (pid &optional (signal 15))
-  (%kill pid signal))
+  "Answers nil when there was no such process to signal, which is not a fault:
+it is the usual answer about something already gone."
+  (let ((rc (%kill pid signal)))
+    (cond ((zerop rc) t)
+          ((eql (sb-alien:get-errno) +esrch+) nil)
+          (t (error "kill: ~A" (sb-int:strerror (sb-alien:get-errno)))))))
 
 (defun pty-reap (pid)
   "Signal PID and wait for it, so it is not left a zombie. Answers its status."

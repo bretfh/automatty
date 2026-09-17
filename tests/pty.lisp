@@ -112,3 +112,29 @@ until the first quiet moment: a program that is asleep has not finished."
       (pty:pty-write-string fd (string (code-char 3)))
       (soak term fd :seconds 4)
       (is (search "GOT-SIGINT" (screen term))))))
+
+(test a-write-is-finished-however-many-goes-it-takes
+  ;; -echo, or the line discipline says it back as well and every z is two
+  (let ((term (a-term :width 80 :height 24))
+        (said (make-string 1000 :initial-element #\z)))
+    (with-pty (fd pid "stty -echo; cat")
+      (sleep 0.3)
+      (is (= 1000 (pty:pty-write-string fd said)))
+      (pty:pty-write-string fd (format nil "~C" #\Newline))
+      (soak term fd :seconds 3)
+      (is (= 1000 (count #\z (screen term)))))))
+
+(test what-is-typed-is-counted-in-bytes-not-characters
+  (with-pty (fd pid "cat > /dev/null")
+    (is (= 2 (pty:pty-write-string fd (string (code-char #xE9)))))
+    (is (= 3 (pty:pty-write-string fd (string (code-char #x3042)))))))
+
+(test reading-a-terminal-that-is-gone-is-a-fault-not-an-end
+  (multiple-value-bind (fd pid) (pty:spawn-pty-process "sleep 5")
+    (pty:pty-close fd)
+    (signals error (pty:pty-read-string fd 64))
+    (pty:pty-reap pid)))
+
+(test a-terminal-of-a-size-nobody-can-have-says-so
+  (with-pty (fd pid "sleep 1")
+    (signals error (pty:pty-set-size -1 24 80))))

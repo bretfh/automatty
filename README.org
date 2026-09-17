@@ -188,9 +188,9 @@ its own, so the three numbers are read off one screen. On a Ryzen AI Max+ 395,
 
 |        | cl-vt    | tmux, detached | alacritty |
 |--------+----------+----------------+-----------|
-| plain  | 79 MB/s  | 75 MB/s        | 105 MB/s  |
-| colour | 60 MB/s  | 44 MB/s        | 120 MB/s  |
-| redraw | 89 MB/s  | 45 MB/s        | 30 MB/s   |
+| plain  | 79 MB/s  | 74 MB/s        | 107 MB/s  |
+| colour | 62 MB/s  | 43 MB/s        | 128 MB/s  |
+| redraw | 88 MB/s  | 44 MB/s        | 29 MB/s   |
 
 tmux detached is the fair comparison: no client is attached, so it is parsing
 and keeping a grid and drawing nothing, which is all cl-vt does. alacritty is
