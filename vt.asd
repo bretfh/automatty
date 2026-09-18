@@ -38,7 +38,12 @@ them, and a client that shows one"
                              (:file "poll")
                              (:file "host")
                              (:file "screen")
-                             (:file "encode")))
+                             (:file "encode")
+                             (:file "wire")
+                             (:file "pane")
+                             (:file "server")
+                             (:file "client")
+                             (:file "main")))
 
 (asdf:defsystem #:vt/all
                 :description "Every system cl-vt ships"
@@ -58,6 +63,8 @@ them, and a client that shows one"
                              (:file "pty")
                              (:file "host")
                              (:file "screen")
-                             (:file "encode"))
+                             (:file "encode")
+                             (:file "wire")
+                             (:file "mux"))
                 :perform (asdf:test-op (o c)
                            (uiop:symbol-call :vt/test :run-them)))

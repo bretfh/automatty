@@ -208,12 +208,21 @@ waits."
   (and (sb-unix:unix-simple-poll fd :input milliseconds) t))
 
 (defvar *read-buffer* nil)
+(defvar *read-buffer-thread* nil)
 
 (defun read-buffer (size)
+  "A buffer to read into, kept rather than made again every read.
+
+Whose it is matters: two threads reading two terminals would otherwise read into
+the same array at the same time, and each would answer some of the other's
+bytes. A thread that finds the buffer is not its own takes a fresh one, and the
+thread that had it goes on holding what it already has."
   (let ((buffer *read-buffer*))
-    (if (and buffer (>= (length buffer) size))
+    (if (and buffer (>= (length buffer) size)
+             (eq *read-buffer-thread* sb-thread:*current-thread*))
         buffer
-        (setf *read-buffer* (make-array size :element-type '(unsigned-byte 8))))))
+        (setf *read-buffer-thread* sb-thread:*current-thread*
+              *read-buffer* (make-array size :element-type '(unsigned-byte 8))))))
 
 (defun pty-read-string (fd size)
   "Read up to SIZE bytes from FD as a string. A byte is a character, so a

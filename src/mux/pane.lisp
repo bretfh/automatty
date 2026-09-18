@@ -1,0 +1,53 @@
+;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
+
+(in-package #:vt/mux)
+
+(defstruct (pane (:constructor %make-pane))
+  (term nil)
+  (fd -1 :type fixnum)
+  (pid -1 :type fixnum)
+  (running t :type boolean)
+  (dirty t :type boolean)
+  (rang nil :type boolean)
+  (named nil))
+
+(defun make-pane (command &key (rows 24) (cols 80))
+  (multiple-value-bind (fd pid)
+      (pty:spawn-pty-process command :rows rows :cols cols)
+    (let ((pane (%make-pane :fd fd :pid pid)))
+      (setf (pane-term pane)
+            (vt:make-term :width cols :height rows
+                          :bell-fn (lambda () (setf (pane-rang pane) t))
+                          :title-fn (lambda (title) (setf (pane-named pane) title))))
+      pane)))
+
+(defun pane-drain (pane &key (budget 16) (size 65536))
+  "Read what the program wrote and give it to the term. Answers nil when the
+program is done.
+
+At most BUDGET reads a wakeup: the descriptor stays readable and the next poll
+comes straight back, so one pane writing without pause cannot starve the rest."
+  (dotimes (i budget t)
+    (unless (pty:pty-wait (pane-fd pane) 0)
+      (return t))
+    (let ((said (pty:pty-read-string (pane-fd pane) size)))
+      (cond
+        ((null said) (setf (pane-running pane) nil) (return nil))
+        ((zerop (length said)) (return t))
+        (t (vt:term-process-output (pane-term pane) said)
+           (setf (pane-dirty pane) t))))))
+
+(defun pane-say (pane said)
+  (when (pane-running pane)
+    (ignore-errors (pty:pty-write-string (pane-fd pane) said))))
+
+(defun pane-resize (pane rows cols)
+  (vt:term-resize (pane-term pane) cols rows)
+  (ignore-errors (pty:pty-set-size (pane-fd pane) rows cols))
+  (setf (pane-dirty pane) t)
+  pane)
+
+(defun pane-close (pane)
+  (setf (pane-running pane) nil)
+  (ignore-errors (pty:pty-close (pane-fd pane)))
+  (ignore-errors (pty:pty-reap (pane-pid pane))))

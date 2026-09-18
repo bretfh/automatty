@@ -53,4 +53,63 @@
    #:*resized*
    #:hear-resizes
    #:stop-hearing-resizes
-   #:with-host))
+   #:with-host
+
+   #:wire
+   #:make-wire
+   #:wire-fd
+   #:wire-open
+   #:wire-close
+   #:wire-send
+   #:wire-fill
+   #:wire-take
+   #:wire-flush
+   #:wire-pending
+   #:face-said
+   #:said-face
+   #:runs-said
+   #:said-into-screen
+
+   #:pane
+   #:make-pane
+   #:pane-term
+   #:pane-fd
+   #:pane-pid
+   #:pane-running
+   #:pane-dirty
+   #:pane-drain
+   #:pane-say
+   #:pane-resize
+   #:pane-close
+
+   #:*interval*
+   #:make-server
+   #:server-close
+   #:server-going
+   #:server-sessions
+   #:server-step
+   #:add-session
+   #:session-pane
+   #:session-screen
+   #:session-rows
+   #:session-cols
+   #:session-watchers
+   #:serve
+
+   #:+prefix+
+   #:make-client
+   #:client-close
+   #:client-step
+   #:client-going
+   #:client-why
+   #:client-screen
+   #:client-rows
+   #:client-cols
+   #:client-resized
+   #:attach
+
+   #:mux-dir
+   #:socket-path
+   #:sessions-here
+   #:run
+   #:main))

@@ -1,4 +1,4 @@
-.PHONY: repl check test run bench latency mux-bench compare eval clean
+.PHONY: repl check test run bench latency mux mux-bench compare eval clean
 
 # Two ways to get what cl-vt needs, and every target works under either. Guix is
 # what it develops against and what plain `make' uses. FOREIGN=1 is for a mac or
@@ -55,6 +55,13 @@ bench:
 # what one read costs, how long a collection stops it, and what it weighs
 latency:
 	$(IN) '$(ENV) BENCH_DIR="$(BENCH_DIR)" $(SBCL) --non-interactive --load bench/latency.lisp'
+
+# a shell in a session of its own, drawn by cl-vt inside this terminal. ^B d
+# detaches, ^B r redraws. MUX names the session or says what to do:
+#   make mux            a shell in session 0
+#   make mux MUX=list   what is running
+mux:
+	MUX='$(MUX)' $(IN) '$(ENV) $(SBCL) --disable-debugger --eval "(asdf:load-system :vt/mux)" --eval "(vt/mux:main (remove \"\" (list (uiop:getenv \"MUX\")) :test (function equal)))" --quit'
 
 # what a frame costs: a pane blitted to a screen, diffed against what was last
 # sent, and encoded as the bytes a terminal reads
