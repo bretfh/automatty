@@ -14,9 +14,21 @@
     (declare (ignore second))
     (format nil "~2,'0D:~2,'0D" hour minute)))
 
+(defun shortened (command)
+  "What to call a program on a bar. A shell out of the store is a path nobody
+reads to the end, and its name is the last thing in it."
+  (let* ((said (string-trim " " (or command "")))
+         (space (position #\Space said))
+         (first-word (subseq said 0 (or space (length said))))
+         (slash (position #\/ first-word :from-end t))
+         (name (if slash (subseq first-word (1+ slash)) first-word)))
+    (if space
+        (concatenate 'string name (subseq said space))
+        name)))
+
 (defun pane-says (pane)
   (or (and (pane-named pane) (plusp (length (pane-named pane))) (pane-named pane))
-      (pane-command pane)
+      (shortened (pane-command pane))
       ""))
 
 (defun default-bar (session)

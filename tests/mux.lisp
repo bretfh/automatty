@@ -312,3 +312,9 @@ already failing."
         (pump theirs :seconds 1/2)
         (is (null (search "run" (seen theirs)))
             "the other client was shown a prompt it did not open: ~S" (seen theirs))))))
+
+(test the-bar-names-a-program-rather-than-spelling-out-where-it-lives
+  (is (equal "bash" (mux::shortened "/gnu/store/abc-bash-5.2.37/bin/bash")))
+  (is (equal "sh -c 'a thing'" (mux::shortened "/bin/sh -c 'a thing'")))
+  (is (equal "vim" (mux::shortened "vim")))
+  (is (equal "" (mux::shortened nil))))
