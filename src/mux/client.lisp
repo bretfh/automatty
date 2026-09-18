@@ -26,7 +26,8 @@
 (defun connect-to (path)
   (let ((socket (make-instance 'sb-bsd-sockets:local-socket :type :stream)))
     (sb-bsd-sockets:socket-connect socket path)
-    (values (make-wire (sb-bsd-sockets:socket-file-descriptor socket)) socket)))
+    (values (make-wire (sb-bsd-sockets:socket-file-descriptor socket) socket)
+            socket)))
 
 (defun make-client (path &key (fd +stdin+) (to +stdout+) (takes (takes-of)))
   (multiple-value-bind (rows cols)
@@ -41,12 +42,12 @@
                                               client))))
 
 (defun client-close (client)
+  "Shut it, once. The wire owns the socket, so closing the wire is the close --
+doing it again here would shut a descriptor number that by then belongs to
+whoever opened the next one."
   (setf (client-going client) nil)
   (free-waiting (client-waiting client))
-  (wire-close (client-wire client))
-  (when (and (client-socket client)
-             (sb-bsd-sockets:socket-open-p (client-socket client)))
-    (ignore-errors (sb-bsd-sockets:socket-close (client-socket client)))))
+  (wire-close (client-wire client)))
 
 (defun host-say (client said)
   "Write to the terminal the client is sitting in. What the screen holds is

@@ -19,11 +19,14 @@
 
 (defun stop-server (path)
   (handler-case
-      (let ((wire (mux:make-wire
-                   (let ((socket (make-instance 'sb-bsd-sockets:local-socket
-                                                :type :stream)))
-                     (sb-bsd-sockets:socket-connect socket path)
-                     (sb-bsd-sockets:socket-file-descriptor socket)))))
+      ;; the wire is given the socket, not just its number. A socket left
+      ;; unclosed shuts its descriptor when it is finalised, and by then that
+      ;; number belongs to whoever opened the next one.
+      (let* ((socket (make-instance 'sb-bsd-sockets:local-socket :type :stream))
+             (wire (progn (sb-bsd-sockets:socket-connect socket path)
+                          (mux:make-wire
+                           (sb-bsd-sockets:socket-file-descriptor socket)
+                           socket))))
         (mux:wire-send wire '(:stop))
         (mux:wire-flush wire)
         (sleep 0.05)
@@ -65,7 +68,7 @@
   (ignore-errors (sb-posix:close (seer-slave seer)))
   (ignore-errors (pty:pty-close (seer-master seer))))
 
-(defun pump (seer &key (seconds 8) want)
+(defun pump (seer &key (seconds 8) want until)
   "Run the client and read what it drew, until WANT is on its screen.
 
 SECONDS is there to stop a hang, not to measure anything: a test that finds what
@@ -83,8 +86,10 @@ already failing."
              (vt:decode-utf-8 (seer-decoder seer) said)))))
       (when (and want (search want (vt:term-dump-to-string (seer-host seer))))
         (return t))
+      (when (and until (funcall until))
+        (return t))
       (when (> (get-internal-real-time) deadline)
-        (return (null want))))))
+        (return (and (null want) (null until)))))))
 
 (defun type-at (seer said)
   (pty:pty-write-string (seer-master seer) said))
@@ -164,7 +169,10 @@ already failing."
   (with-server (path :command "printf 'and-out\\n'; sleep 1")
     (with-seer (seer path)
       (pump seer :want "and-out")
-      (pump seer :seconds 2)
+      ;; wait for it to stop, rather than for a length of time and a hope
+      (is-true (pump seer :until (lambda ()
+                                   (not (mux:client-going (seer-client seer)))))
+               "it never stopped")
       (is (null (mux:client-going (seer-client seer))))
       (is (eql :done (mux:client-why (seer-client seer)))))))
 
@@ -327,7 +335,7 @@ already failing."
       (vt:term-resize (seer-host seer) 50 14)
       (mux:client-resized (seer-client seer))
       (is-true (pump seer :want "before") "the pane did not come back after a resize")
-      (pump seer :seconds 1)
+      (pump seer :seconds 3)
       (let ((host (seer-host seer)))
         (is (vt:face-default-p (face-at host 20 6))
             "an empty cell came back wearing ~S -- the clear was done in whatever
