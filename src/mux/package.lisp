@@ -153,10 +153,9 @@
    #:defcommand
    #:*commands*
    #:command-names
-   #:bind
-   #:bound
-   #:bindings
-   #:*keys*
+   #:*client*
+   #:key-of
+   #:pane-mode
    #:note
    #:make-note
    #:show-note

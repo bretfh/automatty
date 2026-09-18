@@ -55,10 +55,10 @@
 (defun show-note (client title text &key (face :warning))
   (client-over-put client (make-note title (lines-of text) :face face)))
 
-(defun show-broke (client name e)
-  "What went wrong running NAME, and where it went wrong."
+(defun show-broke (client what e)
+  "What went wrong, and where it went wrong."
   (show-note client
-             (format nil "~A came apart" name)
+             (format nil "~A came apart" what)
              (format nil "~A~%~A" e
                      (with-output-to-string (s)
                        (ignore-errors

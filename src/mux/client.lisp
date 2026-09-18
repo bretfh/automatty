@@ -19,7 +19,7 @@
            (rows 24 :type fixnum)
            (cols 80 :type fixnum)
            (waiting nil)
-           (waiting-for-command nil :type boolean)
+           (chord-so-far nil :type list)
            (going t :type boolean)
            (why nil))
 
@@ -157,33 +157,50 @@ looks like, not why it happened."
                       (press it key client)
                       (return)))))))
 
+(defun client-chord (client key)
+  "Give KEY to the mode. Answers whether the chord wants more keys.
+
+Half a chord is this client's, not the image's: two of them attached in one
+process would otherwise be finishing each other's."
+  (let ((*client* client)
+        (vt/mode:*pending* (client-chord-so-far client)))
+    (prog1 (eq :pending (vt/mode:press (vt/mode:spelled key)
+                                       (vt/mode:mode-named 'pane-mode)))
+      (setf (client-chord-so-far client) vt/mode:*pending*))))
+
 (defun client-typed (client said)
-  "Pass what was typed through, byte for byte, except the one byte that says the
-next one is a command.
+  "Pass what was typed through, byte for byte, until the one byte that says a
+chord is starting.
 
 The bytes are not decoded into keys and encoded again: a terminal sends more
 than any table of keys knows -- mouse reports, pasted text, whatever encoding it
-was built with -- and what the pane reads should be what the terminal sent.
-
-Except while something is drawn on top. A prompt is a place keys go instead, and
-it wants them named rather than raw, so that is the one time they are decoded."
+was built with -- and what the pane reads should be what the terminal sent. Once
+a chord has started they are read as keys, because that is what a mode is
+written in, and the pane does not see them at all."
   (when (client-over client)
     (return-from client-typed (client-pressed client said)))
-  (let ((out (make-array (length said) :element-type 'character
-                         :fill-pointer 0)))
-    (loop for ch across said
-          do (cond
-              ((client-waiting-for-command client)
-               (setf (client-waiting-for-command client) nil)
-               (cond
-                ((char= ch +prefix+) (vector-push ch out))
-                (t (let ((name (bound ch)))
-                     (when name (run-command name client))))))
-              ((char= ch +prefix+)
-               (setf (client-waiting-for-command client) t))
-              (t (vector-push ch out))))
-    (when (plusp (length out))
-      (wire-send (client-wire client) (list :keys (coerce out 'simple-string))))))
+  (let ((out (make-array (length said) :element-type 'character :fill-pointer 0))
+        (at 0)
+        (n (length said)))
+    (flet ((send ()
+             (when (plusp (fill-pointer out))
+               (wire-send (client-wire client)
+                          (list :keys (coerce out 'simple-string)))
+               (setf (fill-pointer out) 0))))
+      (loop :while (< at n)
+            :do (if (client-chord-so-far client)
+                    (multiple-value-bind (event took)
+                        (vt:escape-sequence-to-key-event said at n nil)
+                      (when (zerop took) (return))
+                      (incf at took)
+                      (client-chord client (key-of event))
+                      (when (client-over client) (return)))
+                    (let ((ch (char said at)))
+                      (incf at)
+                      (if (char= ch +prefix+)
+                          (progn (send) (client-chord client (key-of ch)))
+                          (vector-push ch out)))))
+      (send))))
 
 (defun client-resized (client)
   (setf *resized* nil)

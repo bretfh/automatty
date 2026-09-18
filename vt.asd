@@ -35,6 +35,15 @@ hears that it moved"
                 :components ((:file "graph")
                              (:file "watch")))
 
+(asdf:defsystem #:vt/mode
+                :description "What a key is called, what it does, and which mode
+says so"
+                :depends-on (#:vt/graph)
+                :serial t
+                :pathname "src/mode/"
+                :components ((:file "key")
+                             (:file "mode")))
+
 (asdf:defsystem #:vt/ui
                 :description "Widgets, what they measure to, and the face each
 one wears"
@@ -58,7 +67,7 @@ on"
 (asdf:defsystem #:vt/mux
                 :description "Many terminals inside one: a server that holds
 them, and a client that shows one"
-                :depends-on (#:vt #:vt/pty #:vt/ui #:vt/cells
+                :depends-on (#:vt #:vt/pty #:vt/mode #:vt/ui #:vt/cells
                                   (:require #:sb-posix)
                                   (:require #:sb-bsd-sockets))
                 :serial t
@@ -81,7 +90,7 @@ them, and a client that shows one"
 
 (asdf:defsystem #:vt/all
                 :description "Every system cl-vt ships"
-                :depends-on (#:vt #:vt/pty #:vt/graph #:vt/ui #:vt/cells #:vt/mux))
+                :depends-on (#:vt #:vt/pty #:vt/graph #:vt/mode #:vt/ui #:vt/cells #:vt/mux))
 
 (asdf:defsystem #:vt/test
                 :depends-on (#:vt/all #:fiveam)

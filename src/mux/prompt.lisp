@@ -115,31 +115,39 @@ screen it was drawn over, and the diff puts it back."
   (ask client "run" (command-names)
        :chose (lambda (name client) (run-command name client))))
 
-(defcommand "detach" (client)
-  (done-with client :detached))
+(defcommand detach
+  (done-with *client* :detached))
 
-(defcommand "redraw" (client)
-  (client-redraw client))
+(defcommand redraw
+  (client-redraw *client*))
 
-(defcommand "bar off" (client)
-  (declare (ignore client))
+(defcommand bar-off
   (setf *bar-rows* 0))
 
-(defcommand "bar on" (client)
-  (declare (ignore client))
+(defcommand bar-on
   (setf *bar-rows* 1))
 
-(defcommand "run a command" (client)
-  (ask-a-command client))
+(defcommand run-a-command
+  (ask-a-command *client*))
 
-(defcommand "what the keys do" (client)
-  (show-note client "keys"
+(defcommand send-the-prefix
+  (wire-send (client-wire *client*) (list :keys (string +prefix+))))
+
+(defcommand what-the-keys-do
+  (show-note *client* "keys"
              (format nil "~{~A~%~}"
-                     (loop :for (key . name) :in (bindings)
-                           :collect (format nil "  ^B ~A    ~A" key name)))
+                     (loop :for (chord . nil) :in (vt/mode:keys-in-force
+                                                   (vt/mode:mode-named 'pane-mode))
+                           :collect (format nil "  ~A" chord)))
              :face :accent))
 
-(bind #\d "detach")
-(bind #\r "redraw")
-(bind #\: "run a command")
-(bind #\? "what the keys do")
+;;; What the keys mean. A mode holds them, so another mode may be defined on
+;;; top of this one and change or add to what is here without touching it.
+
+(vt/mode:define-key 'pane-mode "C-b d" #'detach)
+(vt/mode:define-key 'pane-mode "C-b r" #'redraw)
+(vt/mode:define-key 'pane-mode "C-b :" #'run-a-command)
+(vt/mode:define-key 'pane-mode "C-b ?" #'what-the-keys-do)
+(vt/mode:define-key 'pane-mode "C-b C-b" #'send-the-prefix)
+(vt/mode:define-key 'pane-mode "C-b b o" #'bar-off)
+(vt/mode:define-key 'pane-mode "C-b b b" #'bar-on)
