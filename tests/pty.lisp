@@ -126,8 +126,25 @@ until the first quiet moment: a program that is asleep has not finished."
 
 (test what-is-typed-is-counted-in-bytes-not-characters
   (with-pty (fd pid "cat > /dev/null")
-    (is (= 2 (pty:pty-write-string fd (string (code-char #xE9)))))
-    (is (= 3 (pty:pty-write-string fd (string (code-char #x3042)))))))
+    (is (= 1 (pty:pty-write-string fd (string (code-char #xE9))))
+        "a character is a byte unless the caller says otherwise")
+    (is (= 2 (pty:pty-write-string fd (string (code-char #xE9)) :utf-8)))
+    (is (= 3 (pty:pty-write-string fd (string (code-char #x3042)) :utf-8)))))
+
+(test what-was-read-from-one-terminal-written-to-another-is-the-same-bytes
+  (let ((term (a-term :width 40 :height 4)))
+    (with-pty (fd pid "printf '\342\224\234\342\224\200\342\224\200 tree\n'")
+      (until-said term fd "tree")
+      (with-pty (again other "cat")
+        (let ((said (vt:term-dump-row-string term 0)))
+          (pty:pty-write-string again (string-right-trim " " said))
+          (pty:pty-write-string again (string #\Return))
+          (let ((back (a-term :width 40 :height 4)))
+            (until-said back again "tree")
+            (is (equal (string-right-trim " " said)
+                       (row back 0))
+                "the bytes came back different: ~S then ~S"
+                (string-right-trim " " said) (row back 0))))))))
 
 (test reading-a-terminal-that-is-gone-is-a-fault-not-an-end
   (multiple-value-bind (fd pid) (pty:spawn-pty-process "sleep 5")

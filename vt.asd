@@ -9,6 +9,7 @@ that means"
                 :pathname "src/term/"
                 :components ((:file "package")
                              (:file "types")
+                             (:file "decode")
                              (:file "color")
                              (:file "sgr")
                              (:file "ops")
@@ -60,6 +61,7 @@ them, and a client that shows one"
                              (:file "parser")
                              (:file "render")
                              (:file "input")
+                             (:file "decode")
                              (:file "pty")
                              (:file "host")
                              (:file "screen")

@@ -9,7 +9,8 @@
   (running t :type boolean)
   (dirty t :type boolean)
   (rang nil :type boolean)
-  (named nil))
+  (named nil)
+  (decoder (vt:make-decoder)))
 
 (defun make-pane (command &key (rows 24) (cols 80))
   (multiple-value-bind (fd pid)
@@ -17,8 +18,15 @@
     (let ((pane (%make-pane :fd fd :pid pid)))
       (setf (pane-term pane)
             (vt:make-term :width cols :height rows
-                          :bell-fn (lambda () (setf (pane-rang pane) t))
-                          :title-fn (lambda (title) (setf (pane-named pane) title))))
+                          :bell-fn (lambda (term)
+                                     (declare (ignore term))
+                                     (setf (pane-rang pane) t))
+                          :title-fn (lambda (term title)
+                                      (declare (ignore term))
+                                      (setf (pane-named pane) title))
+                          :input-fn (lambda (term said)
+                                      (declare (ignore term))
+                                      (pane-say pane said))))
       pane)))
 
 (defun pane-drain (pane &key (budget 16) (size 65536))
@@ -34,8 +42,12 @@ comes straight back, so one pane writing without pause cannot starve the rest."
       (cond
         ((null said) (setf (pane-running pane) nil) (return nil))
         ((zerop (length said)) (return t))
-        (t (vt:term-process-output (pane-term pane) said)
+        (t (vt:term-process-output
+            (pane-term pane)
+            (vt:decode-utf-8 (pane-decoder pane) said))
            (setf (pane-dirty pane) t))))))
+
+(declaim (ftype function pane-say))
 
 (defun pane-say (pane said)
   (when (pane-running pane)

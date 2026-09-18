@@ -244,10 +244,15 @@ as it. Anything else is a fault and is signalled."
               ((eql errno sb-unix:eio) nil)
               (t (error "reading the terminal: ~A" (sb-int:strerror errno))))))))
 
-(defun pty-write-string (fd string)
+(defun pty-write-string (fd string &optional (external-format :latin-1))
   "Say STRING to the program. Answers how many bytes of it were taken. A write
-can be a short one, so it is finished rather than assumed."
-  (let* ((octets (sb-ext:string-to-octets string :external-format :utf-8))
+can be a short one, so it is finished rather than assumed.
+
+One byte a character by default, which is what pty-read-string answers, so what
+was read from one terminal can be written to another and be the same bytes. What
+the bytes mean is for whoever knows the encoding -- see decode-utf-8 -- and a
+caller holding real characters rather than bytes says so."
+  (let* ((octets (sb-ext:string-to-octets string :external-format external-format))
          (len (length octets))
          (sent 0))
     (sb-sys:with-pinned-objects (octets)

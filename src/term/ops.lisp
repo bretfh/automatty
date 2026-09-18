@@ -5,36 +5,43 @@
 (declaim (optimize (speed 3) (safety 1)))
 
 (defun term-cursor-right (term &optional (n 1))
+  (setf (term-wrap-pending term) nil)
   (setf n (max n 1))
   (let ((max-x (1- (term-width term))))
     (setf (term-cursor-x term)
           (min (+ (term-cursor-x term) n) max-x))))
 
 (defun term-cursor-left (term &optional (n 1))
+  (setf (term-wrap-pending term) nil)
   (setf n (max n 1))
   (setf (term-cursor-x term)
         (max (- (term-cursor-x term) n) 0)))
 
 (defun term-cursor-down (term &optional (n 1))
+  (setf (term-wrap-pending term) nil)
   (setf n (max n 1))
   (let ((max-y (1- (term-height term))))
     (setf (term-cursor-y term)
           (min (+ (term-cursor-y term) n) max-y))))
 
 (defun term-cursor-up (term &optional (n 1))
+  (setf (term-wrap-pending term) nil)
   (setf n (max n 1))
   (setf (term-cursor-y term)
         (max (- (term-cursor-y term) n) 0)))
 
 (defun term-cursor-horizontal-abs (term &optional (n 1))
+  (setf (term-wrap-pending term) nil)
   (setf (term-cursor-x term)
         (min (max (1- n) 0) (1- (term-width term)))))
 
 (defun term-cursor-vertical-abs (term &optional (n 1))
+  (setf (term-wrap-pending term) nil)
   (setf (term-cursor-y term)
         (min (max (1- n) 0) (1- (term-height term)))))
 
 (defun term-goto (term &optional (y 1) (x 1))
+  (setf (term-wrap-pending term) nil)
   (setf (term-cursor-y term)
         (min (max (1- (or y 1)) 0) (1- (term-height term))))
   (setf (term-cursor-x term)
@@ -46,6 +53,7 @@
         (term-saved-attrs term) (copy-face-attrs (term-attrs term))))
 
 (defun term-restore-cursor (term)
+  (setf (term-wrap-pending term) nil)
   (setf (term-cursor-x term) (term-saved-cursor-x term)
         (term-cursor-y term) (term-saved-cursor-y term)
         (term-face-now term) nil)
@@ -70,6 +78,7 @@
     (intern-face term)))
 
 (defun term-erase-in-line (term &optional (mode 0))
+  (setf (term-wrap-pending term) nil)
   (let* ((y (term-cursor-y term))
          (x (term-cursor-x term))
          (w (term-width term))
@@ -90,6 +99,7 @@
                (cell-face (aref row i)) bg-face))))))
 
 (defun term-erase-in-display (term &optional (mode 0))
+  (setf (term-wrap-pending term) nil)
   (let* ((y (term-cursor-y term))
          (h (term-height term))
          (grid (term-grid term))
@@ -111,6 +121,7 @@
                (term-scrollback-head term) 0))))))
 
 (defun term-erase-char (term &optional (n 1))
+  (setf (term-wrap-pending term) nil)
   (setf n (max n 1))
   (let* ((y (term-cursor-y term))
          (x (term-cursor-x term))
@@ -123,6 +134,7 @@
             (cell-face (aref row i)) bg-face))))
 
 (defun term-insert-char (term &optional (n 1))
+  (setf (term-wrap-pending term) nil)
   (setf n (max n 1))
   (let* ((y (term-cursor-y term))
          (x (term-cursor-x term))
@@ -139,6 +151,7 @@
             (cell-face (aref row i)) bg-face))))
 
 (defun term-delete-char (term &optional (n 1))
+  (setf (term-wrap-pending term) nil)
   (setf n (max n 1))
   (let* ((y (term-cursor-y term))
          (x (term-cursor-x term))
@@ -235,6 +248,7 @@ pointer moves with no consing."
             (setf (aref grid (+ top i)) row)))))))
 
 (defun term-insert-line (term &optional (n 1))
+  (setf (term-wrap-pending term) nil)
   (setf n (max n 1))
   (let ((y (term-cursor-y term))
         (top (term-scroll-top term))
@@ -246,6 +260,7 @@ pointer moves with no consing."
         (setf (term-scroll-top term) old-top)))))
 
 (defun term-delete-line (term &optional (n 1))
+  (setf (term-wrap-pending term) nil)
   (setf n (max n 1))
   (let ((y (term-cursor-y term))
         (top (term-scroll-top term))
@@ -257,6 +272,7 @@ pointer moves with no consing."
         (setf (term-scroll-top term) old-top)))))
 
 (defun term-horizontal-tab (term &optional (n 1))
+  (setf (term-wrap-pending term) nil)
   (setf n (max n 1))
   (let* ((x (term-cursor-x term))
          (w (term-width term))
@@ -266,6 +282,7 @@ pointer moves with no consing."
     (setf (term-cursor-x term) (min next-tab (1- w)))))
 
 (defun term-horizontal-backtab (term &optional (n 1))
+  (setf (term-wrap-pending term) nil)
   (setf n (max n 1))
   (let* ((x (term-cursor-x term))
          (prev-tab (if (zerop (mod x 8))
@@ -276,6 +293,7 @@ pointer moves with no consing."
     (setf (term-cursor-x term) (max prev-tab 0))))
 
 (defun term-index (term)
+  (setf (term-wrap-pending term) nil)
   (let ((y (term-cursor-y term))
         (bot (term-scroll-bottom term)))
     (if (= y bot)
@@ -284,6 +302,7 @@ pointer moves with no consing."
           (incf (term-cursor-y term))))))
 
 (defun term-reverse-index (term)
+  (setf (term-wrap-pending term) nil)
   (let ((y (term-cursor-y term))
         (top (term-scroll-top term)))
     (if (= y top)
@@ -292,6 +311,7 @@ pointer moves with no consing."
           (decf (term-cursor-y term))))))
 
 (defun term-line-feed (term)
+  (setf (term-wrap-pending term) nil)
   (let* ((y (term-cursor-y term))
          (bot (term-scroll-bottom term)))
     (setf (term-cursor-x term) 0)
@@ -301,6 +321,7 @@ pointer moves with no consing."
           (incf (term-cursor-y term))))))
 
 (defun term-carriage-return (term)
+  (setf (term-wrap-pending term) nil)
   (setf (term-cursor-x term) 0))
 
 (defun term-set-scroll-region (term &optional top bottom)
@@ -325,6 +346,7 @@ pointer moves with no consing."
           (term-in-alt-screen term) nil)))
 
 (defun term-reset (term)
+  (setf (term-wrap-pending term) nil)
   (setf (term-parser-state term) nil
         (term-cursor-x term) 0
         (term-cursor-y term) 0
@@ -385,6 +407,7 @@ scrollback, which is where they would have gone had the screen scrolled."
             (term-height term) height
             (term-scroll-top term) 0
             (term-scroll-bottom term) (1- height)
+            (term-wrap-pending term) nil
             (term-cursor-x term) (min (term-cursor-x term) (1- width))
             (term-cursor-y term) (max 0 (min (- (term-cursor-y term) shift)
                                              (1- height)))))))

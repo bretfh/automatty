@@ -85,3 +85,44 @@
           :do (say piecemeal (string (char said i))))
     (is (equal (rows whole) (rows piecemeal)))
     (is (equal (cursor whole) (cursor piecemeal)))))
+
+(test the-cursor-waits-on-the-last-column-rather-than-past-it
+  (let ((term (a-term :width 8 :height 2)))
+    (say term "abcdefgh")
+    (is (equal '(7 0) (cursor term)) "the cursor went past the last column")
+    (is (vt:term-wrap-pending term))
+    (is (equal "abcdefgh" (row term 0)))
+    (say term "i")
+    (is (equal '(1 1) (cursor term)) "the next character did not wrap")
+    (is (equal "i" (row term 1)))
+    (is (null (vt:term-wrap-pending term)))))
+
+(test a-backspace-at-the-right-margin-moves-one-column
+  (let ((term (a-term :width 8 :height 2)))
+    (say term "abcdefgh")
+    (vt:term-cursor-left term 1)
+    (is (equal '(6 0) (cursor term))
+        "backspacing from the last column landed on the column it was already on")
+    (say term "X")
+    (is (equal "abcdefXh" (row term 0)))))
+
+(test erasing-from-the-right-margin-erases-the-last-column
+  (let ((term (a-term :width 8 :height 2)))
+    (say term "abcdefgh" (csi "K"))
+    (is (equal "abcdefg" (row term 0))
+        "the last column survived an erase that should have taken it")))
+
+(test a-wide-character-that-does-not-fit-waits-rather-than-splitting
+  (let ((term (a-term :width 4 :height 2)))
+    (say term "abc" (format nil "~C" (code-char #x6F22)))
+    (is (equal "abc" (row term 0)))
+    (is (eql (code-char #x6F22) (at term 0 1)))
+    (is (equal '(2 1) (cursor term)))))
+
+(test nothing-wraps-when-the-margin-is-off
+  (let ((term (a-term :width 4 :height 2)))
+    (say term (csi "?7l") "abcd")
+    (is (equal '(3 0) (cursor term)))
+    (say term "XY")
+    (is (equal "abcY" (row term 0)) "it wrapped with the margin off")
+    (is (equal "" (row term 1)))))

@@ -157,6 +157,18 @@ underline style, said with semicolons or with colons.
 
 DCS is parsed far enough to be skipped.
 
+** What a byte means
+
+=vt:term-process-output= takes characters, and what a program wrote is bytes. The
+two are not the same thing and the emulator does not guess: =vt:decode-utf-8=
+turns the one into the other, keeping the half of a character left at the end of
+a read until the rest of it arrives, and answering the replacement character --
+one per maximal subpart, as Unicode asks -- for anything that is not utf-8.
+
+Reading and writing a pty are byte for byte, so what was read from one terminal
+can be written to another and be the same bytes. A caller holding real characters
+rather than bytes says so: =(pty-write-string fd said :utf-8)=.
+
 * Building it
 
 Nothing is built. There is no C, so there is no compile step, no shared library
@@ -220,6 +232,11 @@ and never goes near a terminal; a client attaches over a unix socket in
 =$XDG_RUNTIME_DIR/cl-vt/= and owns the one it is sitting in. Detaching leaves the
 programs running, and a client that comes back is simply one whose whole screen
 is out of date.
+
+A fault in one wakeup is said to the log and stepped over rather than taken as
+the end -- the panes are somebody's shells, and losing them to a bug in the
+emulator is worse than drawing one frame wrong. The log is beside the socket,
+and a client whose server did stop says where it is.
 
 ** What goes over the socket
 

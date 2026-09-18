@@ -105,6 +105,11 @@ different."
   (csi-format nil)
   (osc-buf (make-osc-buf) :type string)
   (auto-margin t :type boolean)
+  ;; the last column is written and the next character belongs on the next
+  ;; line, but the cursor has not gone there and will not unless one arrives.
+  ;; It sits on the last column, which is where a terminal shows it and where
+  ;; anything that moves or erases from it must start.
+  (wrap-pending nil :type boolean)
   (insert-mode nil :type boolean)
   (keypad-mode nil :type boolean)
   (bracketed-paste nil :type boolean)

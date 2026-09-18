@@ -44,6 +44,16 @@
              (sb-bsd-sockets:socket-open-p (client-socket client)))
     (ignore-errors (sb-bsd-sockets:socket-close (client-socket client)))))
 
+(defun host-say (client said)
+  "Write to the terminal the client is sitting in. What the screen holds is
+characters, not bytes, so this is the one place that says how they are spelt.
+
+A terminal that will not take what it is given has gone, which is a reason to
+stop rather than a fault: the panes are still running and somebody can attach to
+them again."
+  (handler-case (pty:pty-write-string (client-to client) said :utf-8)
+    (error () (done-with client :terminal-gone) 0)))
+
 (defun client-draw (client said faces)
   (let* ((screen (client-screen client))
          (runs (said-into-screen screen said faces)))
@@ -63,11 +73,10 @@ looks like, not why it happened."
      (destructuring-bind (name rows cols) (rest form)
        (declare (ignore name))
        (setf (client-screen client) (make-screen :width cols :height rows))
-       (pty:pty-write-string (client-to client)
-                             (format nil "~C[2J" #\Escape))))
+       (host-say client (format nil "~C[2J" #\Escape))))
     (:frame
      (destructuring-bind (said faces) (rest form)
-       (pty:pty-write-string (client-to client) (client-draw client said faces))))
+       (host-say client (client-draw client said faces))))
     (:cursor
      (destructuring-bind (y x visible style) (rest form)
        (declare (ignore style))
@@ -75,10 +84,10 @@ looks like, not why it happened."
          (setf (screen-cursor-y screen) y
                (screen-cursor-x screen) x
                (screen-cursor-visible screen) (and visible t)))
-       (pty:pty-write-string
-        (client-to client)
-        (with-output-to-string (s) (encode-cursor (client-screen client) s)))))
-    (:bell (pty:pty-write-string (client-to client) (string (code-char 7))))
+       (host-say client
+                 (with-output-to-string (s)
+                   (encode-cursor (client-screen client) s)))))
+    (:bell (host-say client (string (code-char 7))))
     (:bye (done-with client (second form)))
     (t nil)))
 
@@ -86,7 +95,7 @@ looks like, not why it happened."
   (setf (client-screen client)
         (make-screen :width (screen-width (client-screen client))
                      :height (screen-height (client-screen client))))
-  (pty:pty-write-string (client-to client) (format nil "~C[2J" #\Escape))
+  (host-say client (format nil "~C[2J" #\Escape))
   (wire-send (client-wire client)
              (list :resize (client-rows client) (client-cols client))))
 

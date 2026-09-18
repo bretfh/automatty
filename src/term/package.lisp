@@ -42,6 +42,7 @@
    #:term-insert-mode
    #:term-keypad-mode
    #:term-auto-margin
+   #:term-wrap-pending
    #:term-in-alt-screen
    #:term-scroll-top
    #:term-scroll-bottom
@@ -49,6 +50,10 @@
    #:term-bell-fn
    #:term-title-fn
    #:term-cwd-fn
+
+   #:decoder
+   #:make-decoder
+   #:decode-utf-8
 
    #:term-process-output
    #:term-write

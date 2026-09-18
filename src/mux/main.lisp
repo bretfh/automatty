@@ -48,6 +48,17 @@
         do (sleep 0.01))
   (socket-path name))
 
+(defun say-why (name why)
+  (case why
+    (:detached (format t "~&detached from ~A~%" name))
+    (:done nil)
+    (:asked-to-stop nil)
+    (:server-gone
+     (format *error-output* "~&vt-mux: the server for ~A stopped. ~A says why.~%"
+             name (log-path name)))
+    (t (when why (format t "~&~A~%" why))))
+  why)
+
 (defun a-shell ()
   (or (sb-ext:posix-getenv "SHELL") "/bin/sh"))
 
@@ -60,7 +71,7 @@
         (start-a-server name command :rows rows :cols cols))
       (unless (answering-p path)
         (error "no server came up. ~A says why." (log-path name)))
-      (attach path))))
+      (say-why name (attach path)))))
 
 (defun usage (s)
   (format s "~&vt-mux -- many terminals inside one~%~%")
@@ -87,7 +98,7 @@
            (let ((path (socket-path (or (second args) "0"))))
              (unless (answering-p path)
                (error "no session called ~A is running" (or (second args) "0")))
-             (attach path)))
+             (say-why (or (second args) "0") (attach path))))
           ((string= what "serve")
            (multiple-value-bind (rows cols)
                (if (a-terminal-p +stdin+) (host-size +stdin+) (values 24 80))

@@ -265,12 +265,37 @@ more than the terminal it is sitting inside costs in the first place.")
         (setf (pane-rang (session-pane session)) nil)))
     server))
 
+(defparameter +faults+ 10)
+
+(defun say-what-broke (e)
+  (format *error-output* "~&vt-mux: ~A~%" e)
+  (ignore-errors
+   (sb-debug:print-backtrace :stream *error-output* :count 30))
+  (finish-output *error-output*))
+
 (defun serve (path command &key (rows 24) (cols 80) (interval *interval*))
-  (let ((server (make-server path)))
+  "Hold the sessions and feed whoever is watching them, until there are none.
+
+A fault in one wakeup is said and stepped over rather than taken as the end. The
+panes are somebody's shells: losing them to a bug in the emulator is worse than
+drawing one frame wrong, and the backtrace is in the log either way. Faults one
+after another with nothing between them are a loop rather than a mishap, and
+that does end it."
+  (let ((server (make-server path))
+        (faults 0))
     (unwind-protect
          (progn
            (add-session server command :rows rows :cols cols)
            (loop while (and (server-going server) (server-sessions server))
-                 do (server-step server :interval interval))
+                 do (handler-case
+                        (progn (server-step server :interval interval)
+                               (setf faults 0))
+                      (error (e)
+                        (say-what-broke e)
+                        (when (> (incf faults) +faults+)
+                          (format *error-output*
+                                  "~&vt-mux: ~D faults with nothing between them; stopping.~%"
+                                  faults)
+                          (setf (server-going server) nil)))))
            server)
       (server-close server))))

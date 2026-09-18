@@ -41,11 +41,14 @@
               (progn (until 5 (lambda () (probe-file ,path)))
                      ,@body)
            (stop-server ,path)
-           (unless (sb-thread:join-thread ,thread :timeout 5 :default :gave-up)
-             nil)
+           ;; a server left running goes on holding descriptors, and the next
+           ;; test opens a pty onto the numbers it is about to close
+           (when (eq :gave-up (sb-thread:join-thread ,thread :timeout 5
+                                                             :default :gave-up))
+             (error "a test server would not stop"))
            (ignore-errors (delete-file ,path)))))))
 
-(defstruct seer client host master slave)
+(defstruct seer client host master slave (decoder (vt:make-decoder)))
 
 (defun a-seer (path &key (rows 10) (cols 40))
   (multiple-value-bind (master slave-path) (pty:open-pty)
@@ -70,7 +73,10 @@
       (mux:client-step (seer-client seer) 5)
       (when (pty:pty-wait (seer-master seer) 0)
         (let ((said (pty:pty-read-string (seer-master seer) 65536)))
-          (when said (vt:term-process-output (seer-host seer) said))))
+          (when said
+            (vt:term-process-output
+             (seer-host seer)
+             (vt:decode-utf-8 (seer-decoder seer) said)))))
       (when (and want (search want (vt:term-dump-to-string (seer-host seer))))
         (return t))
       (when (> (get-internal-real-time) deadline)
@@ -165,3 +171,39 @@
       (pump seer :seconds 1/4)
       (is (search "frame-8" (seen seer))
           "the last frame drawn is not the one on the screen: ~S" (seen seer)))))
+
+(test a-bell-does-not-take-the-server-down
+  (with-server (path :command "printf 'before\\a'; sleep 1; printf 'after\\n'; sleep 30")
+    (with-seer (seer path)
+      (is-true (pump seer :want "before"))
+      (is-true (pump seer :want "after")
+               "the server stopped when the pane rang the bell"))))
+
+(test a-title-does-not-take-the-server-down
+  (with-server (path :command "printf '\\033]0;a new title\\007here\\n'; sleep 30"
+                     :rows 10 :cols 40)
+    (with-seer (seer path)
+      (is-true (pump seer :want "here")))))
+
+(test what-a-program-drew-in-utf-8-is-drawn-in-utf-8
+  (with-server (path :command "printf '\\342\\224\\234\\342\\224\\200\\342\\224\\200 leaf\\n'; sleep 30"
+                     :rows 10 :cols 40)
+    (with-seer (seer path)
+      (is-true (pump seer :want "leaf"))
+      (pump seer :seconds 1/4)
+      (is (equal "├── leaf" (row (seer-host seer) 0))
+          "came out as ~S" (row (seer-host seer) 0)))))
+
+(test a-wide-character-takes-two-columns-through-the-whole-loop
+  (with-server (path :command "printf '\\346\\274\\242\\345\\255\\227x\\n'; sleep 30"
+                     :rows 10 :cols 40)
+    (with-seer (seer path)
+      (is-true (pump seer :want "x"))
+      (pump seer :seconds 1/4)
+      (let ((host (seer-host seer)))
+        (is (eql (code-char #x6F22) (at host 0 0)))
+        (is (eql (code-char #x5B57) (at host 2 0))
+            "the second wide character did not start at column 2")
+        (is (eql #\x (at host 4 0))
+            "the wide characters did not take two columns each: ~S"
+            (row host 0))))))
