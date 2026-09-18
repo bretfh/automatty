@@ -10,6 +10,12 @@ answered the moment a byte arrives, and only a client already being fed faster
 than this waits. A tick would add half its length to every keystroke, which is
 more than the terminal it is sitting inside costs in the first place.")
 
+(defvar *bar-rows* 1
+  "How many rows at the foot of the screen the bar has. None, and the pane has
+the whole terminal.")
+
+(declaim (ftype function draw-bar))
+
 (defparameter +biggest-pane+ 1000)
 
 (defstruct (watcher (:constructor %make-watcher))
@@ -76,7 +82,9 @@ more than the terminal it is sitting inside costs in the first place.")
 
 (defun add-session (server command &key (name "0") (rows 24) (cols 80))
   (let ((session (%make-session :name name :rows rows :cols cols
-                                :pane (make-pane command :rows rows :cols cols)
+                                :pane (make-pane command
+                                                 :rows (max 1 (- rows *bar-rows*))
+                                                 :cols cols)
                                 :screen (make-screen :width cols :height rows))))
     (push session (server-sessions server))
     session))
@@ -86,6 +94,10 @@ more than the terminal it is sitting inside costs in the first place.")
 
 (defun session-pane-term (session)
   (pane-term (session-pane session)))
+
+(defun pane-rows (session)
+  "How many rows the program gets: the terminal, less whatever the bar takes."
+  (max 1 (- (session-rows session) *bar-rows*)))
 
 (defun watcher-oldest (session)
   (let ((here (remove-if-not #'watcher-here (session-watchers session))))
@@ -100,9 +112,11 @@ more than the terminal it is sitting inside costs in the first place.")
             cols (reduce #'min here :key #'watcher-cols)))
     (setf rows (max 1 (min rows +biggest-pane+))
           cols (max 1 (min cols +biggest-pane+)))
-    (unless (and (= rows (vt:term-height (session-pane-term session)))
+    (setf (session-rows session) rows
+          (session-cols session) cols)
+    (unless (and (= (pane-rows session) (vt:term-height (session-pane-term session)))
                  (= cols (vt:term-width (session-pane-term session))))
-      (pane-resize (session-pane session) rows cols)
+      (pane-resize (session-pane session) (pane-rows session) cols)
       (screen-resize (session-screen session) cols rows)
       (dolist (w (session-watchers session))
         (setf (watcher-shadow w) (make-screen :width cols :height rows)
@@ -118,6 +132,7 @@ more than the terminal it is sitting inside costs in the first place.")
   (let ((screen (session-screen session))
         (term (session-pane-term session)))
     (screen-blit screen term)
+    (draw-bar session screen)
     (setf (screen-cursor-x screen) (min (vt:term-cursor-x term)
                                         (1- (screen-width screen)))
           (screen-cursor-y screen) (min (vt:term-cursor-y term)

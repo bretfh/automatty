@@ -146,14 +146,15 @@
 (test a-resize-reaches-the-program-and-the-screen
   (with-server (path :command "trap 'stty size' WINCH; stty size; sleep 1; sleep 60" :rows 10 :cols 40)
     (with-seer (seer path :rows 10 :cols 40)
-      (is-true (pump seer :want "10 40"))
+      (is-true (pump seer :want "9 40")
+               "the program was not given the rows the bar left it")
       (pty:pty-set-size (seer-master seer) 20 60)
       (vt:term-resize (seer-host seer) 60 20)
       (multiple-value-bind (rows cols) (mux:host-size (seer-slave seer))
         (is (eql 20 rows))
         (is (eql 60 cols)))
       (mux:client-resized (seer-client seer))
-      (is-true (pump seer :want "20 60")))))
+      (is-true (pump seer :want "19 60")))))
 
 (test a-pane-whose-program-is-done-says-bye
   (with-server (path :command "printf 'and-out\\n'; sleep 1")
@@ -176,8 +177,8 @@
   (with-server (path :command "printf 'before\\a'; sleep 1; printf 'after\\n'; sleep 30")
     (with-seer (seer path)
       (is-true (pump seer :want "before"))
-      (is-true (pump seer :want "after")
-               "the server stopped when the pane rang the bell"))))
+      (is-true (pump seer :want "after" :seconds 10)
+               "the server stopped when the pane rang the bell: ~S" (seen seer)))))
 
 (test a-title-does-not-take-the-server-down
   (with-server (path :command "printf '\\033]0;a new title\\007here\\n'; sleep 30"
@@ -232,3 +233,36 @@
       (is (probe-file path)))
     (is (null (probe-file left))
         "the socket outlived the server that made it")))
+
+(test the-bar-sits-at-the-foot-and-says-the-session
+  (with-server (path :command "printf 'in-the-pane\\n'; sleep 30"
+                     :rows 10 :cols 40)
+    (with-seer (seer path :rows 10 :cols 40)
+      (is-true (pump seer :want "in-the-pane"))
+      (pump seer :seconds 1/4)
+      (let ((host (seer-host seer)))
+        (is (search "in-the-pane" (row host 0)) "the pane did not draw at the top")
+        (is (search "0" (row host 9))
+            "the bar does not say which session this is: ~S" (row host 9))
+        (is (search "printf" (row host 9))
+            "the bar does not say what is running: ~S" (row host 9))
+        (is (vt:face-bg (face-at host 0 9))
+            "the bar has no background of its own")))))
+
+(test the-program-is-given-the-rows-the-bar-left-it
+  (with-server (path :command "stty size; sleep 30" :rows 10 :cols 40)
+    (with-seer (seer path :rows 10 :cols 40)
+      (is-true (pump seer :want "9 40")
+               "the program was told the whole terminal, bar and all: ~S"
+               (seen seer)))))
+
+(test with-no-bar-the-program-has-the-whole-terminal
+  ;; the server runs in a thread of its own, and a special bound here would not
+  ;; reach it
+  (let ((was mux:*bar-rows*))
+    (unwind-protect
+         (progn (setf mux:*bar-rows* 0)
+                (with-server (path :command "stty size; sleep 30" :rows 10 :cols 40)
+                  (with-seer (seer path :rows 10 :cols 40)
+                    (is-true (pump seer :want "10 40") "~S" (seen seer)))))
+      (setf mux:*bar-rows* was))))

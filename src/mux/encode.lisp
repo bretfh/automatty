@@ -73,7 +73,7 @@ carry on from it."
                    (incf x (if (and (= 2 (vt:char-display-width ch))
                                     (< (1+ x) stop))
                                2
-                               1))))
+                             1))))
         (when (< stop end)
           (unless (and (not (eq face :none)) (vt:face-default-p face))
             (vt:write-sgr nil s takes)

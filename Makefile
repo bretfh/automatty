@@ -1,4 +1,4 @@
-.PHONY: repl check test run bench latency mux mux-bench compare eval clean
+.PHONY: repl check test run bench latency mux mux-bench attached compare eval clean
 
 # Two ways to get what cl-vt needs, and every target works under either. Guix is
 # what it develops against and what plain `make' uses. FOREIGN=1 is for a mac or
@@ -67,6 +67,11 @@ mux:
 # sent, and encoded as the bytes a terminal reads
 mux-bench:
 	$(IN) '$(ENV) BENCH_DIR="$(BENCH_DIR)" $(SBCL) --non-interactive --load bench/mux.lisp'
+
+# the same corpora through cl-vt and through tmux, both attached to a terminal
+# and both drawing: bytes out, cpu and memory for the same work
+attached:
+	$(IN) '$(ENV) BENCH_DIR="$(BENCH_DIR)" $(SBCL) --non-interactive --load bench/attached.lisp'
 
 # the same corpora through tmux and through alacritty, under cl-vt's own
 # numbers, so the three are read off one screen

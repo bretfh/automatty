@@ -83,13 +83,38 @@
    #:pane-drain
    #:pane-say
    #:pane-resize
+   #:pane-command
    #:pane-close
 
    #:*interval*
    #:make-server
+   #:pane-rows
+   #:*bar*
+   #:*bar-rows*
+   #:default-bar
+   #:session-name
+   #:draw-bar
    #:server-close
+   #:pane-rows
+   #:*bar*
+   #:*bar-rows*
+   #:default-bar
+   #:session-name
+   #:draw-bar
    #:server-going
+   #:pane-rows
+   #:*bar*
+   #:*bar-rows*
+   #:default-bar
+   #:session-name
+   #:draw-bar
    #:server-sessions
+   #:pane-rows
+   #:*bar*
+   #:*bar-rows*
+   #:default-bar
+   #:session-name
+   #:draw-bar
    #:server-step
    #:add-session
    #:session-pane
@@ -97,6 +122,12 @@
    #:session-rows
    #:session-cols
    #:session-watchers
+   #:pane-rows
+   #:*bar*
+   #:*bar-rows*
+   #:default-bar
+   #:session-name
+   #:draw-bar
    #:serve
 
    #:+prefix+

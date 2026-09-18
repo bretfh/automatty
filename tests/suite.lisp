@@ -1,6 +1,6 @@
 (defpackage #:vt/test
   (:use #:cl #:fiveam)
-  (:local-nicknames (#:pty #:vt/pty) (#:mux #:vt/mux))
+  (:local-nicknames (#:pty #:vt/pty) (#:mux #:vt/mux) (#:cells #:vt/cells))
   (:export #:run-them #:all))
 (in-package #:vt/test)
 
@@ -58,3 +58,6 @@
 (defun laid-out (runs)
   (mapcar (lambda (r) (list (mux:run-row r) (mux:run-start r) (mux:run-end r)))
           runs))
+
+(defun at-screen (screen x y)
+  (vt:cell-char (aref (mux:screen-row screen y) x)))

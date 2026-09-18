@@ -10,12 +10,13 @@
   (dirty t :type boolean)
   (rang nil :type boolean)
   (named nil)
+  (command nil)
   (decoder (vt:make-decoder)))
 
 (defun make-pane (command &key (rows 24) (cols 80))
   (multiple-value-bind (fd pid)
       (pty:spawn-pty-process command :rows rows :cols cols)
-    (let ((pane (%make-pane :fd fd :pid pid)))
+    (let ((pane (%make-pane :fd fd :pid pid :command command)))
       (setf (pane-term pane)
             (vt:make-term :width cols :height rows
                           :bell-fn (lambda (term)

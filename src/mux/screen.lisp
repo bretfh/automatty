@@ -5,13 +5,13 @@
 (declaim (optimize (speed 3) (safety 1)))
 
 (defstruct (screen (:constructor %make-screen))
-  (width 80 :type fixnum)
-  (height 24 :type fixnum)
-  (grid #() :type simple-vector)
-  (cursor-x 0 :type fixnum)
-  (cursor-y 0 :type fixnum)
-  (cursor-visible t :type boolean)
-  (cursor-style :block))
+           (width 80 :type fixnum)
+           (height 24 :type fixnum)
+           (grid #() :type simple-vector)
+           (cursor-x 0 :type fixnum)
+           (cursor-y 0 :type fixnum)
+           (cursor-visible t :type boolean)
+           (cursor-style :block))
 
 (defun make-screen-grid (width height)
   (let ((grid (make-array height)))
@@ -66,9 +66,9 @@ already sent and repaint nothing ever again."
                     (vt:cell-face b) (vt:cell-face a)))))))))
 
 (defstruct (run (:constructor make-run (row start end)))
-  (row 0 :type fixnum)
-  (start 0 :type fixnum)
-  (end 0 :type fixnum))
+           (row 0 :type fixnum)
+           (start 0 :type fixnum)
+           (end 0 :type fixnum))
 
 (defvar *gap* 4
   "How many cells that did not move are carried inside a run rather than
@@ -88,7 +88,7 @@ character: writing that half alone would put the terminal a column out."
   (if (and (plusp start)
            (= 2 (vt:char-display-width (vt:cell-char (svref row (1- start))))))
       (1- start)
-      start))
+    start))
 
 (defun screen-diff (was now &optional (gap *gap*))
   "The runs of cells by which NOW differs from WAS, and WAS brought up to NOW.
@@ -123,9 +123,9 @@ what it is about to send and the shadow already says it was sent."
 
 (defun screen-dump-to-string (screen)
   (with-output-to-string (s)
-    (dotimes (y (screen-height screen))
-      (let ((row (screen-row screen y)))
-        (dotimes (x (screen-width screen))
-          (write-char (vt:cell-char (svref row x)) s)))
-      (unless (= y (1- (screen-height screen)))
-        (terpri s)))))
+                         (dotimes (y (screen-height screen))
+                           (let ((row (screen-row screen y)))
+                             (dotimes (x (screen-width screen))
+                               (write-char (vt:cell-char (svref row x)) s)))
+                           (unless (= y (1- (screen-height screen)))
+                             (terpri s)))))
