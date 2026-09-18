@@ -193,6 +193,16 @@ the whole terminal.")
              (watcher-cols watcher) (max 1 (min +biggest-pane+ cols)))
        (session-fit session)))
     (:knock (tell watcher (list :here (session-name session))))
+    (:bar
+     ;; the bar is the session's, not the client's: whoever asked, everybody
+     ;; attached is looking at the same one
+     (setf *bar-rows* (max 0 (min 4 (or (second form) 0))))
+     (dolist (w (session-watchers session))
+       (setf (watcher-shadow w) (make-screen :width (session-cols session)
+                                             :height (session-rows session))
+             (watcher-behind w) t))
+     (session-fit session)
+     (setf (pane-dirty (session-pane session)) t))
     (:detach (drop-watcher session watcher))
     (:stop (setf (server-going server) nil))
     (t nil)))

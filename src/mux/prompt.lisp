@@ -121,11 +121,14 @@ screen it was drawn over, and the diff puts it back."
 (defcommand redraw
   (client-redraw *client*))
 
+(defun tell-the-server (form)
+  (wire-send (client-wire *client*) form))
+
 (defcommand bar-off
-  (setf *bar-rows* 0))
+  (tell-the-server (list :bar 0)))
 
 (defcommand bar-on
-  (setf *bar-rows* 1))
+  (tell-the-server (list :bar 1)))
 
 (defcommand run-a-command
   (ask-a-command *client*))

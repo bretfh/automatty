@@ -268,6 +268,18 @@ already failing."
                "the program was told the whole terminal, bar and all: ~S"
                (seen seer)))))
 
+(test turning-the-bar-off-reaches-the-server-not-just-the-client
+  (with-server (path :command "while :; do stty size; sleep 0.3; done"
+                     :rows 10 :cols 40)
+    (with-seer (seer path :rows 10 :cols 40)
+      (is-true (pump seer :want "9 40") "the bar was not taking a row")
+      (type-at seer (format nil "~Cbo" mux:+prefix+))
+      (is-true (pump seer :want "10 40")
+               "the bar did not come off: ~S" (seen seer))
+      (type-at seer (format nil "~Cbb" mux:+prefix+))
+      (is-true (pump seer :want "9 40")
+               "the bar did not come back: ~S" (seen seer)))))
+
 (test with-no-bar-the-program-has-the-whole-terminal
   ;; the server runs in a thread of its own, and a special bound here would not
   ;; reach it
