@@ -25,27 +25,43 @@
         ((< byte #xF5) 4)
         (t 0)))
 
+(defun plain-p (said)
+  "Whether every byte in SAID is one a character all of its own."
+  (declare (type simple-string said))
+  (loop for i of-type fixnum from 0 below (length said)
+        always (< (char-code (schar said i)) #x80)))
+
 (defun decode-utf-8 (decoder said)
   "SAID, whose characters are the bytes a program wrote, as the characters those
 bytes mean.
 
-Anything that is not utf-8 comes back as the character that says so, one per
-byte, and the next byte is read as a fresh start: a terminal shows what it got
-rather than stopping."
+Anything that is not utf-8 comes back as the character that says so -- one per
+sequence rather than one per byte, so a character cut short does not swallow the
+one after it -- and a terminal goes on showing what it got rather than stopping.
+
+Bytes that are already characters are answered as they came, the same string and
+not a copy of it, because that is nearly everything a program ever writes."
+  (let ((said (if (typep said 'simple-string) said (coerce said 'simple-string))))
+    (if (and (null (decoder-tail decoder)) (plain-p said))
+        said
+        (%decode-utf-8 decoder said))))
+
+(defun %decode-utf-8 (decoder said)
   (let* ((tail (decoder-tail decoder))
          (bytes (if tail (concatenate 'simple-string tail said) said))
          (n (length bytes))
-         (out (make-array n :element-type 'character :fill-pointer 0))
+         (out (make-string n))
+         (at 0)
          (i 0))
-    (declare (type fixnum n i))
+    (declare (type fixnum n i at) (type simple-string out))
     (setf (decoder-tail decoder) nil)
     (loop while (< i n)
           do (let* ((b (char-code (char bytes i)))
                     (took (utf-8-length b)))
                (declare (type fixnum b took))
                (cond
-                 ((= took 1) (vector-push (char bytes i) out) (incf i))
-                 ((zerop took) (vector-push +not-a-character+ out) (incf i))
+                 ((= took 1) (setf (schar out at) (char bytes i)) (incf at) (incf i))
+                 ((zerop took) (setf (schar out at) +not-a-character+) (incf at) (incf i))
                  ((> (+ i took) n)
                   (setf (decoder-tail decoder)
                         (coerce (subseq bytes i n) 'simple-string)
@@ -65,6 +81,6 @@ rather than stopping."
                     (if (and (= k took)
                              (not (<= #xD800 code #xDFFF))
                              (>= code (case took (2 #x80) (3 #x800) (t #x10000))))
-                        (progn (vector-push (code-char code) out) (incf i took))
-                        (progn (vector-push +not-a-character+ out) (incf i k))))))))
-    (coerce out 'simple-string)))
+                        (progn (setf (schar out at) (code-char code)) (incf at) (incf i took))
+                        (progn (setf (schar out at) +not-a-character+) (incf at) (incf i k))))))))
+    (if (= at n) out (subseq out 0 at))))
