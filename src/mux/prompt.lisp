@@ -6,22 +6,6 @@
 ;;; than composed into it, because it belongs to whoever opened it: somebody
 ;;; else attached to the same session is still looking at their shell.
 
-(defvar *commands* (make-hash-table :test 'equal)
-  "What can be run by name.")
-
-(defmacro defcommand (name (&rest args) &body body)
-  "Give a name to something the prompt can run. The name is what is typed."
-  `(setf (gethash ,name *commands*)
-         (lambda (,@args) ,@body)))
-
-(defun command-names ()
-  (sort (loop :for name :being :the :hash-keys :of *commands* :collect name)
-        #'string<))
-
-(defun run-command (name client)
-  (let ((it (gethash name *commands*)))
-    (when it (funcall it client))))
-
 (defstruct (prompt (:constructor %make-prompt))
   (title "" :type string)
   (query "" :type string)
@@ -85,8 +69,9 @@
           (screen-cursor-visible screen) t)))
 
 (defun prompt-close (p client)
-  (client-over-drop client p)
-  (client-redraw client))
+  "Take it away. Nothing else needs doing: what it was covering is still in the
+screen it was drawn over, and the diff puts it back."
+  (client-over-drop client p))
 
 (defmethod press ((p prompt) key client)
   (let ((showing (prompt-showing p)))
@@ -143,3 +128,18 @@
 (defcommand "bar on" (client)
   (declare (ignore client))
   (setf *bar-rows* 1))
+
+(defcommand "run a command" (client)
+  (ask-a-command client))
+
+(defcommand "what the keys do" (client)
+  (show-note client "keys"
+             (format nil "~{~A~%~}"
+                     (loop :for (key . name) :in (bindings)
+                           :collect (format nil "  ^B ~A    ~A" key name)))
+             :face :accent))
+
+(bind #\d "detach")
+(bind #\r "redraw")
+(bind #\: "run a command")
+(bind #\? "what the keys do")

@@ -81,8 +81,17 @@ nothing else: it runs between any two instructions there are.")
 (defun stop-hearing-resizes ()
   (sb-sys:enable-interrupt sb-unix:sigwinch :default))
 
+(defparameter +blanked+
+  (format nil "~C[0m~C[2J~C[H" #\Escape #\Escape #\Escape)
+  "Nothing on the screen, and nothing left in force.
+
+The reset has to come first. An erase paints in whatever colour was last set, so
+clearing while the bar's background is in force fills the terminal with it --
+and then every cell that is genuinely blank matches what we think is there and
+is never drawn over.")
+
 (defparameter +took-over+
-  (format nil "~C[?1049h~C[?7l~C[?25l~C[2J" #\Escape #\Escape #\Escape #\Escape)
+  (format nil "~C[?1049h~C[?7l~C[?25l~A" #\Escape #\Escape #\Escape +blanked+)
   "Alternate screen, no autowrap, no cursor, and a clean one to draw on.
 
 Autowrap stays off for the whole session: writing the bottom right cell of a

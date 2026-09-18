@@ -115,7 +115,7 @@ looks like, not why it happened."
          (destructuring-bind (name rows cols) (rest form)
                              (declare (ignore name))
                              (client-fit client rows cols)
-                             (host-say client (format nil "~C[2J" #\Escape))))
+                             (host-say client +blanked+)))
         (:frame
          (destructuring-bind (said faces) (rest form)
                              (said-into-screen (client-from client) said faces)
@@ -133,11 +133,12 @@ looks like, not why it happened."
         (t nil)))
 
 (defun client-redraw (client)
-  (setf (client-shown client)
-        (make-screen :width (screen-width (client-shown client))
-                     :height (screen-height (client-shown client)))
-        (client-dirty client) t)
-  (host-say client (format nil "~C[2J" #\Escape))
+  (when (client-shown client)
+    (setf (client-shown client)
+          (make-screen :width (screen-width (client-shown client))
+                       :height (screen-height (client-shown client)))))
+  (setf (client-dirty client) t)
+  (host-say client +blanked+)
   (wire-send (client-wire client)
              (list :resize (client-rows client) (client-cols client))))
 
@@ -154,8 +155,6 @@ looks like, not why it happened."
                   (if it
                       (press it key client)
                       (return)))))))
-
-(declaim (ftype function ask-a-command))
 
 (defun client-typed (client said)
   "Pass what was typed through, byte for byte, except the one byte that says the
@@ -177,10 +176,8 @@ it wants them named rather than raw, so that is the one time they are decoded."
                (setf (client-waiting-for-command client) nil)
                (cond
                 ((char= ch +prefix+) (vector-push ch out))
-                ((char-equal ch #\d) (done-with client :detached))
-                ((char-equal ch #\r) (client-redraw client))
-                ((char= ch #\:) (ask-a-command client))
-                (t nil)))
+                (t (let ((name (bound ch)))
+                     (when name (run-command name client))))))
               ((char= ch +prefix+)
                (setf (client-waiting-for-command client) t))
               (t (vector-push ch out))))

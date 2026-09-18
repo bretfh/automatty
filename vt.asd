@@ -73,7 +73,9 @@ them, and a client that shows one"
                              (:file "match")
                              (:file "server")
                              (:file "bar")
+                             (:file "command")
                              (:file "client")
+                             (:file "note")
                              (:file "prompt")
                              (:file "main")))
 

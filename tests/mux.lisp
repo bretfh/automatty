@@ -318,3 +318,18 @@ already failing."
   (is (equal "sh -c 'a thing'" (mux::shortened "/bin/sh -c 'a thing'")))
   (is (equal "vim" (mux::shortened "vim")))
   (is (equal "" (mux::shortened nil))))
+
+(test a-resize-does-not-leave-the-screen-painted-in-the-bars-colour
+  (with-server (path :command "printf 'before\\n'; sleep 30" :rows 10 :cols 40)
+    (with-seer (seer path :rows 10 :cols 40)
+      (is-true (pump seer :want "before"))
+      (pty:pty-set-size (seer-master seer) 14 50)
+      (vt:term-resize (seer-host seer) 50 14)
+      (mux:client-resized (seer-client seer))
+      (is-true (pump seer :want "before") "the pane did not come back after a resize")
+      (pump seer :seconds 1)
+      (let ((host (seer-host seer)))
+        (is (vt:face-default-p (face-at host 20 6))
+            "an empty cell came back wearing ~S -- the clear was done in whatever
+colour was last in force"
+            (vt:face-attrs-to-plist (face-at host 20 6)))))))

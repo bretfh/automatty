@@ -55,6 +55,7 @@
    #:hear-resizes
    #:*asked-to-stop*
    #:stop-hearing-resizes
+   #:+blanked+
    #:with-host
 
    #:wire
@@ -152,6 +153,14 @@
    #:defcommand
    #:*commands*
    #:command-names
+   #:bind
+   #:bound
+   #:bindings
+   #:*keys*
+   #:note
+   #:make-note
+   #:show-note
+   #:show-broke
    #:run-command
    #:prompt
    #:make-prompt
