@@ -11,6 +11,10 @@
            (fd 0 :type fixnum)
            (to 1 :type fixnum)
            (screen nil)
+           (from nil)
+           (shown nil)
+           (over nil)
+           (dirty t :type boolean)
            (takes t)
            (rows 24 :type fixnum)
            (cols 80 :type fixnum)
@@ -54,11 +58,49 @@ them again."
   (handler-case (pty:pty-write-string (client-to client) said :utf-8)
     (error () (done-with client :terminal-gone) 0)))
 
-(defun client-draw (client said faces)
-  (let* ((screen (client-screen client))
-         (runs (said-into-screen screen said faces)))
-    (with-output-to-string (s)
-                           (encode-runs screen runs s :takes (client-takes client)))))
+(defgeneric draw-over (thing screen)
+  (:documentation "Draw THING onto SCREEN, over whatever the session put there.
+This is the seam: anything that can write cells can be put on top, and nothing
+else needs to know about it."))
+
+(defgeneric press (thing key client)
+  (:documentation "Give KEY to THING. What is on top gets it, and the pane does
+not see it at all."))
+
+(defun client-fit (client rows cols)
+  (setf (client-screen client) (make-screen :width cols :height rows)
+        (client-from client) (make-screen :width cols :height rows)
+        (client-shown client) (make-screen :width cols :height rows)
+        (client-dirty client) t))
+
+(defun client-show (client)
+  "Put the session, and then whatever is drawn on top of it, onto the terminal.
+
+The client composes for itself rather than writing out the runs the server sent,
+because what is on top is this one person's: a prompt somebody opened here is
+not something everybody attached should be shown."
+  (let ((work (client-screen client)))
+    (when (and work (client-from client) (client-shown client))
+      (screen-copy work (client-from client))
+      (dolist (it (reverse (client-over client)))
+        (draw-over it work))
+      (let ((runs (screen-diff (client-shown client) work)))
+        (when runs
+          (host-say client
+                    (with-output-to-string (s)
+                      (encode-runs work runs s :takes (client-takes client)))))
+        (host-say client
+                  (with-output-to-string (s) (encode-cursor work s))))
+      (setf (client-dirty client) nil))))
+
+(defun client-over-put (client it)
+  (push it (client-over client))
+  (setf (client-dirty client) t)
+  it)
+
+(defun client-over-drop (client it)
+  (setf (client-over client) (remove it (client-over client))
+        (client-dirty client) t))
 
 (defun done-with (client why)
   "Stop, for the first reason there was. What came after it is what stopping
@@ -72,32 +114,48 @@ looks like, not why it happened."
         (:hello
          (destructuring-bind (name rows cols) (rest form)
                              (declare (ignore name))
-                             (setf (client-screen client) (make-screen :width cols :height rows))
+                             (client-fit client rows cols)
                              (host-say client (format nil "~C[2J" #\Escape))))
         (:frame
          (destructuring-bind (said faces) (rest form)
-                             (host-say client (client-draw client said faces))))
+                             (said-into-screen (client-from client) said faces)
+                             (setf (client-dirty client) t)))
         (:cursor
          (destructuring-bind (y x visible style) (rest form)
                              (declare (ignore style))
-                             (let ((screen (client-screen client)))
+                             (let ((screen (client-from client)))
                                (setf (screen-cursor-y screen) y
                                      (screen-cursor-x screen) x
                                      (screen-cursor-visible screen) (and visible t)))
-                             (host-say client
-                                       (with-output-to-string (s)
-                                                              (encode-cursor (client-screen client) s)))))
+                             (setf (client-dirty client) t)))
         (:bell (host-say client (string (code-char 7))))
         (:bye (done-with client (second form)))
         (t nil)))
 
 (defun client-redraw (client)
-  (setf (client-screen client)
-        (make-screen :width (screen-width (client-screen client))
-                     :height (screen-height (client-screen client))))
+  (setf (client-shown client)
+        (make-screen :width (screen-width (client-shown client))
+                     :height (screen-height (client-shown client)))
+        (client-dirty client) t)
   (host-say client (format nil "~C[2J" #\Escape))
   (wire-send (client-wire client)
              (list :resize (client-rows client) (client-cols client))))
+
+(defun client-pressed (client said)
+  "Bytes, as keys, to whatever is on top."
+  (let ((at 0)
+        (n (length said)))
+    (loop :while (< at n)
+          :do (multiple-value-bind (key took)
+                  (vt:escape-sequence-to-key-event said at n nil)
+                (when (zerop took) (return))
+                (incf at took)
+                (let ((it (first (client-over client))))
+                  (if it
+                      (press it key client)
+                      (return)))))))
+
+(declaim (ftype function ask-a-command))
 
 (defun client-typed (client said)
   "Pass what was typed through, byte for byte, except the one byte that says the
@@ -105,7 +163,12 @@ next one is a command.
 
 The bytes are not decoded into keys and encoded again: a terminal sends more
 than any table of keys knows -- mouse reports, pasted text, whatever encoding it
-was built with -- and what the pane reads should be what the terminal sent."
+was built with -- and what the pane reads should be what the terminal sent.
+
+Except while something is drawn on top. A prompt is a place keys go instead, and
+it wants them named rather than raw, so that is the one time they are decoded."
+  (when (client-over client)
+    (return-from client-typed (client-pressed client said)))
   (let ((out (make-array (length said) :element-type 'character
                          :fill-pointer 0)))
     (loop for ch across said
@@ -116,6 +179,7 @@ was built with -- and what the pane reads should be what the terminal sent."
                 ((char= ch +prefix+) (vector-push ch out))
                 ((char-equal ch #\d) (done-with client :detached))
                 ((char-equal ch #\r) (client-redraw client))
+                ((char= ch #\:) (ask-a-command client))
                 (t nil)))
               ((char= ch +prefix+)
                (setf (client-waiting-for-command client) t))
@@ -159,6 +223,7 @@ moment would otherwise answer that question first, and answer it wrongly."
         (if (null said)
             (done-with client :input-gone)
           (client-typed client said))))
+    (when (client-dirty client) (client-show client))
     (wire-flush wire)
     client))
 

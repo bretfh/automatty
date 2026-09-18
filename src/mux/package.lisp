@@ -17,6 +17,7 @@
    #:screen-cursor-style
    #:screen-resize
    #:screen-clear
+   #:screen-copy
    #:screen-blit
    #:screen-diff
    #:screen-dump-to-string
@@ -138,9 +139,32 @@
    #:client-why
    #:client-screen
    #:client-wire
+   #:client-over
+   #:client-over-put
+   #:client-over-drop
+   #:client-dirty
+   #:client-show
+   #:draw-over
+   #:press
    #:client-rows
    #:client-cols
    #:client-resized
+   #:defcommand
+   #:*commands*
+   #:command-names
+   #:run-command
+   #:prompt
+   #:make-prompt
+   #:prompt-query
+   #:prompt-index
+   #:prompt-showing
+   #:prompt-chosen
+   #:prompt-tree
+   #:ask
+   #:ask-a-command
+   #:matches
+   #:score
+
    #:attach
 
    #:mux-dir

@@ -70,9 +70,11 @@ them, and a client that shows one"
                              (:file "encode")
                              (:file "wire")
                              (:file "pane")
+                             (:file "match")
                              (:file "server")
                              (:file "bar")
                              (:file "client")
+                             (:file "prompt")
                              (:file "main")))
 
 (asdf:defsystem #:vt/all
@@ -97,6 +99,7 @@ them, and a client that shows one"
                              (:file "encode")
                              (:file "wire")
                              (:file "mux")
-                             (:file "cells"))
+                             (:file "cells")
+                             (:file "prompt"))
                 :perform (asdf:test-op (o c)
                                        (uiop:symbol-call :vt/test :run-them)))

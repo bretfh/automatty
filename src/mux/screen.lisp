@@ -45,6 +45,22 @@
           (setf (vt:cell-char cell) #\Space
                 (vt:cell-face cell) nil))))))
 
+(defun screen-copy (into from)
+  "Put what FROM holds into INTO, cells and cursor both."
+  (dotimes (y (min (screen-height into) (screen-height from)))
+    (let ((a (screen-row into y))
+          (b (screen-row from y)))
+      (dotimes (x (min (screen-width into) (screen-width from)))
+        (let ((c (svref a x))
+              (d (svref b x)))
+          (setf (vt:cell-char c) (vt:cell-char d)
+                (vt:cell-face c) (vt:cell-face d))))))
+  (setf (screen-cursor-x into) (screen-cursor-x from)
+        (screen-cursor-y into) (screen-cursor-y from)
+        (screen-cursor-visible into) (screen-cursor-visible from)
+        (screen-cursor-style into) (screen-cursor-style from))
+  into)
+
 (defun screen-blit (screen term &key (top 0) (left 0))
   "Copy what TERM holds into SCREEN at TOP LEFT, clipped to both.
 

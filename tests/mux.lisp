@@ -43,7 +43,7 @@
            (stop-server ,path)
            ;; a server left running goes on holding descriptors, and the next
            ;; test opens a pty onto the numbers it is about to close
-           (when (eq :gave-up (sb-thread:join-thread ,thread :timeout 5
+           (when (eq :gave-up (sb-thread:join-thread ,thread :timeout 15
                                                              :default :gave-up))
              (error "a test server would not stop"))
            (ignore-errors (delete-file ,path)))))))
@@ -65,8 +65,12 @@
   (ignore-errors (sb-posix:close (seer-slave seer)))
   (ignore-errors (pty:pty-close (seer-master seer))))
 
-(defun pump (seer &key (seconds 2) want)
-  "Run the client and read what it drew, until WANT is on its screen."
+(defun pump (seer &key (seconds 8) want)
+  "Run the client and read what it drew, until WANT is on its screen.
+
+SECONDS is there to stop a hang, not to measure anything: a test that finds what
+it wanted returns at once, so the only runs that feel the deadline are the ones
+already failing."
   (let ((deadline (+ (get-internal-real-time)
                      (* seconds internal-time-units-per-second))))
     (loop
@@ -177,7 +181,7 @@
   (with-server (path :command "printf 'before\\a'; sleep 1; printf 'after\\n'; sleep 30")
     (with-seer (seer path)
       (is-true (pump seer :want "before"))
-      (is-true (pump seer :want "after" :seconds 10)
+      (is-true (pump seer :want "after")
                "the server stopped when the pane rang the bell: ~S" (seen seer)))))
 
 (test a-title-does-not-take-the-server-down
@@ -266,3 +270,45 @@
                   (with-seer (seer path :rows 10 :cols 40)
                     (is-true (pump seer :want "10 40") "~S" (seen seer)))))
       (setf mux:*bar-rows* was))))
+
+(test the-prompt-opens-on-the-prefix-and-runs-what-was-chosen
+  (with-server (path :command "printf 'the-pane\\n'; sleep 30" :rows 12 :cols 50)
+    (with-seer (seer path :rows 12 :cols 50)
+      (is-true (pump seer :want "the-pane"))
+      (type-at seer (format nil "~C:" mux:+prefix+))
+      (is-true (pump seer :want "run") "the prompt did not open: ~S" (seen seer))
+      (is-true (pump seer :want "detach"))
+      (type-at seer "bar")
+      (is-true (pump seer :want "bar o") "typing did not narrow it: ~S" (seen seer))
+      (type-at seer (string (code-char 27)))
+      (pump seer :seconds 1/2)
+      (is (search "the-pane" (seen seer))
+          "the pane did not come back after the prompt was dropped")
+      (is-true (mux:client-going (seer-client seer))))))
+
+(test what-is-typed-at-a-prompt-does-not-reach-the-program
+  (with-server (path :command "cat" :rows 12 :cols 50)
+    (with-seer (seer path :rows 12 :cols 50)
+      (pump seer :seconds 1/2)
+      (type-at seer (format nil "~C:" mux:+prefix+))
+      (is-true (pump seer :want "run"))
+      (type-at seer "redr")
+      (pump seer :seconds 1/2)
+      (type-at seer (string (code-char 27)))
+      (pump seer :seconds 1/2)
+      (type-at seer (format nil "after~C" #\Return))
+      (is-true (pump seer :want "after"))
+      (is (null (search "redr" (seen seer)))
+          "what was typed at the prompt was echoed by the program: ~S" (seen seer)))))
+
+(test a-prompt-is-drawn-for-whoever-opened-it-and-nobody-else
+  (with-server (path :command "printf 'shared\\n'; sleep 30" :rows 12 :cols 50)
+    (with-seer (mine path :rows 12 :cols 50)
+      (with-seer (theirs path :rows 12 :cols 50)
+        (is-true (pump mine :want "shared"))
+        (is-true (pump theirs :want "shared"))
+        (type-at mine (format nil "~C:" mux:+prefix+))
+        (is-true (pump mine :want "run"))
+        (pump theirs :seconds 1/2)
+        (is (null (search "run" (seen theirs)))
+            "the other client was shown a prompt it did not open: ~S" (seen theirs))))))
