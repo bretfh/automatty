@@ -146,7 +146,9 @@
    #:client-dirty
    #:client-show
    #:draw-over
-   #:press
+   #:mode-of
+   #:unbound
+   #:client-mode
    #:client-rows
    #:client-cols
    #:client-resized

@@ -45,9 +45,15 @@
     (vt/cells:draw tree (screen-grid screen) cols rows :top top)
     (setf (screen-cursor-visible screen) nil)))
 
-(defmethod press ((n note) key client)
-  (declare (ignore key))
-  (client-over-drop client n))
+(vt/mode:define-mode note-mode ())
+
+(defmethod mode-of ((n note)) 'note-mode)
+
+(defmethod unbound ((n note) chord client)
+  "Anything at all puts it away."
+  (declare (ignore chord))
+  (client-over-drop client n)
+  t)
 
 (defun lines-of (text)
   (vt/ui:split-string text :separator (list #\Newline)))

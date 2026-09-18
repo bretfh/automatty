@@ -20,6 +20,7 @@
            (cols 80 :type fixnum)
            (waiting nil)
            (chord-so-far nil :type list)
+           (mode 'pane-mode)
            (going t :type boolean)
            (why nil))
 
@@ -64,9 +65,9 @@ them again."
 This is the seam: anything that can write cells can be put on top, and nothing
 else needs to know about it."))
 
-(defgeneric press (thing key client)
-  (:documentation "Give KEY to THING. What is on top gets it, and the pane does
-not see it at all."))
+(defgeneric mode-of (thing)
+  (:documentation "Which mode a client is in while THING is on top.")
+  (:method (thing) (declare (ignore thing)) 'pane-mode))
 
 (defun client-fit (client rows cols)
   (setf (client-screen client) (make-screen :width cols :height rows)
@@ -94,14 +95,21 @@ not something everybody attached should be shown."
                   (with-output-to-string (s) (encode-cursor work s))))
       (setf (client-dirty client) nil))))
 
+(defun client-in-mode (client)
+  "The mode whatever is on top asks for, or the pane's when nothing is."
+  (setf (client-mode client) (mode-of (first (client-over client)))
+        (client-chord-so-far client) nil))
+
 (defun client-over-put (client it)
   (push it (client-over client))
+  (client-in-mode client)
   (setf (client-dirty client) t)
   it)
 
 (defun client-over-drop (client it)
-  (setf (client-over client) (remove it (client-over client))
-        (client-dirty client) t))
+  (setf (client-over client) (remove it (client-over client)))
+  (client-in-mode client)
+  (setf (client-dirty client) t))
 
 (defun done-with (client why)
   "Stop, for the first reason there was. What came after it is what stopping
@@ -144,28 +152,34 @@ looks like, not why it happened."
              (list :resize (client-rows client) (client-cols client))))
 
 (defun client-pressed (client said)
-  "Bytes, as keys, to whatever is on top."
+  "Bytes, as keys, to the mode whatever is on top put the client in."
   (let ((at 0)
         (n (length said)))
     (loop :while (< at n)
-          :do (multiple-value-bind (key took)
+          :do (multiple-value-bind (event took)
                   (vt:escape-sequence-to-key-event said at n nil)
                 (when (zerop took) (return))
                 (incf at took)
-                (let ((it (first (client-over client))))
-                  (if it
-                      (press it key client)
-                      (return)))))))
+                (client-chord client (key-of event))))))
+
+(defgeneric unbound (thing chord client)
+  (:documentation "What to do with a key the mode has no binding for. A prompt
+puts it in what has been typed; most things ignore it.")
+  (:method (thing chord client) (declare (ignore thing chord client)) nil))
 
 (defun client-chord (client key)
-  "Give KEY to the mode. Answers whether the chord wants more keys.
+  "Give KEY to the mode this client is in. Answers whether the chord wants more
+keys.
 
-Half a chord is this client's, not the image's: two of them attached in one
-process would otherwise be finishing each other's."
-  (let ((*client* client)
-        (vt/mode:*pending* (client-chord-so-far client)))
+Which mode, and half a chord, are both this client's rather than the image's:
+two of them attached in one process would otherwise be in each other's modes and
+finishing each other's chords."
+  (let* ((*client* client)
+         (over (first (client-over client)))
+         (vt/mode:*pending* (client-chord-so-far client))
+         (vt/mode:*unbound* (lambda (chord) (unbound over chord client))))
     (prog1 (eq :pending (vt/mode:press (vt/mode:spelled key)
-                                       (vt/mode:mode-named 'pane-mode)))
+                                       (vt/mode:mode-named (client-mode client))))
       (setf (client-chord-so-far client) vt/mode:*pending*))))
 
 (defun client-typed (client said)

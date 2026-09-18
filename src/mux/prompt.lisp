@@ -73,37 +73,86 @@
 screen it was drawn over, and the diff puts it back."
   (client-over-drop client p))
 
-(defmethod press ((p prompt) key client)
-  (let ((showing (prompt-showing p)))
-    (flet ((moved (to)
-             (setf (prompt-index p)
-                   (max 0 (min (max 0 (1- (length showing))) to)))))
-      (cond
-        ((characterp key)
-         (setf (prompt-query p) (concatenate 'string (prompt-query p) (string key))
-               (prompt-index p) 0))
-        ((not (consp key)) nil)
-        (t (case (first key)
-             (:backspace
-              (let ((q (prompt-query p)))
-                (setf (prompt-query p) (subseq q 0 (max 0 (1- (length q))))
-                      (prompt-index p) 0)))
-             (:up (moved (1- (prompt-index p))))
-             (:down (moved (1+ (prompt-index p))))
-             (:page-up (moved (- (prompt-index p) (prompt-most p))))
-             (:page-down (moved (+ (prompt-index p) (prompt-most p))))
-             (:home (moved 0))
-             (:end (moved (1- (length showing))))
-             (:escape
-              (prompt-close p client)
-              (when (prompt-dropped p) (funcall (prompt-dropped p) client)))
-             (:enter
-              (let ((it (prompt-chosen p)))
-                (prompt-close p client)
-                (when (and it (prompt-chose p))
-                  (funcall (prompt-chose p) it client))))
-             (t nil))))))
-  (setf (client-dirty client) t))
+(vt/mode:define-mode prompt-mode ())
+
+(defmethod mode-of ((p prompt)) 'prompt-mode)
+
+(defun the-prompt ()
+  (let ((it (first (client-over *client*))))
+    (when (typep it 'prompt) it)))
+
+(defun prompt-moved (p to)
+  (let ((most (max 0 (1- (length (prompt-showing p))))))
+    (setf (prompt-index p) (max 0 (min most to)))))
+
+(defmethod unbound ((p prompt) chord client)
+  "A key nothing is bound to, if it is one that stands for a character, is what
+was typed."
+  (let ((said (vt/mode:self-inserting chord)))
+    (when said
+      (setf (prompt-query p) (concatenate 'string (prompt-query p) said)
+            (prompt-index p) 0
+            (client-dirty client) t)
+      t)))
+
+(defcommand prompt-next
+  (let ((p (the-prompt))) (when p (prompt-moved p (1+ (prompt-index p))))))
+
+(defcommand prompt-previous
+  (let ((p (the-prompt))) (when p (prompt-moved p (1- (prompt-index p))))))
+
+(defcommand prompt-page-down
+  (let ((p (the-prompt)))
+    (when p (prompt-moved p (+ (prompt-index p) (prompt-most p))))))
+
+(defcommand prompt-page-up
+  (let ((p (the-prompt)))
+    (when p (prompt-moved p (- (prompt-index p) (prompt-most p))))))
+
+(defcommand prompt-first
+  (let ((p (the-prompt))) (when p (prompt-moved p 0))))
+
+(defcommand prompt-last
+  (let ((p (the-prompt)))
+    (when p (prompt-moved p (length (prompt-showing p))))))
+
+(defcommand prompt-rub-out
+  (let ((p (the-prompt)))
+    (when p
+      (let ((q (prompt-query p)))
+        (setf (prompt-query p) (subseq q 0 (max 0 (1- (length q))))
+              (prompt-index p) 0)))))
+
+(defcommand prompt-clear
+  (let ((p (the-prompt)))
+    (when p (setf (prompt-query p) "" (prompt-index p) 0))))
+
+(defcommand prompt-accept
+  (let ((p (the-prompt)))
+    (when p
+      (let ((it (prompt-chosen p)))
+        (prompt-close p *client*)
+        (when (and it (prompt-chose p)) (funcall (prompt-chose p) it *client*))))))
+
+(defcommand prompt-cancel
+  (let ((p (the-prompt)))
+    (when p
+      (prompt-close p *client*)
+      (when (prompt-dropped p) (funcall (prompt-dropped p) *client*)))))
+
+(vt/mode:define-key 'prompt-mode "Down"     #'prompt-next)
+(vt/mode:define-key 'prompt-mode "C-n"      #'prompt-next)
+(vt/mode:define-key 'prompt-mode "Up"       #'prompt-previous)
+(vt/mode:define-key 'prompt-mode "C-p"      #'prompt-previous)
+(vt/mode:define-key 'prompt-mode "PageDown" #'prompt-page-down)
+(vt/mode:define-key 'prompt-mode "PageUp"   #'prompt-page-up)
+(vt/mode:define-key 'prompt-mode "Home"     #'prompt-first)
+(vt/mode:define-key 'prompt-mode "End"      #'prompt-last)
+(vt/mode:define-key 'prompt-mode "DEL"      #'prompt-rub-out)
+(vt/mode:define-key 'prompt-mode "C-u"      #'prompt-clear)
+(vt/mode:define-key 'prompt-mode "RET"      #'prompt-accept)
+(vt/mode:define-key 'prompt-mode "Escape"   #'prompt-cancel)
+(vt/mode:define-key 'prompt-mode "C-g"      #'prompt-cancel)
 
 (defun ask (client title items &key (text #'identity) chose dropped)
   "Put a prompt over whatever CLIENT is showing."

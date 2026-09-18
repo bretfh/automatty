@@ -21,27 +21,33 @@
   (is (> (mux:score "det" "detach") (mux:score "det" "a-detached-thing"))
       "a shorter answer that matched as well did not win"))
 
-(defun pressing (p &rest keys)
-  (dolist (key keys p)
-    (mux:press p key (mux::%make-client))))
+(defun pressing (p &rest chords)
+  "Put P up on a client and press the chords at it, as the loop would."
+  (let ((client (mux::%make-client)))
+    (mux:client-over-put client p)
+    (dolist (chord chords p)
+      (let ((mux:*client* client)
+            (vt/mode:*pending* nil)
+            (vt/mode:*unbound* (lambda (c) (mux:unbound p c client))))
+        (vt/mode:press chord (vt/mode:mode-named (mux:client-mode client)))))))
 
 (test moving-through-what-is-offered-stops-at-the-ends
   (let ((p (mux:make-prompt "run" '("one" "two" "three"))))
-    (pressing p '(:down) '(:down))
+    (pressing p "Down" "Down")
     (is (eql 2 (mux:prompt-index p)))
-    (pressing p '(:down) '(:down))
+    (pressing p "Down" "Down")
     (is (eql 2 (mux:prompt-index p)) "it ran off the bottom")
-    (pressing p '(:up) '(:up) '(:up) '(:up))
+    (pressing p "Up" "Up" "Up" "Up")
     (is (eql 0 (mux:prompt-index p)) "it ran off the top")))
 
 (test typing-puts-the-choice-back-at-the-top
   (let ((p (mux:make-prompt "run" '("detach" "redraw" "rename"))))
-    (pressing p '(:down))
+    (pressing p "Down")
     (is (eql 1 (mux:prompt-index p)))
-    (pressing p #\r)
+    (pressing p "r")
     (is (eql 0 (mux:prompt-index p)) "the choice stayed where it was")
     (is (equal "r" (mux:prompt-query p)))
-    (pressing p #\e '(:backspace))
+    (pressing p "e" "DEL")
     (is (equal "r" (mux:prompt-query p)))))
 
 (test the-prompt-draws-itself-at-the-foot-and-says-what-was-typed
@@ -83,3 +89,39 @@
            (mux:run-command "a test command" nil)
            (is-true ran))
       (remhash "a test command" mux:*commands*))))
+
+(test what-is-on-top-says-which-mode-the-client-is-in
+  (let ((client (mux::%make-client))
+        (p (mux:make-prompt "run" '("one" "two"))))
+    (is (eq 'mux:pane-mode (mux:client-mode client)))
+    (mux:client-over-put client p)
+    (is (eq 'mux::prompt-mode (mux:client-mode client))
+        "the prompt did not put the client in its own mode")
+    (mux:client-over-put client (mux:make-note "hm" '("a line")))
+    (is (eq 'mux::note-mode (mux:client-mode client)))
+    (mux:client-over-drop client (first (mux:client-over client)))
+    (is (eq 'mux::prompt-mode (mux:client-mode client))
+        "dropping the note did not go back to the prompt underneath")
+    (mux:client-over-drop client p)
+    (is (eq 'mux:pane-mode (mux:client-mode client)))))
+
+(test a-pane-chord-does-not-fire-while-a-prompt-is-up
+  (let ((pane (vt/mode:mode-named 'mux:pane-mode))
+        (prompt (vt/mode:mode-named 'mux::prompt-mode)))
+    (is (vt/mode:lookup-key "C-b d" pane))
+    (is (null (vt/mode:lookup-key "C-b d" prompt))
+        "the prompt can still detach, so a pane binding is reaching it")
+    (is (vt/mode:lookup-key "RET" prompt))
+    (is (null (vt/mode:lookup-key "RET" pane))
+        "return is bound in the pane, where it should reach the program")))
+
+(test a-key-nobody-bound-is-what-was-typed
+  (let ((p (mux:make-prompt "run" '("detach" "redraw"))))
+    (pressing p "r" "e" "d")
+    (is (equal "red" (mux:prompt-query p))
+        "letters did not reach the query through the unbound hook")
+    (pressing p "SPC")
+    (is (equal "red " (mux:prompt-query p)) "space did not insert")
+    (pressing p "C-b")
+    (is (equal "red " (mux:prompt-query p))
+        "a key with a modifier inserted itself")))
