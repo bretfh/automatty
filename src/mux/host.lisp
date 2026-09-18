@@ -91,14 +91,36 @@ terminal that has it on scrolls the screen out from under everything.")
 (defparameter +gave-back+
   (format nil "~C[0m~C[?25h~C[?7h~C[?1049l" #\Escape #\Escape #\Escape #\Escape))
 
-(defmacro with-host ((fd &key (raw t)) &body body)
-  (let ((was (gensym "WAS")) (f (gensym "FD")))
+(defvar *asked-to-stop* nil)
+
+(defun hear-the-end ()
+  (setf *asked-to-stop* nil)
+  (dolist (signal (list sb-unix:sigterm sb-unix:sighup))
+    (sb-sys:enable-interrupt signal
+                             (lambda (signal info context)
+                               (declare (ignore signal info context))
+                               (setf *asked-to-stop* t)))))
+
+(defun stop-hearing-the-end ()
+  (dolist (signal (list sb-unix:sigterm sb-unix:sighup))
+    (sb-sys:enable-interrupt signal :default)))
+
+(defmacro with-host ((fd &key (to fd) (raw t)) &body body)
+  "Take the terminal on FD over for the body, and give it back however the body
+leaves.
+
+Putting it back is the one thing that must always happen: a terminal left in raw
+mode with no cursor is the worst thing this program can do to somebody."
+  (let ((was (gensym "WAS")) (f (gensym "FD")) (w (gensym "TO")))
     `(let* ((,f ,fd)
+            (,w ,to)
             (,was (when ,raw (host-raw ,f))))
        (unwind-protect
-            (progn (pty:pty-write-string ,f +took-over+)
+            (progn (pty:pty-write-string ,w +took-over+)
                    (hear-resizes)
+                   (hear-the-end)
                    ,@body)
+         (stop-hearing-the-end)
          (stop-hearing-resizes)
-         (ignore-errors (pty:pty-write-string ,f +gave-back+))
+         (ignore-errors (pty:pty-write-string ,w +gave-back+))
          (host-put-back ,f ,was)))))

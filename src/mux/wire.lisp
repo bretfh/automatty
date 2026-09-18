@@ -22,6 +22,8 @@
   (sent 0 :type fixnum)
   (scratch (make-array +scratch+ :element-type '(unsigned-byte 8)) :type bytes)
   (owner nil)
+  (in-bytes 0 :type fixnum)
+  (out-bytes 0 :type fixnum)
   (open t :type boolean))
 
 (defun grown (vec need)
@@ -135,6 +137,7 @@ first could not be picked up from a different terminal."
     (incf (wire-end wire) (length head))
     (replace (wire-out wire) bytes :start1 (wire-end wire))
     (incf (wire-end wire) (length bytes))
+    (incf (wire-out-bytes wire) (+ (length head) (length bytes)))
     wire))
 
 (defun wire-pending (wire)
@@ -175,6 +178,7 @@ it all got out."
            (setf (wire-in wire) (grown (wire-in wire) (+ (wire-have wire) n)))
            (replace (wire-in wire) buf :start1 (wire-have wire) :end2 n)
            (incf (wire-have wire) n)
+           (incf (wire-in-bytes wire) n)
            (incf got n)
            (when (< n (length buf)) (return got)))
           ((eql n 0) (return nil))

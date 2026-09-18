@@ -52,6 +52,7 @@
    #:host-put-back
    #:*resized*
    #:hear-resizes
+   #:*asked-to-stop*
    #:stop-hearing-resizes
    #:with-host
 
@@ -65,6 +66,8 @@
    #:wire-take
    #:wire-flush
    #:wire-pending
+   #:wire-in-bytes
+   #:wire-out-bytes
    #:face-said
    #:said-face
    #:runs-said
@@ -103,6 +106,7 @@
    #:client-going
    #:client-why
    #:client-screen
+   #:client-wire
    #:client-rows
    #:client-cols
    #:client-resized
