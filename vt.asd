@@ -35,6 +35,8 @@ them, and a client that shows one"
                 :serial t
                 :pathname "src/mux/"
                 :components ((:file "package")
+                             (:file "poll")
+                             (:file "host")
                              (:file "screen")
                              (:file "encode")))
 
@@ -54,6 +56,7 @@ them, and a client that shows one"
                              (:file "render")
                              (:file "input")
                              (:file "pty")
+                             (:file "host")
                              (:file "screen")
                              (:file "encode"))
                 :perform (asdf:test-op (o c)

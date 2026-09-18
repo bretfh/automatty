@@ -2,6 +2,7 @@
 
 (defpackage #:vt/mux
   (:use #:cl)
+  (:local-nicknames (#:pty #:vt/pty))
   (:export
    #:screen
    #:screen-p
@@ -29,4 +30,27 @@
    #:encode-runs
    #:encode-cursor
    #:encode-frame
-   #:takes-of))
+   #:takes-of
+
+   #:make-waiting
+   #:free-waiting
+   #:waiting-clear
+   #:waiting-add
+   #:waiting-back
+   #:waiting-count
+   #:readable-p
+   #:writable-p
+   #:gone-p
+   #:wait-on
+
+   #:+tiocgwinsz+
+   #:+stdin+
+   #:+stdout+
+   #:a-terminal-p
+   #:host-size
+   #:host-raw
+   #:host-put-back
+   #:*resized*
+   #:hear-resizes
+   #:stop-hearing-resizes
+   #:with-host))
