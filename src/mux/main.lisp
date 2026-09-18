@@ -15,13 +15,37 @@
 (defun log-path (name)
   (namestring (merge-pathnames (format nil "~A.log" name) (mux-dir))))
 
-(defun answering-p (path)
+(defun answering-p (path &optional (patience 3))
+  "Whether a server at PATH answers, which is not the same as whether something
+is listening there.
+
+A server wedged on its way out still holds its socket, so a connection to it
+succeeds and then nothing ever comes back -- a client that took that for a
+living server would sit at a screen that never arrives. So it is knocked on."
   (and (probe-file path)
        (handler-case
            (let ((socket (make-instance 'sb-bsd-sockets:local-socket :type :stream)))
              (sb-bsd-sockets:socket-connect socket path)
-             (sb-bsd-sockets:socket-close socket)
-             t)
+             (let ((wire (make-wire (sb-bsd-sockets:socket-file-descriptor socket)
+                                    socket))
+                   (deadline (+ (get-internal-real-time)
+                                (* patience internal-time-units-per-second)))
+                   (here nil))
+               (unwind-protect
+                    (progn
+                      (wire-send wire '(:knock))
+                      (wire-flush wire)
+                      (loop until here
+                            do (when (> (get-internal-real-time) deadline) (return))
+                               (when (pty:pty-wait (wire-fd wire) 100)
+                                 (unless (wire-fill wire) (return))
+                                 (loop for form = (wire-take wire)
+                                       while form
+                                       do (when (and (consp form)
+                                                     (eq :here (first form)))
+                                            (setf here t))))))
+                 (wire-close wire))
+               here))
          (error () nil))))
 
 (defun sessions-here ()

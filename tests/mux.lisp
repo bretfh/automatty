@@ -207,3 +207,28 @@
         (is (eql #\x (at host 4 0))
             "the wide characters did not take two columns each: ~S"
             (row host 0))))))
+
+(test something-listening-that-never-answers-is-not-a-server
+  (let* ((path (a-socket-path))
+         (socket (make-instance 'sb-bsd-sockets:local-socket :type :stream)))
+    (unwind-protect
+         (progn
+           (sb-bsd-sockets:socket-bind socket path)
+           (sb-bsd-sockets:socket-listen socket 4)
+           (is (probe-file path))
+           (is (null (mux::answering-p path 1/2))
+               "a socket nobody is reading was taken for a running server"))
+      (ignore-errors (sb-bsd-sockets:socket-close socket))
+      (ignore-errors (delete-file path)))))
+
+(test a-server-that-is-running-answers-a-knock
+  (with-server (path :command "sleep 30")
+    (is-true (mux::answering-p path 3))))
+
+(test a-server-that-has-gone-leaves-no-name-behind
+  (let ((left nil))
+    (with-server (path :command "sleep 30")
+      (setf left path)
+      (is (probe-file path)))
+    (is (null (probe-file left))
+        "the socket outlived the server that made it")))

@@ -233,6 +233,13 @@ and never goes near a terminal; a client attaches over a unix socket in
 programs running, and a client that comes back is simply one whose whole screen
 is out of date.
 
+Leaving is as much a part of it as running. A server on its way out gives up its
+name before anything else, so nobody new can reach one that is already going,
+and nothing it waits for is waited for without end -- a shell ignores being
+asked politely to go, which is what makes it a shell. A client knocks before it
+attaches, because a socket somebody is still holding is not the same as a server
+that answers.
+
 A fault in one wakeup is said to the log and stepped over rather than taken as
 the end -- the panes are somebody's shells, and losing them to a bug in the
 emulator is worse than drawing one frame wrong. The log is beside the socket,

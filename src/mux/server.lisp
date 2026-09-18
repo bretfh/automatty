@@ -61,14 +61,17 @@ more than the terminal it is sitting inside costs in the first place.")
                     :waiting (make-waiting 16)))))
 
 (defun server-close (server)
+  ;; the name goes first. Whatever else takes a while -- a shell that will not
+  ;; go, a client that will not read -- nobody new must be able to reach a
+  ;; server that is already leaving.
+  (ignore-errors (sb-bsd-sockets:socket-close (server-socket server)))
+  (ignore-errors (delete-file (server-path server)))
   (dolist (session (server-sessions server))
     (dolist (w (session-watchers session))
       (wire-close (watcher-wire w)))
     (pane-close (session-pane session)))
   (setf (server-sessions server) nil)
   (free-waiting (server-waiting server))
-  (ignore-errors (sb-bsd-sockets:socket-close (server-socket server)))
-  (ignore-errors (delete-file (server-path server)))
   (setf (server-going server) nil))
 
 (defun add-session (server command &key (name "0") (rows 24) (cols 80))
@@ -174,6 +177,7 @@ more than the terminal it is sitting inside costs in the first place.")
        (setf (watcher-rows watcher) (max 1 (min +biggest-pane+ rows))
              (watcher-cols watcher) (max 1 (min +biggest-pane+ cols)))
        (session-fit session)))
+    (:knock (tell watcher (list :here (session-name session))))
     (:detach (drop-watcher session watcher))
     (:stop (setf (server-going server) nil))
     (t nil)))

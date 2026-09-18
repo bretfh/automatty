@@ -14,6 +14,12 @@
 ;; to name some of them and not this one
 (defconstant +esrch+ 3)
 
+;; WNOHANG is 1 on linux, on darwin and on every bsd; SIGHUP is 1 and SIGKILL 9
+;; everywhere a terminal has ever run.
+(defconstant +wnohang+ 1)
+(defconstant +sighup+ 1)
+(defconstant +sigkill+ 9)
+
 (defconstant +o-noctty+
   #+linux #o400
   #+darwin #x20000
@@ -277,10 +283,32 @@ it is the usual answer about something already gone."
           ((eql (sb-alien:get-errno) +esrch+) nil)
           (t (error "kill: ~A" (sb-int:strerror (sb-alien:get-errno)))))))
 
-(defun pty-reap (pid)
-  "Signal PID and wait for it, so it is not left a zombie. Answers its status."
+(defun pty-reap (pid &optional (patience 2))
+  "Tell PID its terminal is gone and wait for it, so it is not left a zombie.
+Answers its status, or nil when it would not go.
+
+It never waits without end. A shell ignores the polite ask -- that is what makes
+it a shell -- and whoever is tidying up would wait on it forever; and the thing
+tidying up is usually a server on its way out, still holding the socket
+everybody else is trying to reach. So: the hangup a terminal going away sends,
+then PATIENCE seconds, then the one nothing ignores, then give up and let init
+have it."
   (when (and pid (plusp pid))
-    (pty-kill pid)
+    (pty-kill pid +sighup+)
     (sb-alien:with-alien ((status sb-alien:int))
-      (let ((got (%waitpid pid (sb-alien:alien-sap (sb-alien:addr status)) 0)))
-        (when (plusp got) status)))))
+      (let ((sap (sb-alien:alien-sap (sb-alien:addr status)))
+            (deadline (+ (get-internal-real-time)
+                         (* patience internal-time-units-per-second)))
+            (asked-harder nil))
+        (loop
+          (let ((got (%waitpid pid sap +wnohang+)))
+            (cond
+              ((plusp got) (return status))
+              ((minusp got) (return nil))
+              ((> (get-internal-real-time) deadline)
+               (when asked-harder (return nil))
+               (setf asked-harder t
+                     deadline (+ (get-internal-real-time)
+                                 (* patience internal-time-units-per-second)))
+               (pty-kill pid +sigkill+))
+              (t (sleep 0.005)))))))))

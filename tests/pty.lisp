@@ -155,3 +155,22 @@ until the first quiet moment: a program that is asleep has not finished."
 (test a-terminal-of-a-size-nobody-can-have-says-so
   (with-pty (fd pid "sleep 1")
     (signals error (pty:pty-set-size -1 24 80))))
+
+(test a-program-that-ignores-being-asked-is-not-waited-on-forever
+  (multiple-value-bind (fd pid)
+      (pty:spawn-pty-process "trap '' TERM HUP; sleep 60")
+    (unwind-protect
+         (let ((then (get-internal-real-time)))
+           (pty:pty-close fd)
+           (pty:pty-reap pid 1/4)
+           (let ((took (/ (- (get-internal-real-time) then)
+                          internal-time-units-per-second)))
+             (is (< took 5) "reaping took ~,1F seconds" took)))
+      (ignore-errors (pty:pty-kill pid 9)))
+    (is (null (pty:pty-reap pid 1/4)) "it is still there")))
+
+(test reaping-a-program-that-has-already-gone-is-not-a-fault
+  (multiple-value-bind (fd pid) (pty:spawn-pty-process "true")
+    (pty:pty-close fd)
+    (pty:pty-reap pid)
+    (is (null (pty:pty-reap pid 1/4)))))
