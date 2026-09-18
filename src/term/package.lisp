@@ -99,4 +99,5 @@
    #:color-index-to-rgb
    #:char-display-width
 
-   #:key-event-to-escape-sequence))
+   #:key-event-to-escape-sequence
+   #:escape-sequence-to-key-event))

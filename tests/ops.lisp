@@ -130,3 +130,43 @@
     (is (= 2 (vt:term-scroll-bottom term)))
     (say term "x")
     (is (null (vt:face-fg (face-at term 0 0))))))
+
+(test a-shorter-screen-keeps-what-the-cursor-is-on
+  (let ((term (a-term :width 10 :height 6)))
+    (dotimes (i 6)
+      (say term (format nil "line~D" i))
+      (when (< i 5) (say term (format nil "~C~C" #\Return #\Newline))))
+    (is (equal '(5 5) (cursor term)))
+    (vt:term-resize term 10 3)
+    (is (equal '(5 2) (cursor term)) "the cursor came with its line")
+    (is (equal '("line3" "line4" "line5") (rows term)))
+    (is (equal "line0" (string-right-trim " " (vt:term-scrollback-row-string term 0)))
+        "the top went to the scrollback, not away")))
+
+(test a-shorter-screen-that-the-cursor-still-fits-on-loses-nothing
+  (let ((term (a-term :width 10 :height 6)))
+    (say term "top")
+    (vt:term-resize term 10 3)
+    (is (equal '(3 0) (cursor term)))
+    (is (equal "top" (row term 0)))
+    (is (zerop (vt:term-scrollback-size term)))))
+
+(test a-taller-screen-keeps-what-was-there-where-it-was
+  (let ((term (a-term :width 10 :height 3)))
+    (say term "one" (format nil "~C~C" #\Return #\Newline) "two")
+    (vt:term-resize term 10 8)
+    (is (equal "one" (row term 0)))
+    (is (equal "two" (row term 1)))
+    (is (equal '(3 1) (cursor term)))))
+
+(test the-alternate-screen-is-not-scrolled-into-the-scrollback
+  (let ((term (a-term :width 10 :height 6)))
+    (say term "main-line")
+    (say term (csi "?1049h"))
+    (dotimes (i 6)
+      (say term (format nil "alt~D" i))
+      (when (< i 5) (say term (format nil "~C~C" #\Return #\Newline))))
+    (vt:term-resize term 10 3)
+    (is (zerop (vt:term-scrollback-size term)) "the alt screen went to scrollback")
+    (say term (csi "?1049l"))
+    (is (equal "main-line" (row term 0)) "the main screen did not come back")))

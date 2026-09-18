@@ -241,6 +241,13 @@ forwards everything else exactly as the terminal sent it -- mouse reports,
 pasted text, whatever encoding it was built with. Decoding keys and encoding them
 again would narrow all of that to the intersection of two tables.
 
+The emulator will still read bytes back into keys when something wants them
+named -- =vt:escape-sequence-to-key-event= is the inverse of
+=vt:key-event-to-escape-sequence=, and the suite holds the two of them to it over
+every key and modifier the old encoding has room for. It answers how many
+characters it took, and nothing at all when what is there is the beginning of
+something longer.
+
 ** What a frame costs
 
 The question the whole design turns on: composing, diffing and encoding a frame

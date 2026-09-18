@@ -347,35 +347,44 @@ pointer moves with no consing."
   (when (term-in-alt-screen term)
     (term-exit-alt-screen term)))
 
+(defun regrid (old width height shift)
+  "A grid WIDTH by HEIGHT holding OLD from row SHIFT down, clipped to both."
+  (let ((new (make-grid width height)))
+    (when old
+      (dotimes (y (min height (max 0 (- (length old) shift))))
+        (let ((from (aref old (+ y shift)))
+              (into (aref new y)))
+          (dotimes (x (min width (length from)))
+            (let ((src (aref from x))
+                  (dst (aref into x)))
+              (setf (cell-char dst) (cell-char src)
+                    (cell-face dst) (cell-face src)))))))
+    new))
+
 (defun term-resize (term width height)
+  "Make the screen WIDTH by HEIGHT, keeping what the cursor is standing on.
+
+A shorter screen loses rows off the top, not the bottom: what is under the
+cursor is the prompt somebody is typing at, and a shell whose prompt was cut
+away has been scrambled rather than resized. The rows that go, go to the
+scrollback, which is where they would have gone had the screen scrolled."
   (when (and (plusp width) (plusp height)
              (or (/= width (term-width term))
                  (/= height (term-height term))))
-    (let ((old-grid (term-grid term))
-          (old-w (term-width term))
-          (old-h (term-height term))
-          (new-grid (make-grid width height)))
-      (dotimes (y (min old-h height))
-        (dotimes (x (min old-w width))
-          (let ((src (aref (aref old-grid y) x))
-                (dst (aref (aref new-grid y) x)))
-            (setf (cell-char dst) (cell-char src)
-                  (cell-face dst) (cell-face src)))))
-      (setf (term-grid term) new-grid
-            (term-width term) width
+    (let* ((alt (term-in-alt-screen term))
+           (main (if alt (term-main-grid term) (term-grid term)))
+           (shift (if alt 0 (max 0 (- (1+ (term-cursor-y term)) height)))))
+      (dotimes (y (min shift (if main (length main) 0)))
+        (push-scrollback term (aref main y)))
+      (let ((new-main (regrid main width height shift)))
+        (if alt
+            (setf (term-main-grid term) new-main
+                  (term-grid term) (regrid (term-grid term) width height 0))
+            (setf (term-grid term) new-main)))
+      (setf (term-width term) width
             (term-height term) height
             (term-scroll-top term) 0
             (term-scroll-bottom term) (1- height)
             (term-cursor-x term) (min (term-cursor-x term) (1- width))
-            (term-cursor-y term) (min (term-cursor-y term) (1- height)))
-      (when (term-in-alt-screen term)
-        (let ((new-main (make-grid width height))
-              (old-main (term-main-grid term)))
-          (when old-main
-            (dotimes (y (min (length old-main) height))
-              (dotimes (x (min (length (aref old-main y)) width))
-                (let ((src (aref (aref old-main y) x))
-                      (dst (aref (aref new-main y) x)))
-                  (setf (cell-char dst) (cell-char src)
-                        (cell-face dst) (cell-face src))))))
-          (setf (term-main-grid term) new-main))))))
+            (term-cursor-y term) (max 0 (min (- (term-cursor-y term) shift)
+                                             (1- height)))))))
