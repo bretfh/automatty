@@ -3,63 +3,74 @@
 This is both a library for terminal emulation and a terminal emulator and
 multiplexer built on top of it.
 
-*libvtx* is roughly an implementation of the VT100 protocol plus some
-extensions, not a terminal emulator itself: an abstract terminal, not the
-real thing. It parses what a program writes to a pty and keeps a grid of
-cells and faces. It turns a key event into the bytes a real terminal would
-send. It doesn't open a pty, read a keyboard, or draw anything, and it
-doesn't know what uses it.
+*libvtx* implements the VT100 protocol plus some extensions. It is an
+abstract terminal, not the real thing: it parses what a program writes to a
+pty and keeps a grid of cells and faces, and turns a key event into the
+bytes a real terminal would send. It doesn't open a pty, read a keyboard, or
+draw anything, and it doesn't know what uses it. Package is =libvtx=,
+nicknamed =vt=.
 
-*vtx* is a terminal emulator and multiplexer built on top of libvtx. It can manage
-several sessions at a time, each maintaining a tree of windows and panes from a
-server, allowing a client to attach, switch, or detach, and to come back later
-with your layout and state intact.
+*vtx* is a terminal emulator and multiplexer built on top of libvtx. It can
+manage several sessions at a time, each maintaining a tree of windows and
+panes from a server, so a client can attach, switch, or detach, and come
+back later with its layout and state intact.
 
 ** Building
 
-Development happens on Guix:
-
 #+begin_src sh
 make test        # the whole suite
-make test-term   # libvtx alone, with nothing else loaded
+make test-term   # libvtx alone
 make vtx         # the binary
 #+end_src
 
-On a Mac, or a Linux box without Guix, put =FOREIGN=1= in front of any of
-those and it uses whatever SBCL is already on the machine:
+Guix is what this develops against. Without it, put =FOREIGN=1= in front and
+it uses whatever SBCL is already on the machine:
 
 #+begin_src sh
 make FOREIGN=1 test
 #+end_src
 
-libvtx has no dependencies. vtx needs only what SBCL already ships
-(=sb-posix=, =sb-bsd-sockets=) and FiveAM to run its own tests.
+libvtx has no dependencies. vtx needs =sb-posix= and =sb-bsd-sockets=, both
+part of SBCL, and FiveAM for its own tests.
 
-** Getting it
+** Installing
 
-libvtx is an ASDF system. Get it with [[https://ocicl.github.io/][ocicl]]:
+vtx, straight from this tree:
+
+#+begin_src sh
+make FOREIGN=1 install                       # PREFIX=/usr/local
+make FOREIGN=1 install PREFIX=$HOME/.local
+#+end_src
+
+Or, if one of these is already around:
+
+#+begin_src sh
+ros install bretfhorne/vtx
+brew install bretfhorne/vtx/vtx
+guix install vtx
+#+end_src
+
+A tagged release also carries a Linux AppImage and a macOS tarball.
+
+libvtx, on its own:
 
 #+begin_src sh
 ocicl install libvtx
 #+end_src
 
-vtx is a terminal multiplexer similar in spirit to tmux. On Linux or a Mac,
-cloning this and building it is the most straightforward way for the moment:
+** Extending libvtx
 
-#+begin_src sh
-make FOREIGN=1 install            # PREFIX defaults to /usr/local
-make FOREIGN=1 install PREFIX=$HOME/.local   # if that's already on PATH
+A term is a struct. Add a sequence, or change what one means, from outside
+this repo:
+
+#+begin_src lisp
+(defstruct (my-term (:include vt:term)))
+
+(defmethod vt:handle-csi ((term my-term) (final (eql #\A)) format params)
+  (my-cursor-up term (or (first params) 1)))
 #+end_src
 
-Or, if you already have one of these:
-
-#+begin_src sh
-ros install bretfhorne/vtx     # roswell
-brew install bretfhorne/vtx/vtx    # homebrew
-guix install vtx                    # guix, once this channel is added
-#+end_src
-
-A tagged release also carries a Linux AppImage and a macOS tarball.
+No macro, no registry. =defmethod= is the extension point.
 
 ** License
 
