@@ -1,21 +1,23 @@
 #+TITLE: vtx
 
-libvtx and vtx live in this one repo.
+This is both a library for terminal emulation and a terminal emulator and
+multiplexer built on top of it.
 
-*libvtx* is a VT100-and-extensions terminal emulator. It parses what a
-program writes to a pty and keeps a grid of cells and faces. It turns a key
-event into the bytes a real terminal would send. It doesn't open a pty, read
-a keyboard, or draw anything, and it doesn't know what uses it. Package is
-=libvtx=, nicknamed =vt=.
+*libvtx* is roughly an implementation of the VT100 protocol plus some
+extensions, not a terminal emulator itself: an abstract terminal, not the
+real thing. It parses what a program writes to a pty and keeps a grid of
+cells and faces. It turns a key event into the bytes a real terminal would
+send. It doesn't open a pty, read a keyboard, or draw anything, and it
+doesn't know what uses it.
 
-*vtx* is a terminal emulator and multiplexer built on top of libvtx. It
-opens the pty, spawns the shell, reads the keyboard, draws the screen, and
-holds several sessions and panes behind one server so a client can attach,
-detach, and come back.
+*vtx* is a terminal emulator and multiplexer built on top of libvtx. It can manage
+several sessions at a time, each maintaining a tree of windows and panes from a
+server, allowing a client to attach, switch, or detach, and to come back later
+with your layout and state intact.
 
 ** Building
 
-Guix is what this develops against:
+Development happens on Guix:
 
 #+begin_src sh
 make test        # the whole suite
@@ -41,8 +43,8 @@ libvtx is an ASDF system. Get it with [[https://ocicl.github.io/][ocicl]]:
 ocicl install libvtx
 #+end_src
 
-vtx is a program, not a library, so ocicl doesn't apply to it. On Linux or a
-Mac, cloning this and building it is the straightforward way:
+vtx is a terminal multiplexer similar in spirit to tmux. On Linux or a Mac,
+cloning this and building it is the most straightforward way for the moment:
 
 #+begin_src sh
 make FOREIGN=1 install            # PREFIX defaults to /usr/local
