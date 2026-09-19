@@ -3,12 +3,10 @@
 This is both a library for terminal emulation and a terminal emulator and
 multiplexer built on top of it.
 
-*libvtx* implements the VT100 protocol plus some extensions, with no
-dependencies of its own. It parses what a program writes to a pty and keeps
-a grid of cells and faces, and turns a key event into the bytes a real
-terminal would send. It doesn't open a pty, read a keyboard, or draw
-anything, and it doesn't know what uses it. Package is =libvtx=, nicknamed
-=vt=.
+*libvtx* is an implementation of the VT100 protocol plus a growing set of
+others to serve modern needs. It provides an abstract model that parses what
+a program writes to a pty and keeps a grid of cells and faces, and turns
+input into the bytes a terminal would send.
 
 *vtx* is a terminal emulator and multiplexer built on top of libvtx. It can
 manage several sessions at a time, each maintaining a tree of windows and
@@ -17,31 +15,30 @@ back later with its layout and state intact.
 
 ** Building
 
+For working on this repo:
+
 #+begin_src sh
 make test                     # the whole suite
 make test-term                # libvtx alone, nothing else loaded
 make run CMD='top -b -n 1'    # run a command on a pty, print the screen libvtx drew
-make vtx                      # the binary
-make install                  # build it and put it on PATH
+make vtx                      # the binary, in this directory
 #+end_src
 
-This is developed with Guix. Without it, put =FOREIGN=1= in front of any
+This is developed on Guix. Without it, put =FOREIGN=1= in front of any
 target and it uses whatever SBCL is already on the machine:
 
 #+begin_src sh
 make FOREIGN=1 test
 #+end_src
 
-** Installing
-
-vtx, straight from this tree:
+** Installing vtx
 
 #+begin_src sh
 make FOREIGN=1 install                       # PREFIX=/usr/local
 make FOREIGN=1 install PREFIX=$HOME/.local
 #+end_src
 
-Or, if one of these is already around:
+Or, if you use roswell, brew or guix:
 
 #+begin_src sh
 ros install bretfhorne/vtx
@@ -51,7 +48,7 @@ guix install vtx
 
 A tagged release also carries a Linux AppImage and a macOS tarball.
 
-libvtx, on its own:
+** Using libvtx
 
 #+begin_src sh
 ocicl install libvtx
