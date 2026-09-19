@@ -52,8 +52,15 @@ ocicl install libvtx
 #+end_src
 
 If you want *vtx* to actually sit in and type at, it's a program, not a
-library, and it doesn't go through ocicl for that reason. Pick whichever of
-these you already have:
+library, and it doesn't go through ocicl for that reason. On Linux or a Mac,
+cloning this and building it is the straightforward way:
+
+#+begin_src sh
+make FOREIGN=1 install            # PREFIX defaults to /usr/local
+make FOREIGN=1 install PREFIX=$HOME/.local   # if that's already on PATH
+#+end_src
+
+Or, if you already have one of these:
 
 #+begin_src sh
 ros install bretfhorne/vtx     # roswell

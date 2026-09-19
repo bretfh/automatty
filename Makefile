@@ -1,4 +1,4 @@
-.PHONY: repl check test test-term run bench latency mux-bench attached compare eval clean
+.PHONY: repl check test test-term run bench latency mux-bench attached compare eval clean install uninstall
 
 # Two ways to get what cl-vt needs, and every target works under either. Guix is
 # what it develops against and what plain `make' uses. FOREIGN=1 is for a mac or
@@ -65,6 +65,17 @@ latency:
 # another machine. Everything it does is its own argument, not a make target.
 vtx: build.lisp vtx.asd libvtx.asd $(wildcard src/*/*.lisp)
 	$(IN) '$(ENV) VTX_OUT="$$PWD/vtx" $(SBCL) --non-interactive --load build.lisp'
+
+# builds vtx and puts it on PATH. PREFIX defaults to /usr/local, which usually
+# wants root; PREFIX=$$HOME/.local avoids that if that is already on PATH.
+PREFIX ?= /usr/local
+
+install: vtx
+	install -d "$(DESTDIR)$(PREFIX)/bin"
+	install -m 755 vtx "$(DESTDIR)$(PREFIX)/bin/vtx"
+
+uninstall:
+	rm -f "$(DESTDIR)$(PREFIX)/bin/vtx"
 
 # what a frame costs: a pane blitted to a screen, diffed against what was last
 # sent, and encoded as the bytes a terminal reads
