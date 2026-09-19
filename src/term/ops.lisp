@@ -48,32 +48,31 @@
         (min (max (1- (or x 1)) 0) (1- (term-width term)))))
 
 (defun term-save-cursor (term)
-  (setf (term-saved-cursor-x term) (term-cursor-x term)
-        (term-saved-cursor-y term) (term-cursor-y term)
-        (term-saved-attrs term) (copy-face-attrs (term-attrs term))))
+  (if (term-in-alt-screen term)
+      (setf (term-alt-saved-cursor-x term) (term-cursor-x term)
+            (term-alt-saved-cursor-y term) (term-cursor-y term)
+            (term-alt-saved-attrs term) (copy-face (term-attrs term)))
+      (setf (term-saved-cursor-x term) (term-cursor-x term)
+            (term-saved-cursor-y term) (term-cursor-y term)
+            (term-saved-attrs term) (copy-face (term-attrs term)))))
 
 (defun term-restore-cursor (term)
+  "Put the cursor back where it was saved, inside the screen it is on now.
+
+The screen may have been resized since, and a position saved on a bigger one is
+not an index into this one."
   (setf (term-wrap-pending term) nil)
-  (setf (term-cursor-x term) (term-saved-cursor-x term)
-        (term-cursor-y term) (term-saved-cursor-y term)
-        (term-face-now term) nil)
-  (when (term-saved-attrs term)
-    (let ((saved (term-saved-attrs term))
-          (cur (term-attrs term)))
-      (setf (face-fg cur) (face-fg saved)
-            (face-bg cur) (face-bg saved)
-            (face-bold cur) (face-bold saved)
-            (face-faint cur) (face-faint saved)
-            (face-italic cur) (face-italic saved)
-            (face-underline cur) (face-underline saved)
-            (face-underline-color cur) (face-underline-color saved)
-            (face-blink cur) (face-blink saved)
-            (face-inverse cur) (face-inverse saved)
-            (face-conceal cur) (face-conceal saved)
-            (face-crossed cur) (face-crossed saved)))))
+  (let ((alt (term-in-alt-screen term)))
+    (let ((x (if alt (term-alt-saved-cursor-x term) (term-saved-cursor-x term)))
+          (y (if alt (term-alt-saved-cursor-y term) (term-saved-cursor-y term)))
+          (attrs (if alt (term-alt-saved-attrs term) (term-saved-attrs term))))
+      (setf (term-cursor-x term) (max 0 (min x (1- (term-width term))))
+            (term-cursor-y term) (max 0 (min y (1- (term-height term))))
+            (term-face-now term) nil)
+      (when attrs (face-into (term-attrs term) attrs)))))
 
 (defun term-current-bg-face (term)
-  "Return a shared face-attrs for the current background, or nil when default."
+  "Return a shared face for the current background, or nil when default."
   (when (face-bg (term-attrs term))
     (intern-face term)))
 
@@ -207,7 +206,14 @@ pointer moves with no consing."
     (when (and ring (<= 0 n) (< n size))
       (aref ring (mod (+ (term-scrollback-head term) n) (length ring))))))
 
-(defun term-scroll-up (term &optional (n 1))
+(defun term-scroll-up (term &optional (n 1) (keep t))
+  "Move the scroll region up N lines.
+
+KEEP says whether what goes off the top is kept in the scrollback. It is when
+the screen itself scrolled; it is not when a line was deleted out from under the
+cursor, which takes a line out of the region rather than pushing one off the
+screen, and a line that never left the screen has no business in what is behind
+it."
   (setf n (max n 1))
   (let* ((top (term-scroll-top term))
          (bot (term-scroll-bottom term))
@@ -216,7 +222,7 @@ pointer moves with no consing."
          (grid (term-grid term)))
     (when (plusp count)
       (let ((saved (make-array count :initial-element nil))
-            (record (and (zerop top) (not (term-in-alt-screen term)))))
+            (record (and keep (zerop top) (not (term-in-alt-screen term)))))
         (dotimes (i count)
           (setf (aref saved i) (aref grid (+ top i))))
         (loop for i from top to (- bot count) do
@@ -268,7 +274,7 @@ pointer moves with no consing."
     (when (<= top y bot)
       (let ((old-top (term-scroll-top term)))
         (setf (term-scroll-top term) y)
-        (term-scroll-up term (min n (1+ (- bot y))))
+        (term-scroll-up term (min n (1+ (- bot y))) nil)
         (setf (term-scroll-top term) old-top)))))
 
 (defun term-horizontal-tab (term &optional (n 1))
@@ -336,7 +342,9 @@ pointer moves with no consing."
   (unless (term-in-alt-screen term)
     (setf (term-main-grid term) (term-grid term)
           (term-grid term) (make-grid (term-width term) (term-height term))
-          (term-in-alt-screen term) t)
+          (term-in-alt-screen term) t
+          (term-alt-saved-cursor-x term) 0
+          (term-alt-saved-cursor-y term) 0)
     (term-goto term 1 1)))
 
 (defun term-exit-alt-screen (term)
@@ -363,7 +371,7 @@ pointer moves with no consing."
         (term-g1 term) :us-ascii
         (term-g2 term) :us-ascii
         (term-g3 term) :us-ascii)
-  (reset-face-attrs (term-attrs term))
+  (reset-face (term-attrs term))
   (setf (term-face-now term) nil)
   (clear-grid (term-grid term))
   (when (term-in-alt-screen term)
@@ -410,4 +418,14 @@ scrollback, which is where they would have gone had the screen scrolled."
             (term-wrap-pending term) nil
             (term-cursor-x term) (min (term-cursor-x term) (1- width))
             (term-cursor-y term) (max 0 (min (- (term-cursor-y term) shift)
-                                             (1- height)))))))
+                                             (1- height)))
+            (term-saved-cursor-x term) (min (term-saved-cursor-x term)
+                                            (1- width))
+            (term-saved-cursor-y term) (max 0 (min (- (term-saved-cursor-y term)
+                                                      shift)
+                                                   (1- height)))
+            (term-alt-saved-cursor-x term) (min (term-alt-saved-cursor-x term)
+                                                (1- width))
+            (term-alt-saved-cursor-y term) (max 0
+                                                (min (term-alt-saved-cursor-y term)
+                                                     (1- height)))))))

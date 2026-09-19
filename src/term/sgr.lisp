@@ -38,13 +38,13 @@
                                        (<= 0 r 255) (<= 0 g 255) (<= 0 b 255))
                               (list r g b)))))))))
       (when (zerop len)
-        (reset-face-attrs attrs)
+        (reset-face attrs)
         (return-from process-sgr))
       (loop while (< i len) do
         (let ((code (let ((raw (next-param)))
                       (unless (consp raw) (or raw 0)))))
           (case code
-            (0 (reset-face-attrs attrs))
+            (0 (reset-face attrs))
             (1 (setf (face-bold attrs) t
                      (face-faint attrs) nil))
             (2 (setf (face-faint attrs) t
@@ -102,16 +102,3 @@
                 ((= code 58)
                  (let ((c (read-color)))
                    (when c (setf (face-underline-color attrs) c)))))))))))))
-
-(defun reset-face-attrs (attrs)
-  (setf (face-fg attrs) nil
-        (face-bg attrs) nil
-        (face-bold attrs) nil
-        (face-faint attrs) nil
-        (face-italic attrs) nil
-        (face-underline attrs) nil
-        (face-underline-color attrs) nil
-        (face-blink attrs) nil
-        (face-inverse attrs) nil
-        (face-conceal attrs) nil
-        (face-crossed attrs) nil))

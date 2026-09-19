@@ -35,9 +35,9 @@
   "SAID, whose characters are the bytes a program wrote, as the characters those
 bytes mean.
 
-Anything that is not utf-8 comes back as the character that says so -- one per
+Anything that is not utf-8 comes back as the character that says so, one per
 sequence rather than one per byte, so a character cut short does not swallow the
-one after it -- and a terminal goes on showing what it got rather than stopping.
+one after it. A terminal goes on showing what it got rather than stopping.
 
 Bytes that are already characters are answered as they came, the same string and
 not a copy of it, because that is nearly everything a program ever writes."

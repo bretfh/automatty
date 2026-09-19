@@ -8,10 +8,10 @@
    #:cell-char
    #:cell-face
 
-   #:face-attrs
-   #:make-face-attrs
-   #:copy-face-attrs
-   #:face-attrs-equal
+   #:face
+   #:make-face
+   #:copy-face
+   #:face-equal
    #:face-default-p
    #:face-fg
    #:face-bg
@@ -30,7 +30,6 @@
    #:make-term
    #:term-width
    #:term-height
-   #:term-grid
    #:term-grid-row
    #:term-cursor-x
    #:term-cursor-y
@@ -42,7 +41,6 @@
    #:term-insert-mode
    #:term-keypad-mode
    #:term-auto-margin
-   #:term-wrap-pending
    #:term-in-alt-screen
    #:term-scroll-top
    #:term-scroll-bottom
@@ -100,9 +98,8 @@
    #:rgb-to-color-index
    #:term-dump-row-string
    #:term-dump-to-string
-   #:face-attrs-to-plist
+   #:face-plist
    #:color-index-to-rgb
    #:char-display-width
 
-   #:key-event-to-escape-sequence
-   #:escape-sequence-to-key-event))
+   #:key-event-to-escape-sequence))

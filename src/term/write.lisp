@@ -79,8 +79,10 @@
              (cw (char-display-width ch)))
         (unless (zerop cw)
           (setf (term-last-char term) ch)
-          (when (term-insert-mode term)
-            (term-insert-char term cw))
+          ;; the wrap comes first. An insert shifts the row the cursor is on,
+          ;; and a character with a wrap pending belongs to the next row, not
+          ;; this one -- and term-insert-char clears the flag, so doing it the
+          ;; other way round means the wrap never happens at all.
           (when (term-wrap-pending term)
             (setf (term-wrap-pending term) nil)
             (when (term-auto-margin term)
@@ -88,6 +90,8 @@
               (if (= (term-cursor-y term) (term-scroll-bottom term))
                   (term-scroll-up term 1)
                   (incf (term-cursor-y term)))))
+          (when (term-insert-mode term)
+            (term-insert-char term cw))
           (let ((x (term-cursor-x term))
                 (y (term-cursor-y term))
                 (row (the simple-vector (aref grid (term-cursor-y term)))))

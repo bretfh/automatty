@@ -4,6 +4,58 @@
 
 (declaim (optimize (speed 3) (safety 1)))
 
+(defconstant +biggest-param+ 65535
+  "The largest number a control sequence may carry.
+
+Every parameter a terminal defines is small, and the ones that count something
+are held against the screen again by whoever reads them. A ceiling is also what
+lets the accumulating be fixnum arithmetic: without one the digits a program
+sends are a bignum in the making, and every digit is a generic add.")
+
+(defparameter +most-params+ 32
+  "How many parameters one control sequence may carry.
+
+Nothing a terminal defines uses more than a handful, and a terminal's input is
+untrusted: without a ceiling a million semicolons is a million conses from one
+escape sequence.")
+
+(defparameter +biggest-string+ 65536
+  "How much of an OSC payload is kept. A title is short and a clipboard is not,
+but neither is unbounded, and nothing says a program has to send a terminator.")
+
+(defconstant +cancel+ 24
+  "CAN. A program says the control sequence it was writing is to be abandoned.")
+
+(defconstant +substitute+ 26
+  "SUB. CAN, and the terminal may show something in its place.")
+
+(deftype param () `(integer 0 ,+biggest-param+))
+
+(declaim (inline held-param))
+(defun held-param (n)
+  (if (and n (> n +biggest-param+)) +biggest-param+ n))
+
+(declaim (inline held-digit))
+(defun held-digit (had digit)
+  "HAD with DIGIT put on the end, up to the ceiling and no further."
+  (declare (type (or null param) had) (type (integer 0 9) digit))
+  (let ((n (if had had 0)))
+    (declare (type param n))
+    (if (>= n +biggest-param+)
+        n
+        (min +biggest-param+ (+ (* n 10) digit)))))
+
+(defun abandon-the-sequence (term)
+  "The sequence is over and nothing is done about it."
+  (setf (term-csi-params term) nil
+        (term-csi-format term) nil
+        (term-parser-state term) nil))
+
+(declaim (inline abandons-a-sequence-p))
+(defun abandons-a-sequence-p (ch)
+  (let ((code (char-code ch)))
+    (or (= code 27) (= code +cancel+) (= code +substitute+))))
+
 (defun term-process-output (term string)
   (if (typep string '(simple-array character (*)))
       (%term-process-output term string)
@@ -86,56 +138,74 @@
 
           ((eq state :read-csi-format)
            (let ((ch (char string index)))
-             (cond
-               ((char= ch #\?) (setf (term-csi-format term) #\?
-                                      (term-parser-state term) :read-csi-params
-                                      (term-csi-params term) (list nil))
-                                (incf index))
-               ((char= ch #\>) (setf (term-csi-format term) #\>
-                                      (term-parser-state term) :read-csi-params
-                                      (term-csi-params term) (list nil))
-                                (incf index))
-               ((char= ch #\=) (setf (term-csi-format term) #\=
-                                      (term-parser-state term) :read-csi-params
-                                      (term-csi-params term) (list nil))
-                                (incf index))
-               (t (setf (term-csi-format term) nil
-                         (term-parser-state term) :read-csi-params
-                         (term-csi-params term) (list nil))))))
+             (flet ((begin (fmt)
+                      (setf (term-csi-format term) fmt
+                            (term-parser-state term) :read-csi-params
+                            (term-csi-params term) (list nil)
+                            (term-csi-length term) 1)))
+               (case ch
+                 (#\? (begin #\?) (incf index))
+                 (#\> (begin #\>) (incf index))
+                 (#\= (begin #\=) (incf index))
+                 (t (begin nil))))))
 
           ((eq state :read-csi-params)
            (let ((ch (char string index))
                  (params (term-csi-params term)))
              (cond
                ((and (char<= #\0 ch) (char<= ch #\9))
+                ;; a parameter at the ceiling stops growing. One compare a
+                ;; digit, and no bignum however many a program sends.
                 (let ((digit (- (char-code ch) (char-code #\0))))
                   (if (consp (car params))
-                      (setf (caar params) (+ (* (or (caar params) 0) 10) digit))
-                      (setf (car params) (+ (* (or (car params) 0) 10) digit))))
+                      (setf (caar params) (held-digit (caar params) digit))
+                      (setf (car params) (held-digit (car params) digit))))
                 (incf index))
                ((char= ch #\;)
-                (push nil (term-csi-params term))
+                ;; the count is kept rather than measured: asking a list how
+                ;; long it is once a separator is work that grows with what a
+                ;; program sends
+                (when (< (term-csi-length term) +most-params+)
+                  (incf (term-csi-length term))
+                  (push nil (term-csi-params term)))
                 (incf index))
                ((char= ch #\:)
-                (if (consp (car params))
-                    (push nil (car (term-csi-params term)))
-                    (push (list nil) (term-csi-params term)))
+                (when (< (term-csi-length term) +most-params+)
+                  (incf (term-csi-length term))
+                  (if (consp (car params))
+                      (push nil (car (term-csi-params term)))
+                      (push (list nil) (term-csi-params term))))
                 (incf index))
                (t
                 (setf (term-parser-state term) :read-csi-function)))))
 
           ((eq state :read-csi-function)
            (let ((ch (char string index)))
-             (incf index)
-             (when (and (char>= ch #\@) (char<= ch #\~))
-               (setf (term-parser-state term) nil)
-               (let ((params (nreverse (term-csi-params term)))
-                     (fmt (term-csi-format term)))
-                 (do ((p params (cdr p)))
-                     ((null p))
-                   (when (consp (car p))
-                     (setf (car p) (nreverse (car p)))))
-                 (dispatch-csi term ch fmt params)))))
+             (cond
+               ;; a control sequence is abandoned when one of these turns up
+               ;; inside it, never finished. Swallowing them instead means what
+               ;; follows a half-written sequence is read as text and lands on
+               ;; the screen: ESC[3 ESC[2J would print "2J".
+               ((abandons-a-sequence-p ch)
+                (abandon-the-sequence term)
+                (incf index)
+                (when (char= ch #\Escape)
+                  (setf (term-parser-state term) :read-esc)))
+               (t
+                (incf index)
+                (when (and (char>= ch #\@) (char<= ch #\~))
+                  (setf (term-parser-state term) nil)
+                  (let ((params (nreverse (term-csi-params term)))
+                        (fmt (term-csi-format term)))
+                    ;; held once a sequence rather than once a digit: the
+                    ;; accumulating stops at the ceiling, and this is what makes
+                    ;; the ceiling exact for whoever reads the parameter
+                    (do ((p params (cdr p)))
+                        ((null p))
+                      (if (consp (car p))
+                          (setf (car p) (mapcar #'held-param (nreverse (car p))))
+                          (setf (car p) (held-param (car p)))))
+                    (dispatch-csi term ch fmt params)))))))
 
           ((eq state :read-osc)
            (let ((end-pos (position-if
@@ -145,16 +215,18 @@
                  (buf (term-osc-buf term)))
              (if end-pos
                  (progn
-                   (loop for i from index below end-pos do
-                     (vector-push-extend (char string i) buf))
+                   (loop for i from index below end-pos
+                         while (< (fill-pointer buf) +biggest-string+)
+                         do (vector-push-extend (char string i) buf))
                    (setf index (1+ end-pos))
                    (if (char= (char string end-pos) #\Bel)
                        (progn (dispatch-osc term buf)
                               (setf (term-parser-state term) nil))
                        (setf (term-parser-state term) :read-osc-esc)))
                  (progn
-                   (loop for i from index below len do
-                     (vector-push-extend (char string i) buf))
+                   (loop for i from index below len
+                         while (< (fill-pointer buf) +biggest-string+)
+                         do (vector-push-extend (char string i) buf))
                    (setf index len)))))
 
           ((eq state :read-osc-esc)
@@ -165,18 +237,24 @@
                         (incf index))
                  (setf (term-parser-state term) :read-esc))))
 
+          ;; the same two steps the osc states take, and for the same reason:
+          ;; the terminator is two characters and they do not have to arrive in
+          ;; one read. Looking for both at once means an escape at the end of a
+          ;; buffer is never the terminator, and everything after it is thrown
+          ;; away until some later one turns up.
           ((eq state :read-dcs)
-           (let ((end-pos nil))
-             (loop for i from index below len do
-               (when (char= (char string i) #\Escape)
-                 (when (and (< (1+ i) len)
-                            (char= (char string (1+ i)) #\\))
-                   (setf end-pos (+ i 2))
-                   (return))))
-             (if end-pos
-                 (setf index end-pos
-                       (term-parser-state term) nil)
+           (let ((at (position #\Escape string :start index :end len)))
+             (if at
+                 (setf index (1+ at)
+                       (term-parser-state term) :read-dcs-esc)
                  (setf index len))))
+
+          ((eq state :read-dcs-esc)
+           (let ((ch (char string index)))
+             (if (char= ch #\\)
+                 (progn (setf (term-parser-state term) nil)
+                        (incf index))
+                 (setf (term-parser-state term) :read-esc))))
 
           (t
            (setf (term-parser-state term) nil)))))))
@@ -209,7 +287,9 @@
       (#\T (term-scroll-down term (or p1 1)))
       (#\X (term-erase-char term (or p1 1)))
       (#\Z (term-horizontal-backtab term (or p1 1)))
-      (#\b (let ((n (or p1 1)))
+      ;; REP is the one count that repeats rather than clamping to the row, so
+      ;; it is the one that has to be told how much a screen is
+      (#\b (let ((n (min (or p1 1) (* (term-width term) (term-height term)))))
              (when (graphic-char-p (term-last-char term))
                (term-write term (make-string n
                                              :initial-element
