@@ -48,7 +48,22 @@ guix install vtx
 
 A tagged release also carries a Linux AppImage and a macOS tarball.
 
-** Using libvtx
+** Using vtx
+
+#+begin_src sh
+vtx                    # a shell, in a session called 0, made if it isn't there
+vtx <name>             # the same, under another name
+vtx attach <name>      # join a session already running
+vtx list               # what is running
+vtx stop <name>        # stop a session, and the programs in it
+#+end_src
+
+=^-b= is the prefix for everything else: =^-b d= detaches, =^-b r= redraws,
+=^-b 2= splits below, =^-b 3= splits beside, =^-b o= moves to the next pane,
+=^-b c= starts another session, =^-b b= chooses one, =^-b ?= says what every
+key does.
+
+** Depending on libvtx
 
 #+begin_src sh
 ocicl install libvtx
