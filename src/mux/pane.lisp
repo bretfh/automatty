@@ -1,6 +1,6 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(in-package #:vt/mux)
+(in-package #:vtx)
 
 (defstruct (pane (:constructor %make-pane))
   (term nil)

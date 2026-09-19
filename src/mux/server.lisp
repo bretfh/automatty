@@ -1,6 +1,6 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(in-package #:vt/mux)
+(in-package #:vtx)
 
 (defvar *interval* 8
   "The least milliseconds between two frames to one client.
@@ -229,7 +229,7 @@ whether it did."
 
 (defun session-tree (session)
   "What the session looks like: the panes, and the bar under them."
-  (vt/ui:column
+  (vtx/ui:column
    :align :stretch
    (layout-tree (session-layout session))
    (session-bar session)))
@@ -238,8 +238,8 @@ whether it did."
   "Give each pane the room the layout gave its view."
   (dolist (v (views-in tree))
     (let ((pane (view-pane v))
-          (rows (max 1 (vt/ui:height v)))
-          (cols (max 1 (vt/ui:width v))))
+          (rows (max 1 (vtx/ui:height v)))
+          (cols (max 1 (vtx/ui:width v))))
       (unless (and (= rows (vt:term-height (pane-term pane)))
                    (= cols (vt:term-width (pane-term pane))))
         (pane-resize pane rows cols)))))
@@ -251,10 +251,10 @@ was put."
          (v (view-of tree (session-focus session)))
          (term (session-pane-term session)))
     (setf (tty:screen-cursor-x screen)
-          (min (+ (if v (vt/ui:left v) 0) (vt:term-cursor-x term))
+          (min (+ (if v (vtx/ui:left v) 0) (vt:term-cursor-x term))
                (1- (tty:screen-width screen)))
           (tty:screen-cursor-y screen)
-          (min (+ (if v (vt/ui:top v) 0) (vt:term-cursor-y term))
+          (min (+ (if v (vtx/ui:top v) 0) (vt:term-cursor-y term))
                (1- (tty:screen-height screen)))
           (tty:screen-cursor-visible screen) (vt:term-cursor-visible term)
           (tty:screen-cursor-style screen) (vt:term-cursor-style term))))
@@ -267,13 +267,13 @@ is drawn is what they have just been told they are."
          (cols (tty:screen-width screen))
          (rows (tty:screen-height screen))
          (tree (session-tree session))
-         (m (vt/cells:make-cells (tty:screen-grid screen) cols rows)))
-    (vt/ui:with-pass
-      (vt/ui:restyle tree)
-      (vt/ui:measure tree m cols rows)
-      (vt/ui:lay tree m 0 0 cols rows)
+         (m (vtx/cells:make-cells (tty:screen-grid screen) cols rows)))
+    (vtx/ui:with-pass
+      (vtx/ui:restyle tree)
+      (vtx/ui:measure tree m cols rows)
+      (vtx/ui:lay tree m 0 0 cols rows)
       (fit-panes tree)
-      (vt/ui:paint tree m))
+      (vtx/ui:paint tree m))
     (put-the-cursor session tree)
     screen))
 
@@ -419,11 +419,11 @@ looking at."
               while form
               do (handler-case
                      (unless (heard server watcher form)
-                       (format *error-output* "~&vt-mux: nothing here does ~S~%"
+                       (format *error-output* "~&vtx: nothing here does ~S~%"
                                (and (consp form) (first form)))
                        (finish-output *error-output*))
                    (error (e)
-                     (format *error-output* "~&vt-mux: ~S: ~A~%"
+                     (format *error-output* "~&vtx: ~S: ~A~%"
                              (and (consp form) (first form)) e)
                      (finish-output *error-output*)))
               while (wire-open wire)))))
@@ -556,7 +556,7 @@ sent one, or nothing when nobody is owed one."
 (defparameter +faults+ 10)
 
 (defun say-what-broke (e)
-  (format *error-output* "~&vt-mux: ~A~%" e)
+  (format *error-output* "~&vtx: ~A~%" e)
   (ignore-errors
    (sb-debug:print-backtrace :stream *error-output* :count 30))
   (finish-output *error-output*))
@@ -584,7 +584,7 @@ that does end it."
                         (say-what-broke e)
                         (when (> (incf faults) +faults+)
                           (format *error-output*
-                                  "~&vt-mux: ~D faults with nothing between them; stopping.~%"
+                                  "~&vtx: ~D faults with nothing between them; stopping.~%"
                                   faults)
                           (setf (server-going server) nil)))))
            server)

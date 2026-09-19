@@ -32,20 +32,20 @@ BENCH_DIR ?= /tmp/cl-vt-bench
 ROUNDS ?= 5
 
 repl:
-	$(IN) '$(ENV) $(SBCL) --eval "(asdf:load-system :vt/all)"'
+	$(IN) '$(ENV) $(SBCL) --eval "(asdf:load-system :vtx/all)"'
 
 # load everything and say so, without running anything
 check:
-	$(IN) '$(ENV) $(SBCL) --non-interactive --eval "(asdf:load-system :vt/all)" --eval "(format t \"~&vt loaded, ~D symbols~%\" (let ((n 0)) (do-external-symbols (s :vt) (declare (ignore s)) (incf n)) n))"'
+	$(IN) '$(ENV) $(SBCL) --non-interactive --eval "(asdf:load-system :vtx/all)" --eval "(format t \"~&libvtx loaded, ~D symbols~%\" (let ((n 0)) (do-external-symbols (s :libvtx) (declare (ignore s)) (incf n)) n))"'
 
 # the fiveam suite. Exits nonzero on failure.
 test:
-	$(IN) '$(ENV) $(SBCL) --non-interactive --eval "(asdf:test-system :vt/test)"'
+	$(IN) '$(ENV) $(SBCL) --non-interactive --eval "(asdf:test-system :vtx/test)"'
 
-# the emulator's own suite, with nothing but the emulator loaded: vt depends on
-# nothing and this is what says so
+# the emulator's own suite, with nothing but the emulator loaded: libvtx
+# depends on nothing and this is what says so
 test-term:
-	$(IN) '$(ENV) $(SBCL) --non-interactive --eval "(asdf:test-system :vt)"'
+	$(IN) '$(ENV) $(SBCL) --non-interactive --eval "(asdf:test-system :libvtx)"'
 
 # run a command on a pty and print the screen it drew:
 #   make run CMD='top -b -n 1'
@@ -61,10 +61,10 @@ bench:
 latency:
 	$(IN) '$(ENV) BENCH_DIR="$(BENCH_DIR)" $(SBCL) --non-interactive --load bench/latency.lisp'
 
-# the program. ./vt-mux is the whole of it: run it, put it on PATH, copy it to
+# the program. ./vtx is the whole of it: run it, put it on PATH, copy it to
 # another machine. Everything it does is its own argument, not a make target.
-vt-mux: build.lisp vt.asd $(wildcard src/*/*.lisp)
-	$(IN) '$(ENV) VT_MUX_OUT="$$PWD/vt-mux" $(SBCL) --non-interactive --load build.lisp'
+vtx: build.lisp vtx.asd libvtx.asd $(wildcard src/*/*.lisp)
+	$(IN) '$(ENV) VTX_OUT="$$PWD/vtx" $(SBCL) --non-interactive --load build.lisp'
 
 # what a frame costs: a pane blitted to a screen, diffed against what was last
 # sent, and encoded as the bytes a terminal reads
@@ -81,10 +81,10 @@ attached:
 compare: bench latency
 	$(IN) 'BENCH_DIR="$(BENCH_DIR)" ROUNDS="$(ROUNDS)" sh bench/compare.sh'
 
-# evaluate one form in an image with the test system loaded, in VT/TEST, with
+# evaluate one form in an image with the test system loaded, in VTX/TEST, with
 # the debugger left on so a fault prints its backtrace: make eval FORM='(...)'
 eval:
-	FORM='$(FORM)' $(IN) '$(ENV) $(SBCL) --disable-debugger --eval "(asdf:load-system :vt/test)" --eval "(in-package :vt/test)" --eval "(eval (read-from-string (uiop:getenv \"FORM\")))" --quit'
+	FORM='$(FORM)' $(IN) '$(ENV) $(SBCL) --disable-debugger --eval "(asdf:load-system :vtx/test)" --eval "(in-package :vtx/test)" --eval "(eval (read-from-string (uiop:getenv \"FORM\")))" --quit'
 
 clean:
-	rm -rf $(BENCH_DIR) vt-mux "$$HOME/.cache/common-lisp/cl-vt"
+	rm -rf $(BENCH_DIR) vtx "$$HOME/.cache/common-lisp/cl-vt"

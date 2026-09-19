@@ -1,8 +1,8 @@
-(defpackage #:vt/test/term
+(defpackage #:libvtx/test
   (:use #:cl #:fiveam)
   (:export #:run-them #:emulator
            #:a-term #:say #:csi #:esc #:osc #:row #:rows #:at #:face-at #:cursor))
-(in-package #:vt/test/term)
+(in-package #:libvtx/test)
 
 (def-suite emulator)
 

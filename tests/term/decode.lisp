@@ -1,4 +1,4 @@
-(in-package #:vt/test/term)
+(in-package #:libvtx/test)
 
 (def-suite decode :in emulator)
 (in-suite decode)

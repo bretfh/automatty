@@ -1,6 +1,6 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(in-package #:vt/mux)
+(in-package #:vtx)
 
 ;;; Something to read: what broke, and where. Any key puts it away.
 
@@ -17,35 +17,35 @@
               :face face))
 
 (defun note-tree (n cols most)
-  (vt/ui:column
+  (vtx/ui:column
    :background-color (bar-face :bg-dim)
    :min-width cols
-   (vt/ui:row :background-color (bar-face :bg-alt)
-              (vt/ui:label (format nil " ~A " (note-title n)) :face (note-face n))
-              (vt/ui:gap)
-              (vt/ui:label " any key "))
-   (apply #'vt/ui:column
+   (vtx/ui:row :background-color (bar-face :bg-alt)
+              (vtx/ui:label (format nil " ~A " (note-title n)) :face (note-face n))
+              (vtx/ui:gap)
+              (vtx/ui:label " any key "))
+   (apply #'vtx/ui:column
           (loop :for line :in (subseq (note-lines n)
                                       0 (min most (length (note-lines n))))
-                :collect (vt/ui:label (if (> (length line) (- cols 2))
+                :collect (vtx/ui:label (if (> (length line) (- cols 2))
                                           (subseq line 0 (- cols 2))
                                           line))))))
 
 (defmethod draw-over ((n note) screen)
   (let* ((cols (tty:screen-width screen))
          (rows (tty:screen-height screen))
-         (m (vt/cells:make-cells (tty:screen-grid screen) cols rows))
+         (m (vtx/cells:make-cells (tty:screen-grid screen) cols rows))
          (tree (note-tree n cols (max 1 (- rows 3))))
-         (high (nth-value 1 (vt/ui:with-pass
-                              (vt/ui:restyle tree)
-                              (vt/ui:measure tree m cols rows))))
+         (high (nth-value 1 (vtx/ui:with-pass
+                              (vtx/ui:restyle tree)
+                              (vtx/ui:measure tree m cols rows))))
          (top (max 0 (- rows high))))
-    (vt/cells:fill-rect m 0 top cols (- rows top)
+    (vtx/cells:fill-rect m 0 top cols (- rows top)
                         (vt:make-face :bg (bar-face :bg-dim)))
-    (vt/cells:draw tree (tty:screen-grid screen) cols rows :top top)
+    (vtx/cells:draw tree (tty:screen-grid screen) cols rows :top top)
     (setf (tty:screen-cursor-visible screen) nil)))
 
-(vt/mode:define-mode note-mode ())
+(vtx/mode:define-mode note-mode ())
 
 (defmethod mode-of ((n note)) 'note-mode)
 
@@ -56,7 +56,7 @@
   t)
 
 (defun lines-of (text)
-  (vt/ui:split-string text :separator (list #\Newline)))
+  (vtx/ui:split-string text :separator (list #\Newline)))
 
 (defun show-note (client title text &key (face :warning))
   (client-over-put client (make-note title (lines-of text) :face face)))

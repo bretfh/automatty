@@ -1,4 +1,4 @@
-(in-package #:vt/test/term)
+(in-package #:libvtx/test)
 
 (def-suite render :in emulator)
 (in-suite render)

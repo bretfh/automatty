@@ -1,6 +1,6 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(in-package #:vt/mux)
+(in-package #:vtx)
 
 (defun mux-dir ()
   "Where the sockets live, made if it is not there and shut to everybody else.
@@ -83,13 +83,13 @@ neither, and there is nothing to run."
          me
          (list "serve" name command (princ-to-string rows) (princ-to-string cols))
          :output (log-path name))
-        (let ((form (format nil "(vt/mux:serve ~S ~S :name ~S :rows ~D :cols ~D)"
+        (let ((form (format nil "(vtx:serve ~S ~S :name ~S :rows ~D :cols ~D)"
                             (socket-path name) command name rows cols)))
           (pty:spawn-in-its-own-session
            (namestring sb-ext:*runtime-pathname*)
            (list "--no-userinit" "--disable-debugger"
                  "--eval" "(require :asdf)"
-                 "--eval" "(asdf:load-system :vt/mux)"
+                 "--eval" "(asdf:load-system :vtx)"
                  "--eval" form
                  "--quit")
            :output (log-path name)))))
@@ -105,15 +105,15 @@ neither, and there is nothing to run."
     (:asked-to-stop nil)
     (:no-answer
      (format *error-output*
-             "~&vt-mux: the server for ~A took the connection and then said~%~
+             "~&vtx: the server for ~A took the connection and then said~%~
               nothing. It is most likely older than this client: it has been~%~
               running since whenever, and what it made of what we sent it is in~%~
               ~A. The programs in it are still running.~%"
              name (log-path name)))
     (:no-such-session
-     (format *error-output* "~&vt-mux: there is no session called ~A there.~%" name))
+     (format *error-output* "~&vtx: there is no session called ~A there.~%" name))
     (:server-gone
-     (format *error-output* "~&vt-mux: the server for ~A stopped. ~A says why.~%"
+     (format *error-output* "~&vtx: the server for ~A stopped. ~A says why.~%"
              name (log-path name)))
     (t (when why (format t "~&~A~%" why))))
   why)
@@ -155,14 +155,14 @@ something anything else does on your behalf."
       (say-why name (attach path :name name)))))
 
 (defun usage (s)
-  (format s "~&vt-mux: many terminals inside one~%~%")
-  (format s "  vt-mux                 a shell in a session called 0, made if it is not there~%")
-  (format s "  vt-mux <name>          the same, under another name~%")
-  (format s "  vt-mux run <name> <command>~%")
-  (format s "  vt-mux attach <name>   join a session already running~%")
-  (format s "  vt-mux serve <name> <command>   the server itself, in the foreground~%")
-  (format s "  vt-mux list            what is running~%")
-  (format s "  vt-mux stop <name>     stop a session, and the programs in it~%~%")
+  (format s "~&vtx: many terminals inside one~%~%")
+  (format s "  vtx                 a shell in a session called 0, made if it is not there~%")
+  (format s "  vtx <name>          the same, under another name~%")
+  (format s "  vtx run <name> <command>~%")
+  (format s "  vtx attach <name>   join a session already running~%")
+  (format s "  vtx serve <name> <command>   the server itself, in the foreground~%")
+  (format s "  vtx list            what is running~%")
+  (format s "  vtx stop <name>     stop a session, and the programs in it~%~%")
   (format s "  ~C-b d detaches, ~C-b r redraws, ~C-b ~C-b types a ~C-b,~%"
           #\^ #\^ #\^ #\^ #\^)
   (format s "  ~C-b : runs a command by name and ~C-b ? says what every key does.~%"
@@ -188,7 +188,7 @@ something anything else does on your behalf."
            (let ((name (or (second args) "0")))
              (if (stop-a-server name)
                  (format t "~&stopped ~A~%" name)
-                 (format *error-output* "~&vt-mux: nothing called ~A is running~%"
+                 (format *error-output* "~&vtx: nothing called ~A is running~%"
                          name))))
           ((string= what "attach")
            (let ((path (socket-path (or (second args) "0"))))
@@ -216,5 +216,5 @@ something anything else does on your behalf."
           ((or (string= what "-h") (string= what "--help")) (usage *standard-output*))
           (t (run :name what))))
     (error (e)
-      (format *error-output* "~&vt-mux: ~A~%" e)
+      (format *error-output* "~&vtx: ~A~%" e)
       (sb-ext:quit :unix-status 1))))

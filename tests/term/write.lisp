@@ -1,4 +1,4 @@
-(in-package #:vt/test/term)
+(in-package #:libvtx/test)
 
 (def-suite write :in emulator)
 (in-suite write)

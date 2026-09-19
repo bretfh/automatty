@@ -1,6 +1,6 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(in-package #:vt/mux)
+(in-package #:vtx)
 
 ;;; What can be done and what asks for it. A command is a function with a name
 ;;; you can type; which keys reach it is a mode's business, and a mode inherits
@@ -55,7 +55,7 @@ out would take the screen with it."
         (*client* client))
     (when does (tried does name))))
 
-(setf vt/mode:*run* (lambda (does) (tried does (or (vt/mode:pending) "that key"))))
+(setf vtx/mode:*run* (lambda (does) (tried does (or (vtx/mode:pending) "that key"))))
 
 ;;; What vt calls a key, and what a mode calls one.
 
@@ -74,19 +74,19 @@ out would take the screen with it."
   (etypecase event
     (character
      (let ((code (char-code event)))
-       (cond ((= code 27) (vt/mode:make-key "Escape"))
-             ((= code 13) (vt/mode:make-key "RET"))
-             ((= code 9) (vt/mode:make-key "TAB"))
-             ((= code 127) (vt/mode:make-key "DEL"))
-             ((= code 32) (vt/mode:make-key "SPC"))
-             ((< code 32) (vt/mode:make-key (string (code-char (+ 96 code)))
+       (cond ((= code 27) (vtx/mode:make-key "Escape"))
+             ((= code 13) (vtx/mode:make-key "RET"))
+             ((= code 9) (vtx/mode:make-key "TAB"))
+             ((= code 127) (vtx/mode:make-key "DEL"))
+             ((= code 32) (vtx/mode:make-key "SPC"))
+             ((< code 32) (vtx/mode:make-key (string (code-char (+ 96 code)))
                                             :ctrl t))
-             (t (vt/mode:make-key (string event))))))
+             (t (vtx/mode:make-key (string event))))))
     (cons
      (let ((mods (rest event)))
-       (vt/mode:make-key (key-named (first event))
+       (vtx/mode:make-key (key-named (first event))
                          :ctrl (and (member :ctrl mods) t)
                          :meta (and (member :meta mods) t)
                          :shift (and (member :shift mods) t))))))
 
-(vt/mode:define-mode pane-mode ())
+(vtx/mode:define-mode pane-mode ())

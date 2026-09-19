@@ -211,8 +211,8 @@ printf '~A\\n'~%cat ~A~%printf '\\n~A\\n'~%sleep 3~%"
          (name (format nil "bench-~D" (sb-posix:getpid)))
          (run (script "ours"
                       (format nil "exec sbcl --no-userinit --disable-debugger ~
---eval '(require :asdf)' --eval '(asdf:load-system :vt/mux)' ~
---eval '(vt/mux:main (list \"run\" \"~A\" \"sh ~A\"))' --quit~%"
+--eval '(require :asdf)' --eval '(asdf:load-system :vtx)' ~
+--eval '(vtx:main (list \"run\" \"~A\" \"sh ~A\"))' --quit~%"
                               name pane))))
     (multiple-value-prog1 (watch-one (format nil "sh ~A" run))
       (ignore-errors (delete-file (format nil "~A/cl-vt/~A"

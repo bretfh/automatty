@@ -1,11 +1,11 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 (require :asdf)
-(asdf:load-system :vt/mux)
+(asdf:load-system :vtx)
 (sb-ext:save-lisp-and-die
- (or (sb-ext:posix-getenv "VT_MUX_OUT") "vt-mux")
+ (or (sb-ext:posix-getenv "VTX_OUT") "vtx")
  :executable t
  :save-runtime-options t
  :toplevel (lambda ()
              (sb-ext:disable-debugger)
-             (vt/mux:main)
+             (vtx:main)
              (sb-ext:quit :unix-status 0)))

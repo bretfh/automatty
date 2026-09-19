@@ -1,13 +1,13 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(in-package #:vt/mux)
+(in-package #:vtx)
 
 ;;; The bar is what the session looks like rather than what any one person is
 ;;; doing, so the server composes it and it crosses the wire as cells like
 ;;; everything else. Everyone attached sees the same one.
 
 (defun bar-face (role)
-  (vt/ui:unhex (vt/ui:color role)))
+  (vtx/ui:unhex (vtx/ui:color role)))
 
 (defun clock-says ()
   (multiple-value-bind (second minute hour) (decode-universal-time (get-universal-time))
@@ -34,17 +34,17 @@ reads to the end, and its name is the last thing in it."
 (defun default-bar (session)
   "What the bar shows. Rebind *BAR* to a function of the session answering
 another tree, and it is another bar."
-  (vt/ui:row
+  (vtx/ui:row
    :spacing 1
    :background-color (bar-face :bg-alt)
-   (vt/ui:label (format nil " ~A " (session-name session)) :face :accent)
-   (vt/ui:label (pane-says (session-focus session)))
-   (vt/ui:gap)
-   (vt/ui:label (if (pane-running (session-focus session)) "" "done") :face :warning)
-   (vt/ui:label (let ((term (session-pane-term session)))
+   (vtx/ui:label (format nil " ~A " (session-name session)) :face :accent)
+   (vtx/ui:label (pane-says (session-focus session)))
+   (vtx/ui:gap)
+   (vtx/ui:label (if (pane-running (session-focus session)) "" "done") :face :warning)
+   (vtx/ui:label (let ((term (session-pane-term session)))
                   (format nil "~Dx~D" (vt:term-width term) (vt:term-height term))))
-   (vt/ui:label (clock-says))
-   (vt/ui:label " ")))
+   (vtx/ui:label (clock-says))
+   (vtx/ui:label " ")))
 
 (defvar *bar* #'default-bar)
 

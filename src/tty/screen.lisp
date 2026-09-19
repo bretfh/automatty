@@ -1,6 +1,6 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(in-package #:vt/tty)
+(in-package #:vtx/tty)
 
 (declaim (optimize (speed 3) (safety 1)))
 

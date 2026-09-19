@@ -1,8 +1,8 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(defpackage #:vt/tty
+(defpackage #:vtx/tty
   (:use #:cl)
-  (:local-nicknames (#:pty #:vt/pty))
+  (:local-nicknames (#:pty #:vtx/pty))
   (:export
    #:make-waiting
    #:free-waiting

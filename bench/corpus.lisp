@@ -1,10 +1,10 @@
 (require :asdf)
-(asdf:load-system :vt/all)
+(asdf:load-system :vtx/all)
 
 (defpackage #:vt/bench
   (:use #:cl)
-  (:local-nicknames (#:pty #:vt/pty) (#:tty #:vt/tty) (#:mux #:vt/mux)
-                    (#:cells #:vt/cells))
+  (:local-nicknames (#:pty #:vtx/pty) (#:tty #:vtx/tty) (#:mux #:vtx)
+                    (#:cells #:vtx/cells))
   (:export #:corpus-dir #:make-corpora #:corpora))
 (in-package #:vt/bench)
 

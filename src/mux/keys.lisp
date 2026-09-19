@@ -1,6 +1,6 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(in-package #:vt/mux)
+(in-package #:vtx)
 
 ;;; What the keys do, and which keys do it.
 
@@ -66,30 +66,30 @@ instead."
 (defcommand what-the-keys-do
   (show-note *client* "keys"
              (format nil "~{~A~%~}"
-                     (loop :for (chord . nil) :in (vt/mode:keys-in-force
-                                                   (vt/mode:mode-named 'pane-mode))
+                     (loop :for (chord . nil) :in (vtx/mode:keys-in-force
+                                                   (vtx/mode:mode-named 'pane-mode))
                            :collect (format nil "  ~A" chord)))
              :face :accent))
 
 ;;; A mode holds these, so another mode may be defined on top of this one and
 ;;; change or add to what is here without touching any of it.
 
-(vt/mode:define-key 'pane-mode "C-b d" #'detach)
-(vt/mode:define-key 'pane-mode "C-b r" #'redraw)
-(vt/mode:define-key 'pane-mode "C-b :" #'run-a-command)
-(vt/mode:define-key 'pane-mode "C-b ?" #'what-the-keys-do)
-(vt/mode:define-key 'pane-mode "C-b C-b" #'send-the-prefix)
-(vt/mode:define-key 'pane-mode "C-b t" #'toggle-the-bar)
+(vtx/mode:define-key 'pane-mode "C-b d" #'detach)
+(vtx/mode:define-key 'pane-mode "C-b r" #'redraw)
+(vtx/mode:define-key 'pane-mode "C-b :" #'run-a-command)
+(vtx/mode:define-key 'pane-mode "C-b ?" #'what-the-keys-do)
+(vtx/mode:define-key 'pane-mode "C-b C-b" #'send-the-prefix)
+(vtx/mode:define-key 'pane-mode "C-b t" #'toggle-the-bar)
 
 ;;; Panes are windows and the keys for them are the ones an editor uses for
 ;;; windows: 2 splits below, 3 splits beside, 0 closes this one, 1 leaves only
 ;;; this one, o goes to the next.
 
-(vt/mode:define-key 'pane-mode "C-b 2" #'split-below)
-(vt/mode:define-key 'pane-mode "C-b 3" #'split-right)
-(vt/mode:define-key 'pane-mode "C-b 0" #'close-pane)
-(vt/mode:define-key 'pane-mode "C-b 1" #'only-this-pane)
-(vt/mode:define-key 'pane-mode "C-b o" #'next-pane)
+(vtx/mode:define-key 'pane-mode "C-b 2" #'split-below)
+(vtx/mode:define-key 'pane-mode "C-b 3" #'split-right)
+(vtx/mode:define-key 'pane-mode "C-b 0" #'close-pane)
+(vtx/mode:define-key 'pane-mode "C-b 1" #'only-this-pane)
+(vtx/mode:define-key 'pane-mode "C-b o" #'next-pane)
 
-(vt/mode:define-key 'pane-mode "C-b c" #'new-session)
-(vt/mode:define-key 'pane-mode "C-b b" #'choose-a-session)
+(vtx/mode:define-key 'pane-mode "C-b c" #'new-session)
+(vtx/mode:define-key 'pane-mode "C-b b" #'choose-a-session)

@@ -1,6 +1,6 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(defpackage #:vt/pty
+(defpackage #:vtx/pty
   (:use #:cl)
   (:export
    #:open-pty

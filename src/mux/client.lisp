@@ -1,6 +1,6 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(in-package #:vt/mux)
+(in-package #:vtx)
 
 (defparameter +was-known+
   '(:attach :keys :resize :knock :bar :detach :stop)
@@ -227,11 +227,11 @@ two of them attached in one process would otherwise be in each other's modes and
 finishing each other's chords."
   (let* ((*client* client)
          (over (first (client-over client)))
-         (vt/mode:*pending* (client-chord-so-far client))
-         (vt/mode:*unbound* (lambda (chord) (unbound over chord client))))
-    (prog1 (eq :pending (vt/mode:press (vt/mode:spelled key)
-                                       (vt/mode:mode-named (client-mode client))))
-      (setf (client-chord-so-far client) vt/mode:*pending*)
+         (vtx/mode:*pending* (client-chord-so-far client))
+         (vtx/mode:*unbound* (lambda (chord) (unbound over chord client))))
+    (prog1 (eq :pending (vtx/mode:press (vtx/mode:spelled key)
+                                       (vtx/mode:mode-named (client-mode client))))
+      (setf (client-chord-so-far client) vtx/mode:*pending*)
       (when over (setf (client-dirty client) t)))))
 
 (defun client-typed (client said)
