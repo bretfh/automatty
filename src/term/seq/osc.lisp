@@ -15,16 +15,14 @@
 
 (defmethod handle-osc ((term term) (code (eql 0)) said)
   (setf (term-title term) said)
-  (let ((told (term-title-fn term)))
-    (when told (funcall told term said))))
+  (term-titled term said))
 
 (defmethod handle-osc ((term term) (code (eql 2)) said)
   (handle-osc term 0 said))
 
 (defmethod handle-osc ((term term) (code (eql 7)) said)
   (setf (term-cwd term) said)
-  (let ((told (term-cwd-fn term)))
-    (when told (funcall told term said))))
+  (term-moved term said))
 
 (defmethod handle-osc ((term term) (code (eql 10)) said)
   (when (string= said "?")

@@ -203,3 +203,32 @@
     (say term "keepme" (csi "2J"))
     (is (equal "" (row term 0))
         "the library's own erase stopped erasing: ~S" (row term 0))))
+
+(defmethod vt:term-rang ((term a-borrowed-term))
+  (incf (a-borrowed-term-rang term)))
+
+(defmethod vt:term-titled ((term a-borrowed-term) title)
+  (push (cons :titled title) (a-borrowed-term-marks term)))
+
+(test a-method-takes-the-place-of-a-callback-slot
+  (let ((term (vt:init-term (make-a-borrowed-term) :width 12 :height 2)))
+    (say term (string (code-char 7)) (string (code-char 7)))
+    (is (eql 2 (a-borrowed-term-rang term))
+        "the bell did not reach the method")
+    (say term (osc "0;a name"))
+    (is (equal '(:titled . "a name") (first (a-borrowed-term-marks term)))
+        "the title did not reach the method")
+    (is (equal "a name" (vt:term-title term))
+        "the term stopped keeping the title itself")))
+
+(test a-slot-still-works-for-somebody-who-wants-a-lambda
+  (let* ((rang 0)
+         (titles nil)
+         (term (a-term :width 8 :height 1
+                       :bell-fn (lambda (term) (declare (ignore term))
+                                  (incf rang))
+                       :title-fn (lambda (term title) (declare (ignore term))
+                                   (push title titles)))))
+    (say term (string (code-char 7)) (osc "2;still here"))
+    (is (eql 1 rang))
+    (is (equal '("still here") titles))))

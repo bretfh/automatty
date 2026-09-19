@@ -60,6 +60,11 @@
    #:make-decoder
    #:decode-utf-8
 
+   #:term-rang
+   #:term-titled
+   #:term-moved
+   #:term-answers
+
    #:handle-csi
    #:handle-esc
    #:handle-osc

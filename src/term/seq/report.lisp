@@ -7,10 +7,6 @@
 ;;; What the terminal says back. A program asks and expects an answer on its
 ;;; input, so these are the sequences that need TERM-INPUT-FN to be there.
 
-(defun term-answers (term said)
-  (let ((answer (term-input-fn term)))
-    (when answer (funcall answer term said))))
-
 (defmethod handle-csi ((term term) (final (eql #\c)) format params)
   (let ((n (or (first params) 0)))
     (when (zerop n)

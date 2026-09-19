@@ -322,6 +322,31 @@ overlap; REPLACE answers as though the source were taken first."
 ;;; first argument is the more specific. Something that wants every sequence
 ;;; rather than one wants :before or :around.
 
+(defgeneric term-rang (term)
+  (:documentation "The program rang the bell.")
+  (:method ((term term))
+    (let ((told (term-bell-fn term)))
+      (when told (funcall told term)))))
+
+(defgeneric term-titled (term title)
+  (:documentation "The program said what it would like to be called.")
+  (:method ((term term) title)
+    (let ((told (term-title-fn term)))
+      (when told (funcall told term title)))))
+
+(defgeneric term-moved (term cwd)
+  (:documentation "The program said which directory it is working in.")
+  (:method ((term term) cwd)
+    (let ((told (term-cwd-fn term)))
+      (when told (funcall told term cwd)))))
+
+(defgeneric term-answers (term said)
+  (:documentation "The terminal is answering a question the program asked, and
+SAID is what the program should read back.")
+  (:method ((term term) said)
+    (let ((told (term-input-fn term)))
+      (when told (funcall told term said)))))
+
 (defgeneric handle-csi (term final format params)
   (:documentation "A control sequence ending in FINAL. FORMAT is the private
 marker it carried, one of #\\? #\\> #\\= or nil, and PARAMS its numbers.")
