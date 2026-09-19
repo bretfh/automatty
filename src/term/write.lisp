@@ -21,6 +21,7 @@
     #\y #\≤  #\z #\≥  #\{ #\π  #\| #\≠  #\} #\£
     #\~ #\•))
 
+(declaim (inline char-display-width))
 (defun char-display-width (ch)
   (let ((code (char-code ch)))
     (cond ((< code 32) 0)
@@ -46,12 +47,14 @@
            2)
           (t 1))))
 
+(declaim (inline translate-charset))
 (defun translate-charset (ch charset)
   (case charset
     (:dec-line-drawing
      (or (gethash ch *dec-line-drawing-table*) ch))
     (t ch)))
 
+(declaim (inline current-charset-mapping))
 (defun current-charset-mapping (term)
   (case (term-active-charset term)
     (:g0 (term-g0 term))
@@ -70,13 +73,20 @@
   (let* ((w (term-width term))
          (grid (the simple-vector (term-grid term)))
          (charset (current-charset-mapping term))
+         (plainp (eq charset :us-ascii))
          (face (intern-face term)))
     (declare (type fixnum w))
     (do ((idx start (1+ idx)))
         ((>= idx end))
       (let* ((raw-ch (char str idx))
-             (ch (translate-charset raw-ch charset))
-             (cw (char-display-width ch)))
+             (code (char-code raw-ch))
+             ;; the overwhelming majority of what a program writes: plain
+             ;; ascii under no charset, one column, nothing to translate. It
+             ;; is worth knowing that without asking two functions.
+             (plain (and plainp (< 31 code 127)))
+             (ch (if plain raw-ch (translate-charset raw-ch charset)))
+             (cw (if plain 1 (char-display-width ch))))
+        (declare (type fixnum code cw))
         (unless (zerop cw)
           (setf (term-last-char term) ch)
           ;; the wrap comes first. An insert shifts the row the cursor is on,

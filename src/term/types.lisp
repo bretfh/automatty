@@ -25,7 +25,7 @@ go last, where the comparison usually never reaches them.")
 
   (defun face-reader (name) (intern (format nil "FACE-~A" name) '#:vt))
 
-  (defun face-key (name) (intern (symbol-name name) '#:keyword)))
+  (defun face-initarg (name) (intern (symbol-name name) '#:keyword)))
 
 (declaim (inline color-equal))
 (defun color-equal (a b)
@@ -53,7 +53,8 @@ numbers, and the first two are what nearly every comparison is between."
             (defun copy-face (src)
               (make-face
                ,@(loop :for (name nil) :in +face-slots+
-                       :append (list (face-key name) `(,(face-reader name) src)))))
+                       :append (list (face-initarg name)
+                                     `(,(face-reader name) src)))))
 
             (defun face-into (into from)
               "Make INTO carry what FROM carries, without making another face."
@@ -82,6 +83,10 @@ different."
                 (t (and ,@(loop :for (name how) :in +face-slots+
                                 :collect (same name how))))))))))
   (a-face))
+
+(defconstant +faces-kept+ 16
+  "How many faces a term keeps shared. A power of two, so walking the ring is a
+mask rather than a division.")
 
 (defstruct (cell (:constructor make-cell (&optional char face)))
   (char #\Space :type character)
@@ -155,9 +160,40 @@ different."
   (cwd "" :type string)
   (last-char #\Space :type character)
   (in-alt-screen nil :type boolean)
-  (face-cache (make-array 16 :initial-element nil) :type simple-vector)
+  (face-cache (make-array +faces-kept+ :initial-element nil) :type simple-vector)
+  (face-keys (make-array +faces-kept+ :element-type 'fixnum :initial-element 0)
+             :type (simple-array fixnum (*)))
   (face-cache-pos 0 :type fixnum)
   (face-now nil))
+
+(declaim (inline color-key face-key))
+
+(defun color-key (c)
+  (cond ((null c) 0)
+        ((integerp c) (1+ c))
+        ((consp c) (+ 300 (ash (the (integer 0 255) (first c)) 16)
+                      (ash (the (integer 0 255) (second c)) 8)
+                      (the (integer 0 255) (third c))))
+        (t 0)))
+
+(defun face-key (f)
+  "A fixnum two equal faces share. Different keys are different faces; the same
+key still has to be checked. A miss in the cache is then a run of fixnum
+compares rather than a run of eleven-field ones."
+  (declare (type face f))
+  (let ((flags (logior (if (face-bold f) 1 0)
+                       (if (face-faint f) 2 0)
+                       (if (face-italic f) 4 0)
+                       (if (face-inverse f) 8 0)
+                       (if (face-conceal f) 16 0)
+                       (if (face-crossed f) 32 0)
+                       (if (face-blink f) 64 0)
+                       (if (face-underline f) 128 0))))
+    (declare (type fixnum flags))
+    (logand most-positive-fixnum
+            (+ flags
+               (* 257 (the fixnum (color-key (face-fg f))))
+               (* 65537 (the fixnum (color-key (face-bg f))))))))
 
 (defun intern-face (term)
   "A shared face equal to TERM's current attrs. A small ring cache keeps
@@ -167,15 +203,28 @@ color change, and the answer stands until something says an attribute moved."
       (setf (term-face-now term) (%intern-face term))))
 
 (defun %intern-face (term)
-  (let ((cur (term-attrs term))
-        (cache (term-face-cache term)))
-    (or (loop for i from 0 below (length cache)
-              for f = (svref cache i)
-              when (and f (face-equal f cur)) return f)
-        (let ((new (copy-face cur))
-              (pos (term-face-cache-pos term)))
+  ;; searched newest first. A program works in a handful of faces at a time and
+  ;; comes back to the one it just used, so from the other end the answer is
+  ;; usually the first or second thing looked at rather than the last.
+  (let* ((cur (term-attrs term))
+         (cache (term-face-cache term))
+         (keys (term-face-keys term))
+         (pos (term-face-cache-pos term))
+         (key (face-key cur)))
+    (declare (type simple-vector cache)
+             (type (simple-array fixnum (*)) keys)
+             (type fixnum pos key))
+    (or (loop :for i :of-type fixnum :from 1 :to +faces-kept+
+              :for at :of-type fixnum := (logand (- pos i) (1- +faces-kept+))
+              :when (and (= key (aref keys at))
+                         (svref cache at)
+                         (face-equal (svref cache at) cur))
+                :return (svref cache at))
+        (let ((new (copy-face cur)))
           (setf (svref cache pos) new
-                (term-face-cache-pos term) (mod (1+ pos) (length cache)))
+                (aref keys pos) key
+                (term-face-cache-pos term) (logand (1+ pos)
+                                                   (1- +faces-kept+)))
           new))))
 
 (defun init-term (term &key (width 80) (height 24)
@@ -211,10 +260,10 @@ this and a plain term."
 
 (defun clear-row (row &optional face)
   (declare (type simple-vector row))
-  (dotimes (x (length row))
-    (let ((c (aref row x)))
-      (setf (cell-char c) #\Space
-            (cell-face c) face))))
+  (loop :for x :of-type fixnum :from 0 :below (length row)
+        :do (let ((c (svref row x)))
+              (setf (cell-char c) #\Space
+                    (cell-face c) face))))
 
 (defun clear-grid (grid &optional face)
   (declare (type simple-vector grid))
