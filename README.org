@@ -31,7 +31,7 @@ make FOREIGN=1 test
 #+end_src
 
 libvtx has no dependencies. vtx needs =sb-posix= and =sb-bsd-sockets=, both
-part of SBCL, and FiveAM for its own tests.
+part of SBCL. Both have tests.
 
 ** Installing
 
