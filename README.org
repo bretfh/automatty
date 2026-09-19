@@ -23,8 +23,8 @@ make test-term   # libvtx alone
 make vtx         # the binary
 #+end_src
 
-Guix is what this develops against. Without it, put =FOREIGN=1= in front and
-it uses whatever SBCL is already on the machine:
+This is developed with Guix. Without it, put =FOREIGN=1= in front of any
+target and it uses whatever SBCL is already on the machine:
 
 #+begin_src sh
 make FOREIGN=1 test
