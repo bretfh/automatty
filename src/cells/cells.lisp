@@ -72,9 +72,8 @@ saying there is none, which means whatever it is being drawn onto."
         (map nil
              (lambda (ch)
                (when (and (<= 0 x) (< x (cells-cols m)))
-                 (let ((cell (svref row x)))
-                   (setf (vt:cell-char cell) ch
-                         (vt:cell-face cell) face)))
+                 (setf (vt:row-char row x) ch
+                       (vt:row-face row x) face))
                (incf x (max 1 (vt:char-display-width ch))))
              text)
         x))))
@@ -82,11 +81,12 @@ saying there is none, which means whatever it is being drawn onto."
 (defun fill-rect (m col line width height face &optional (char #\Space))
   (let ((grid (cells-grid m)))
     (loop :for y :from (max 0 line) :below (min (cells-rows m) (+ line height))
-          :do (let ((row (svref grid y)))
-                (loop :for x :from (max 0 col) :below (min (cells-cols m) (+ col width))
-                      :do (let ((cell (svref row x)))
-                            (setf (vt:cell-char cell) char
-                                  (vt:cell-face cell) face)))))))
+          :do (let ((row (svref grid y))
+                    (from (max 0 col))
+                    (to (min (cells-cols m) (+ col width))))
+                (when (< from to)
+                  (fill (vt:row-chars row) char :start from :end to)
+                  (fill (vt:row-faces row) face :start from :end to))))))
 
 (defun blit (m term col line width height)
   "Copy what TERM holds into the grid at COL LINE, clipped to WIDTH by HEIGHT
@@ -102,13 +102,16 @@ already sent and repaint nothing ever again."
         (cols (min (vt:term-width term) width (- (cells-cols m) col))))
     (declare (type fixnum rows cols))
     (loop :for y :of-type fixnum :from (max 0 (- line)) :below rows
-          :do (let ((from (the simple-vector (vt:term-grid-row term y)))
-                    (into (the simple-vector (svref grid (+ line y)))))
-                (loop :for x :of-type fixnum :from (max 0 (- col)) :below cols
-                      :do (let ((a (svref from x))
-                                (b (svref into (+ col x))))
-                            (setf (vt:cell-char b) (vt:cell-char a)
-                                  (vt:cell-face b) (vt:cell-face a))))))
+          :do (let* ((from (vt:term-grid-row term y))
+                     (into (svref grid (+ line y)))
+                     (at (max 0 (- col)))
+                     (n (- cols at)))
+                (declare (type fixnum at n))
+                (when (plusp n)
+                  (replace (vt:row-chars into) (vt:row-chars from)
+                           :start1 (+ col at) :start2 at :end2 cols)
+                  (replace (vt:row-faces into) (vt:row-faces from)
+                           :start1 (+ col at) :start2 at :end2 cols))))
     m))
 
 (defmethod ui:paint :around ((w ui:widget) (m cells))

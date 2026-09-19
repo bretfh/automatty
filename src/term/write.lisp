@@ -104,23 +104,23 @@
             (term-insert-char term cw))
           (let ((x (term-cursor-x term))
                 (y (term-cursor-y term))
-                (row (the simple-vector (aref grid (term-cursor-y term)))))
+                (row (the row (svref grid (term-cursor-y term)))))
             (when (and (= cw 2) (>= (1+ x) w))
-              (setf (cell-char (aref row x)) #\Space
-                    (cell-face (aref row x)) face)
+              (setf (row-char row x) #\Space
+                    (row-face row x) face)
               (setf (term-cursor-x term) 0)
               (if (= y (term-scroll-bottom term))
                   (term-scroll-up term 1)
                   (incf (term-cursor-y term)))
               (setf x (term-cursor-x term)
                     y (term-cursor-y term)
-                    row (the simple-vector (aref grid y))))
-            (setf (cell-char (aref row x)) ch
-                  (cell-face (aref row x)) face)
+                    row (the row (svref grid y))))
+            (setf (row-char row x) ch
+                  (row-face row x) face)
             (when (= cw 2)
               (when (< (1+ x) w)
-                (setf (cell-char (aref row (1+ x))) #\Space
-                      (cell-face (aref row (1+ x))) face)))
+                (setf (row-char row (1+ x)) #\Space
+                      (row-face row (1+ x)) face)))
             (let ((next (+ x cw)))
               (declare (type fixnum next))
               (if (>= next w)

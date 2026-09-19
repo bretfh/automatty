@@ -16,10 +16,7 @@
 (defun make-screen-grid (width height)
   (let ((grid (make-array height)))
     (dotimes (y height grid)
-      (let ((row (make-array width)))
-        (dotimes (x width)
-          (setf (svref row x) (vt:make-cell)))
-        (setf (svref grid y) row)))))
+      (setf (svref grid y) (vt:make-row width)))))
 
 (defun make-screen (&key (width 80) (height 24))
   (%make-screen :width width :height height
@@ -27,7 +24,7 @@
 
 (declaim (inline screen-row))
 (defun screen-row (screen y)
-  (the simple-vector (svref (screen-grid screen) y)))
+  (the vt:row (svref (screen-grid screen) y)))
 
 (defun screen-resize (screen width height)
   (setf (screen-width screen) width
@@ -39,14 +36,12 @@
 
 (defun screen-copy (into from)
   "Put what FROM holds into INTO, cells and cursor both."
-  (dotimes (y (min (screen-height into) (screen-height from)))
-    (let ((a (screen-row into y))
-          (b (screen-row from y)))
-      (dotimes (x (min (screen-width into) (screen-width from)))
-        (let ((c (svref a x))
-              (d (svref b x)))
-          (setf (vt:cell-char c) (vt:cell-char d)
-                (vt:cell-face c) (vt:cell-face d))))))
+  (let ((n (min (screen-width into) (screen-width from))))
+    (dotimes (y (min (screen-height into) (screen-height from)))
+      (let ((a (screen-row into y))
+            (b (screen-row from y)))
+        (replace (vt:row-chars a) (vt:row-chars b) :end1 n :end2 n)
+        (replace (vt:row-faces a) (vt:row-faces b) :end1 n :end2 n))))
   (setf (screen-cursor-x into) (screen-cursor-x from)
         (screen-cursor-y into) (screen-cursor-y from)
         (screen-cursor-visible into) (screen-cursor-visible from)
@@ -64,17 +59,18 @@ started over. Ending a run and beginning another costs a cursor address, so a
 few unchanged cells are cheaper written again than jumped over.")
 
 (declaim (inline same-cell-p))
-(defun same-cell-p (a b)
-  (and (char= (vt:cell-char a) (vt:cell-char b))
-       (let ((fa (vt:cell-face a)) (fb (vt:cell-face b)))
+(defun same-cell-p (old new x)
+  (declare (type fixnum x))
+  (and (char= (vt:row-char old x) (vt:row-char new x))
+       (let ((fa (vt:row-face old x)) (fb (vt:row-face new x)))
          (or (eq fa fb) (vt:face-equal fa fb)))))
 
 (defun widened (row start)
   "START, or one column back when what sits there is the right half of a wide
 character: writing that half alone would put the terminal a column out."
-  (declare (type simple-vector row) (type fixnum start))
+  (declare (type fixnum start))
   (if (and (plusp start)
-           (= 2 (vt:char-display-width (vt:cell-char (svref row (1- start))))))
+           (= 2 (vt:char-display-width (vt:row-char row (1- start)))))
       (1- start)
     start))
 
@@ -94,11 +90,10 @@ what it is about to send and the shadow already says it was sent."
             (end -1))
         (declare (type fixnum start end))
         (dotimes (x w)
-          (let ((a (svref old x))
-                (b (svref new x)))
-            (unless (same-cell-p a b)
-              (setf (vt:cell-char a) (vt:cell-char b)
-                    (vt:cell-face a) (vt:cell-face b))
+          (progn
+            (unless (same-cell-p old new x)
+              (setf (vt:row-char old x) (vt:row-char new x)
+                    (vt:row-face old x) (vt:row-face new x))
               (when (and (not (minusp start)) (> (- x end) gap))
                 (push (make-run y (widened new start) end) runs)
                 (setf start -1))

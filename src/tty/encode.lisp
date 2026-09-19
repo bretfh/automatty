@@ -76,13 +76,12 @@ everything gets the face it was given and nothing is copied."
 (defun blank-tail (row from to)
   "The column at or after FROM where the row is nothing but default blanks the
 rest of the way to TO, or nil when it never is."
-  (declare (type simple-vector row) (type fixnum from to))
+  (declare (type fixnum from to))
   (let ((at to))
     (declare (type fixnum at))
     (loop while (> at from)
-          for cell = (svref row (1- at))
-          while (and (char= #\Space (vt:cell-char cell))
-                     (vt:face-default-p (vt:cell-face cell)))
+          while (and (char= #\Space (vt:row-char row (1- at)))
+                     (vt:face-default-p (vt:row-face row (1- at))))
           do (decf at))
     (when (< at to) at)))
 
@@ -104,9 +103,8 @@ carry on from it."
         (declare (type fixnum x stop))
         (write-cup y (run-start run) s)
         (loop while (< x stop)
-              do (let* ((cell (svref row x))
-                        (ch (vt:cell-char cell))
-                        (now (vt:cell-face cell)))
+              do (let ((ch (vt:row-char row x))
+                       (now (vt:row-face row x)))
                    (unless (and (not (eq face :none))
                                 (vt:face-equal face now))
                      (vt:write-sgr (as-taken now takes) s)

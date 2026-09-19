@@ -87,13 +87,11 @@
         (mux:said-into-screen there (first form) (second form))))
     (dotimes (y 3)
       (dotimes (x 20)
-        (let ((a (cell-at screen x y))
-              (b (cell-at there x y)))
-          (is (char= (vt:cell-char a) (vt:cell-char b))
-              "~D,~D is ~S here and ~S there" x y
-              (vt:cell-char a) (vt:cell-char b))
-          (is (vt:face-equal (vt:cell-face a) (vt:cell-face b))
-              "~D,~D wears a different face there" x y))))))
+        (is (char= (char-at screen x y) (char-at there x y))
+            "~D,~D is ~S here and ~S there" x y
+            (char-at screen x y) (char-at there x y))
+        (is (vt:face-equal (face-on screen x y) (face-on there x y))
+            "~D,~D wears a different face there" x y)))))
 
 (test what-came-off-the-wire-drawn-is-what-was-put-on-it
   (let* ((pane (a-term :width 20 :height 3))

@@ -12,14 +12,15 @@
 (defun difference (screen term)
   (dotimes (y (tty:screen-height screen))
     (dotimes (x (tty:screen-width screen))
-      (let ((a (cell-at screen x y))
-            (b (aref (vt:term-grid-row term y) x)))
-        (unless (and (char= (vt:cell-char a) (vt:cell-char b))
-                     (vt:face-equal (vt:cell-face a) (vt:cell-face b)))
+      (let ((row (vt:term-grid-row term y)))
+        (unless (and (char= (char-at screen x y) (vt:row-char row x))
+                     (vt:face-equal (face-on screen x y) (vt:row-face row x)))
           (return-from difference
             (format nil "~D,~D is ~S ~S on the screen and ~S ~S on the host"
-                    x y (vt:cell-char a) (vt:face-plist (vt:cell-face a))
-                    (vt:cell-char b) (vt:face-plist (vt:cell-face b)))))))))
+                    x y (char-at screen x y)
+                    (vt:face-plist (face-on screen x y))
+                    (vt:row-char row x)
+                    (vt:face-plist (vt:row-face row x)))))))))
 
 (defun sent (screen runs &key (takes t))
   (with-output-to-string (s)

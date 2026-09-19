@@ -3,10 +3,16 @@
 (defpackage #:vt
   (:use #:cl)
   (:export
-   #:cell
-   #:make-cell
-   #:cell-char
-   #:cell-face
+   #:row
+   #:make-row
+   #:row-width
+   #:row-char
+   #:row-face
+   #:row-chars
+   #:row-faces
+   #:blank-span
+   #:move-span
+   #:clear-row
 
    #:face
    #:make-face

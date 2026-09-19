@@ -84,18 +84,9 @@ not an index into this one."
          (row (term-grid-row term y))
          (bg-face (term-current-bg-face term)))
     (case mode
-      (0
-       (loop for i from x below w do
-         (setf (cell-char (aref row i)) #\Space
-               (cell-face (aref row i)) bg-face)))
-      (1
-       (loop for i from 0 to x do
-         (setf (cell-char (aref row i)) #\Space
-               (cell-face (aref row i)) bg-face)))
-      (2
-       (loop for i from 0 below w do
-         (setf (cell-char (aref row i)) #\Space
-               (cell-face (aref row i)) bg-face))))))
+      (0 (blank-span row x w bg-face))
+      (1 (blank-span row 0 (min w (1+ x)) bg-face))
+      (2 (blank-span row 0 w bg-face)))))
 
 (defun term-erase-in-display (term &optional (mode 0))
   (setf (term-wrap-pending term) nil)
@@ -107,10 +98,10 @@ not an index into this one."
       (0
        (term-erase-in-line term 0)
        (loop for row-idx from (1+ y) below h do
-         (clear-row (the simple-vector (aref grid row-idx)) bg-face)))
+         (clear-row (svref grid row-idx) bg-face)))
       (1
        (loop for row-idx from 0 below y do
-         (clear-row (the simple-vector (aref grid row-idx)) bg-face))
+         (clear-row (svref grid row-idx) bg-face))
        (term-erase-in-line term 1))
       ((2 3)
        (clear-grid grid bg-face)
@@ -128,9 +119,7 @@ not an index into this one."
          (row (term-grid-row term y))
          (count (min n (- w x)))
          (bg-face (term-current-bg-face term)))
-    (loop for i from x below (+ x count) do
-      (setf (cell-char (aref row i)) #\Space
-            (cell-face (aref row i)) bg-face))))
+    (blank-span row x (+ x count) bg-face)))
 
 (defun term-insert-char (term &optional (n 1))
   (setf (term-wrap-pending term) nil)
@@ -141,13 +130,8 @@ not an index into this one."
          (row (term-grid-row term y))
          (count (min n (- w x)))
          (bg-face (term-current-bg-face term)))
-    (loop for i from (1- w) downto (+ x count) do
-      (let ((src (aref row (- i count))))
-        (setf (cell-char (aref row i)) (cell-char src)
-              (cell-face (aref row i)) (cell-face src))))
-    (loop for i from x below (+ x count) do
-      (setf (cell-char (aref row i)) #\Space
-            (cell-face (aref row i)) bg-face))))
+    (move-span row x (+ x count) (- w x count))
+    (blank-span row x (+ x count) bg-face)))
 
 (defun term-delete-char (term &optional (n 1))
   (setf (term-wrap-pending term) nil)
@@ -158,13 +142,8 @@ not an index into this one."
          (row (term-grid-row term y))
          (count (min n (- w x)))
          (bg-face (term-current-bg-face term)))
-    (loop for i from x below (- w count) do
-      (let ((src (aref row (+ i count))))
-        (setf (cell-char (aref row i)) (cell-char src)
-              (cell-face (aref row i)) (cell-face src))))
-    (loop for i from (- w count) below w do
-      (setf (cell-char (aref row i)) #\Space
-            (cell-face (aref row i)) bg-face))))
+    (move-span row (+ x count) x (- w x count))
+    (blank-span row (- w count) w bg-face)))
 
 (defun push-scrollback (term row)
   "Take ownership of ROW into the scrollback ring and return a clean replacement
@@ -184,7 +163,7 @@ pointer moves with no consing."
            (let ((evicted (aref ring head)))
              (setf (aref ring (mod (+ head size) cap)) row
                    (term-scrollback-head term) (mod (1+ head) cap))
-             (if (= (length (the simple-vector evicted)) (term-width term))
+             (if (= (row-width evicted) (term-width term))
                  (progn (clear-row evicted) evicted)
                  (make-row (term-width term)))))
           (t
@@ -228,7 +207,7 @@ it."
         (loop for i from top to (- bot count) do
           (setf (aref grid i) (aref grid (+ i count))))
         (dotimes (i count)
-          (let* ((row (the simple-vector (aref saved i)))
+          (let* ((row (the row (svref saved i)))
                  (repl (and record (push-scrollback term row))))
             (unless repl
               (clear-row row)
@@ -249,7 +228,7 @@ it."
         (loop for i from bot downto (+ top count) do
           (setf (aref grid i) (aref grid (- i count))))
         (dotimes (i count)
-          (let ((row (the simple-vector (aref saved i))))
+          (let ((row (the row (svref saved i))))
             (clear-row row)
             (setf (aref grid (+ top i)) row)))))))
 
@@ -382,13 +361,11 @@ it."
   (let ((new (make-grid width height)))
     (when old
       (dotimes (y (min height (max 0 (- (length old) shift))))
-        (let ((from (aref old (+ y shift)))
-              (into (aref new y)))
-          (dotimes (x (min width (length from)))
-            (let ((src (aref from x))
-                  (dst (aref into x)))
-              (setf (cell-char dst) (cell-char src)
-                    (cell-face dst) (cell-face src)))))))
+        (let* ((from (svref old (+ y shift)))
+               (into (svref new y))
+               (n (min width (row-width from))))
+          (replace (row-chars into) (row-chars from) :end1 n :end2 n)
+          (replace (row-faces into) (row-faces from) :end1 n :end2 n))))
     new))
 
 (defun term-resize (term width height)

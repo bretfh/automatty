@@ -100,7 +100,7 @@
 
 (test a-face-from-the-theme-becomes-a-face-on-the-grid
   (let* ((screen (drawn (vt/ui:label "coloured" :face :accent)))
-         (face (vt:cell-face (cell-at screen 0 0))))
+         (face (face-on screen 0 0)))
     (is (consp (vt:face-fg face)) "the theme colour did not reach the cell")
     (is (= 3 (length (vt:face-fg face))) "a colour is three numbers")
     (is (every (lambda (n) (<= 0 n 255)) (vt:face-fg face)))))
@@ -119,7 +119,7 @@
                                  :underline :curly :crossed t))
   (unwind-protect
        (let* ((screen (drawn (vt/ui:label "marked" :face :a-test-face)))
-              (face (vt:cell-face (cell-at screen 0 0))))
+              (face (face-on screen 0 0)))
          (is-true (vt:face-bold face))
          (is-true (vt:face-italic face))
          (is (eq :curly (vt:face-underline face))

@@ -36,17 +36,18 @@ everything built on it."
         :finally (return n)))
 
 (defun shown (screen y)
-  (let* ((row (tty:screen-row screen y))
-         (s (make-string (tty:screen-width screen))))
-    (dotimes (x (length s) (string-right-trim " " s))
-      (setf (schar s x) (vt:cell-char (aref row x))))))
+  (string-right-trim " " (subseq (vt:row-chars (tty:screen-row screen y))
+                                 0 (tty:screen-width screen))))
 
-(defun cell-at (screen x y)
-  (aref (tty:screen-row screen y) x))
+(defun char-at (screen x y)
+  (vt:row-char (tty:screen-row screen y) x))
+
+(defun face-on (screen x y)
+  (vt:row-face (tty:screen-row screen y) x))
 
 (defun laid-out (runs)
   (mapcar (lambda (r) (list (tty:run-row r) (tty:run-start r) (tty:run-end r)))
           runs))
 
 (defun at-screen (screen x y)
-  (vt:cell-char (aref (tty:screen-row screen y) x)))
+  (vt:row-char (tty:screen-row screen y) x))

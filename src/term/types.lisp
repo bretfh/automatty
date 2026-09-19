@@ -88,17 +88,44 @@ different."
   "How many faces a term keeps shared. A power of two, so walking the ring is a
 mask rather than a division.")
 
-(defstruct (cell (:constructor make-cell (&optional char face)))
-  (char #\Space :type character)
-  (face nil :type (or null face)))
+(defstruct (row (:constructor %make-row (chars faces)))
+  "A line of the screen: the characters, and the face each one wears.
+
+Two arrays rather than a struct per cell. A cell object costs its header, its
+layout and the word the row spends pointing at it -- forty bytes to hold a
+character and a pointer -- and every read of one is a chase. Side by side they
+are twelve, and clearing a line is two fills."
+  (chars (make-string 0) :type (simple-array character (*)))
+  (faces #() :type simple-vector))
+
+(declaim (inline row-width row-char (setf row-char) row-face (setf row-face)))
+
+(defun row-width (row)
+  (declare (type row row))
+  (length (row-chars row)))
+
+(defun row-char (row x)
+  (declare (type row row) (type fixnum x))
+  (schar (row-chars row) x))
+
+(defun (setf row-char) (ch row x)
+  (declare (type row row) (type fixnum x) (type character ch))
+  (setf (schar (row-chars row) x) ch))
+
+(defun row-face (row x)
+  (declare (type row row) (type fixnum x))
+  (svref (row-faces row) x))
+
+(defun (setf row-face) (f row x)
+  (declare (type row row) (type fixnum x))
+  (setf (svref (row-faces row) x) f))
 
 (defun make-osc-buf ()
   (make-array 64 :element-type 'character :adjustable t :fill-pointer 0))
 
 (defun make-row (width)
-  (let ((row (make-array width :initial-element nil)))
-    (dotimes (x width row)
-      (setf (aref row x) (make-cell)))))
+  (%make-row (make-string width :initial-element #\Space)
+             (make-array width :initial-element nil)))
 
 (defun make-grid (width height)
   (let ((grid (make-array height :initial-element nil)))
@@ -256,19 +283,34 @@ this and a plain term."
   (apply #'init-term (%make-term) args))
 
 (defun term-grid-row (term y)
-  (the simple-vector (aref (the simple-vector (term-grid term)) y)))
+  (the row (svref (the simple-vector (term-grid term)) y)))
+
+(declaim (inline blank-span move-span))
+
+(defun blank-span (row from to &optional face)
+  "Columns FROM below TO of ROW, blank and wearing FACE."
+  (declare (type row row) (type fixnum from to))
+  (fill (row-chars row) #\Space :start from :end to)
+  (fill (row-faces row) face :start from :end to))
+
+(defun move-span (row from to count)
+  "COUNT columns of ROW starting at FROM, put to start at TO. The two may
+overlap; REPLACE answers as though the source were taken first."
+  (declare (type row row) (type fixnum from to count))
+  (replace (row-chars row) (row-chars row)
+           :start1 to :start2 from :end2 (+ from count))
+  (replace (row-faces row) (row-faces row)
+           :start1 to :start2 from :end2 (+ from count)))
 
 (defun clear-row (row &optional face)
-  (declare (type simple-vector row))
-  (loop :for x :of-type fixnum :from 0 :below (length row)
-        :do (let ((c (svref row x)))
-              (setf (cell-char c) #\Space
-                    (cell-face c) face))))
+  (declare (type row row))
+  (fill (row-chars row) #\Space)
+  (fill (row-faces row) face))
 
 (defun clear-grid (grid &optional face)
   (declare (type simple-vector grid))
   (dotimes (y (length grid))
-    (clear-row (the simple-vector (aref grid y)) face)))
+    (clear-row (svref grid y) face)))
 
 
 ;;; What a program said, as something to do about it. Each is a generic

@@ -35,10 +35,10 @@
   (loop :for y :below (vt:term-height term) :collect (row term y)))
 
 (defun at (term x y)
-  (vt:cell-char (aref (vt:term-grid-row term y) x)))
+  (vt:row-char (vt:term-grid-row term y) x))
 
 (defun face-at (term x y)
-  (vt:cell-face (aref (vt:term-grid-row term y) x)))
+  (vt:row-face (vt:term-grid-row term y) x))
 
 (defun cursor (term)
   (list (vt:term-cursor-x term) (vt:term-cursor-y term)))

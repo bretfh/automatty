@@ -44,9 +44,8 @@
          (font-changes nil)
          (prev-face nil))
     (dotimes (x w)
-      (let* ((cell (aref row x))
-             (ch (cell-char cell))
-             (face (cell-face cell)))
+      (let ((ch (row-char row x))
+            (face (row-face row x)))
         (setf (schar chars x) (if (graphic-char-p ch) ch #\Space))
         (unless (face-equal face prev-face)
           (push (list x (face-plist face)) font-changes)
@@ -58,7 +57,7 @@
                          (dotimes (y (term-height term))
                            (let ((row (aref (term-grid term) y)))
                              (dotimes (x (term-width term))
-                               (write-char (cell-char (aref row x)) s)))
+                               (write-char (row-char row x) s)))
                            (unless (= y (1- (term-height term)))
                              (terpri s)))))
 
@@ -67,15 +66,12 @@
          (row (aref (term-grid term) y))
          (s (make-string w)))
     (dotimes (x w s)
-      (setf (schar s x) (cell-char (aref row x))))))
+      (setf (schar s x) (row-char row x)))))
 
 (defun term-scrollback-row-string (term n)
   (let ((row (term-scrollback-row term n)))
     (when row
-      (let* ((w (length row))
-             (s (make-string w)))
-        (dotimes (x w s)
-          (setf (schar s x) (cell-char (aref row x))))))))
+      (copy-seq (row-chars row)))))
 
 (defun rgb-to-color-index (r g b)
   "The palette index nearest R G B"
@@ -176,9 +172,8 @@ what was there."
          (x 0))
     (with-output-to-string (s)
                            (loop while (< x w) do
-                                 (let* ((cell (aref row x))
-                                        (ch (cell-char cell))
-                                        (face (cell-face cell)))
+                                 (let ((ch (row-char row x))
+                                       (face (row-face row x)))
                                    (unless (face-equal face prev-face)
                                      (write-sgr face s)
                                      (setf prev-face face))

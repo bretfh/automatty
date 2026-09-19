@@ -71,7 +71,7 @@
   (let ((screen (tty:make-screen :width 30 :height 10))
         (p (mux:make-prompt "run" '("one"))))
     (dotimes (x 30)
-      (setf (vt:cell-char (aref (tty:screen-row screen 0) x)) #\x))
+      (setf (vt:row-char (tty:screen-row screen 0) x) #\x))
     (mux:draw-over p screen)
     (is (equal (make-string 30 :initial-element #\x) (shown screen 0))
         "the prompt drew over the top of the screen")))
