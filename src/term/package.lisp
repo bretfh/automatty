@@ -47,6 +47,7 @@
    #:term-bracketed-paste
    #:term-insert-mode
    #:term-keypad-mode
+   #:term-keypad-application-mode
    #:term-auto-margin
    #:term-in-alt-screen
    #:term-scroll-top
@@ -55,6 +56,17 @@
    #:term-bell-fn
    #:term-title-fn
    #:term-cwd-fn
+   #:term-origin-mode
+   #:term-newline-mode
+   #:term-reverse-video
+   #:term-reverse-wraparound
+   #:term-synchronized-output
+   #:term-mouse-mode
+   #:term-mouse-utf8
+   #:term-mouse-sgr
+   #:term-mouse-urxvt
+   #:term-mouse-sgr-pixels
+   #:term-tab-stop-p
 
    #:decoder
    #:make-decoder
@@ -64,16 +76,21 @@
    #:term-titled
    #:term-moved
    #:term-answers
+   #:term-linked
+   #:term-copied
 
    #:handle-csi
    #:handle-esc
    #:handle-osc
    #:handle-mode
+   #:handle-hash
 
    #:term-process-output
    #:term-write
    #:term-resize
    #:term-reset
+   #:term-soft-reset
+   #:term-align-test
 
    #:term-cursor-up
    #:term-cursor-down
@@ -95,6 +112,8 @@
    #:term-scroll-down
    #:term-horizontal-tab
    #:term-horizontal-backtab
+   #:term-set-tab-stop
+   #:term-clear-tab-stop
    #:term-index
    #:term-reverse-index
    #:term-line-feed

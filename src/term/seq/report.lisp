@@ -11,7 +11,7 @@
   (let ((n (or (first params) 0)))
     (when (zerop n)
       (case format
-        ((nil) (term-answers term (format nil "~C[?12;4c" #\Escape)))
+        ((nil) (term-answers term (format nil "~C[?12c" #\Escape)))
         (#\> (term-answers term (format nil "~C[>0;0;0c" #\Escape)))))))
 
 (defmethod handle-csi ((term term) (final (eql #\n)) format params)

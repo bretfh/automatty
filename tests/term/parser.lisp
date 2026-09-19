@@ -51,7 +51,8 @@
   (let* ((term (a-term :width 10 :height 2))
          (said (heard term)))
     (say term (csi "c"))
-    (is (equal (format nil "~C[?12;4c" #\Escape) (funcall said)))))
+    (is (equal (format nil "~C[?12c" #\Escape) (funcall said))
+        "it claims nothing it cannot draw: no sixel")))
 
 (test a-bell-is-rung-and-nothing-is-written
   (let* ((term (a-term :width 10 :height 2))
@@ -72,6 +73,56 @@
     (say term (csi "?2004l"))
     (is (not (vt:term-bracketed-paste term)))))
 
+(test mouse-tracking-modes-are-tracked-not-reported
+  (let ((term (a-term :width 10 :height 2)))
+    (say term (csi "?1000h"))
+    (is (eq :normal (vt:term-mouse-mode term)))
+    (say term (csi "?1002h"))
+    (is (eq :button-event (vt:term-mouse-mode term)))
+    (say term (csi "?1003h"))
+    (is (eq :any-event (vt:term-mouse-mode term)))
+    (say term (csi "?1003l"))
+    (is (null (vt:term-mouse-mode term)))
+    (say term (csi "?1006h"))
+    (is (vt:term-mouse-sgr term))
+    (say term (csi "?1006l"))
+    (is (not (vt:term-mouse-sgr term)))))
+
+(test legacy-alt-screen-is-the-same-as-1049
+  (let ((term (a-term :width 4 :height 2)))
+    (say term "main" (csi "?47h"))
+    (is (vt:term-in-alt-screen term))
+    (say term (csi "?47l"))
+    (is (not (vt:term-in-alt-screen term)))
+    (is (equal "main" (row term 0)))))
+
+(test screen-column-modes-are-just-tracked
+  (let ((term (a-term :width 10 :height 2)))
+    (say term (csi "?5h"))
+    (is (vt:term-reverse-video term))
+    (say term (csi "?45h"))
+    (is (vt:term-reverse-wraparound term))
+    (say term (csi "?2026h"))
+    (is (vt:term-synchronized-output term))))
+
+(test deccolm-resizes-to-132-columns-and-clears
+  (let ((term (a-term :width 80 :height 4)))
+    (say term "hello" (csi "?3h"))
+    (is (= 132 (vt:term-width term)))
+    (is (equal "" (row term 0)) "DECCOLM clears the screen")
+    (is (equal '(0 0) (cursor term)))
+    (say term (csi "?3l"))
+    (is (= 80 (vt:term-width term)))))
+
+(test keypad-application-mode-is-esc-equals-not-decckm
+  (let ((term (a-term :width 10 :height 2)))
+    (say term (esc "="))
+    (is (vt:term-keypad-application-mode term))
+    (is (not (vt:term-keypad-mode term))
+        "ESC= is DECKPAM, a different mode from DECCKM")
+    (say term (esc ">"))
+    (is (not (vt:term-keypad-application-mode term)))))
+
 (test the-cursor-is-the-shape-that-was-asked-for
   (let ((term (a-term :width 10 :height 2)))
     (say term (csi "2 q"))
@@ -87,6 +138,23 @@
   (let ((term (a-term :width 10 :height 2)))
     (say term (format nil "~CP1$r0m~C\\here" #\Escape #\Escape))
     (is (equal "here" (row term 0)))))
+
+(test an-apc-payload-never-reaches-the-grid
+  (let ((term (a-term :width 20 :height 2)))
+    (say term (format nil "~C_Gf=100,a=T;AAAA~C\\after" #\Escape #\Escape))
+    (is (equal "after" (row term 0))
+        "a kitty graphics payload was written as text: ~S" (row term 0))))
+
+(test sos-and-pm-are-also-swallowed-whole
+  (dolist (opener '(#\X #\^))
+    (let ((term (a-term :width 20 :height 2)))
+      (say term (format nil "~C~Cignore me~C\\ok" #\Escape opener #\Escape))
+      (is (equal "ok" (row term 0)) "~C leaked into the grid: ~S" opener (row term 0)))))
+
+(test the-8-bit-csi-is-the-same-as-esc-bracket
+  (let ((term (a-term :width 10 :height 5)))
+    (say term (format nil "~C3;4H" (code-char 155)) "x")
+    (is (eql #\x (at term 3 2)) "the 8-bit CSI was written to the grid as text")))
 
 (test a-repeat-says-the-last-character-again
   (let ((term (a-term :width 10 :height 2)))
@@ -209,6 +277,26 @@
 
 (defmethod vt:term-titled ((term a-borrowed-term) title)
   (push (cons :titled title) (a-borrowed-term-marks term)))
+
+(defmethod vt:term-linked ((term a-borrowed-term) uri params)
+  (push (list :linked uri params) (a-borrowed-term-marks term)))
+
+(defmethod vt:term-copied ((term a-borrowed-term) selection data)
+  (push (list :copied selection data) (a-borrowed-term-marks term)))
+
+(test a-hyperlink-is-handed-over-not-drawn
+  (let ((term (vt:init-term (make-a-borrowed-term) :width 10 :height 2)))
+    (say term (osc "8;;https://example.com"))
+    (say term "click" (osc "8;;"))
+    (is (equal '(:linked nil "") (first (a-borrowed-term-marks term))))
+    (is (equal '(:linked "https://example.com" "")
+               (second (a-borrowed-term-marks term))))
+    (is (equal "click" (row term 0)) "the link text was still written")))
+
+(test a-clipboard-write-is-handed-over
+  (let ((term (vt:init-term (make-a-borrowed-term) :width 10 :height 2)))
+    (say term (osc "52;c;aGVsbG8="))
+    (is (equal '(:copied "c" "aGVsbG8=") (first (a-borrowed-term-marks term))))))
 
 (test a-method-takes-the-place-of-a-callback-slot
   (let ((term (vt:init-term (make-a-borrowed-term) :width 12 :height 2)))

@@ -33,3 +33,14 @@
   (when (string= said "?")
     (term-answers term (format nil "~C]11;rgb:1818/1818/1818~C\\"
                                #\Escape #\Escape))))
+
+(defmethod handle-osc ((term term) (code (eql 8)) said)
+  (let* ((semi (position #\; said))
+         (params (if semi (subseq said 0 semi) ""))
+         (uri (if semi (subseq said (1+ semi)) "")))
+    (term-linked term (if (zerop (length uri)) nil uri) params)))
+
+(defmethod handle-osc ((term term) (code (eql 52)) said)
+  (let ((semi (position #\; said)))
+    (when semi
+      (term-copied term (subseq said 0 semi) (subseq said (1+ semi))))))

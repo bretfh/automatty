@@ -41,11 +41,21 @@
         (min (max (1- n) 0) (1- (term-height term)))))
 
 (defun term-goto (term &optional (y 1) (x 1))
+  "Put the cursor at row Y, column X, both one-based.
+
+In origin mode Y counts from the scroll region's top and cannot leave it: a
+program that only ever addresses inside its margins never needs to know where
+on the real screen they are."
   (setf (term-wrap-pending term) nil)
-  (setf (term-cursor-y term)
-        (min (max (1- (or y 1)) 0) (1- (term-height term))))
   (setf (term-cursor-x term)
-        (min (max (1- (or x 1)) 0) (1- (term-width term)))))
+        (min (max (1- (or x 1)) 0) (1- (term-width term))))
+  (if (term-origin-mode term)
+      (let ((top (term-scroll-top term))
+            (bot (term-scroll-bottom term)))
+        (setf (term-cursor-y term)
+              (min (max (+ top (1- (or y 1))) top) bot)))
+      (setf (term-cursor-y term)
+            (min (max (1- (or y 1)) 0) (1- (term-height term))))))
 
 (defun term-save-cursor (term)
   (if (term-in-alt-screen term)
@@ -72,9 +82,13 @@ not an index into this one."
       (when attrs (face-into (term-attrs term) attrs)))))
 
 (defun term-current-bg-face (term)
-  "Return a shared face for the current background, or nil when default."
-  (when (face-bg (term-attrs term))
-    (intern-face term)))
+  "A face carrying only the current background, or nil when it is default.
+
+BCE means the background paints what is erased; nothing else about the pen
+does, so an erase under bold underlined red-on-blue leaves the blanks blue and
+nothing more."
+  (let ((bg (face-bg (term-attrs term))))
+    (when bg (make-face :bg bg))))
 
 (defun term-erase-in-line (term &optional (mode 0))
   (setf (term-wrap-pending term) nil)
@@ -104,8 +118,8 @@ not an index into this one."
          (clear-row (svref grid row-idx) bg-face))
        (term-erase-in-line term 1))
       ((2 3)
+       ;; ED never moves the cursor, on any mode. It only erases.
        (clear-grid grid bg-face)
-       (term-goto term 1 1)
        (when (= mode 3)
          (setf (term-scrollback-size term) 0
                (term-scrollback-head term) 0))))))
@@ -259,23 +273,29 @@ it."
 (defun term-horizontal-tab (term &optional (n 1))
   (setf (term-wrap-pending term) nil)
   (setf n (max n 1))
-  (let* ((x (term-cursor-x term))
+  (let* ((stops (term-tab-stops term))
          (w (term-width term))
-         (next-tab (+ x (- 8 (mod x 8)))))
-    (dotimes (i (1- n))
-      (setf next-tab (+ next-tab 8)))
-    (setf (term-cursor-x term) (min next-tab (1- w)))))
+         (x (term-cursor-x term)))
+    (dotimes (i n)
+      (setf x (or (position 1 stops :start (min w (1+ x))) (1- w))))
+    (setf (term-cursor-x term) (min x (1- w)))))
 
 (defun term-horizontal-backtab (term &optional (n 1))
   (setf (term-wrap-pending term) nil)
   (setf n (max n 1))
-  (let* ((x (term-cursor-x term))
-         (prev-tab (if (zerop (mod x 8))
-                       (- x 8)
-                       (- x (mod x 8)))))
-    (dotimes (i (1- n))
-      (decf prev-tab 8))
-    (setf (term-cursor-x term) (max prev-tab 0))))
+  (let* ((stops (term-tab-stops term))
+         (x (term-cursor-x term)))
+    (dotimes (i n)
+      (setf x (or (position 1 stops :end x :from-end t) 0)))
+    (setf (term-cursor-x term) (max x 0))))
+
+(defun term-set-tab-stop (term)
+  (setf (aref (term-tab-stops term) (term-cursor-x term)) 1))
+
+(defun term-clear-tab-stop (term &optional (mode 0))
+  (case mode
+    (0 (setf (aref (term-tab-stops term) (term-cursor-x term)) 0))
+    (3 (fill (term-tab-stops term) 0))))
 
 (defun term-index (term)
   (setf (term-wrap-pending term) nil)
@@ -296,10 +316,13 @@ it."
           (decf (term-cursor-y term))))))
 
 (defun term-line-feed (term)
+  "Move down a line. Only carriage-returns as well when LNM is set -- most
+programs send their own CR and expect LF to be nothing more than a line down."
   (setf (term-wrap-pending term) nil)
+  (when (term-newline-mode term)
+    (setf (term-cursor-x term) 0))
   (let* ((y (term-cursor-y term))
          (bot (term-scroll-bottom term)))
-    (setf (term-cursor-x term) 0)
     (if (= y bot)
         (term-scroll-up term 1)
         (when (< y (1- (term-height term)))
@@ -316,6 +339,37 @@ it."
       (setf (term-scroll-top term) (1- t-val)
             (term-scroll-bottom term) (1- b-val))
       (term-goto term 1 1))))
+
+(defun term-align-test (term)
+  "DECALN: every cell becomes E, in the default face, margins and cursor home."
+  (let ((grid (term-grid term)))
+    (dotimes (y (term-height term))
+      (let ((row (svref grid y)))
+        (fill (row-chars row) #\E)
+        (fill (row-faces row) nil))))
+  (setf (term-scroll-top term) 0
+        (term-scroll-bottom term) (1- (term-height term))
+        (term-wrap-pending term) nil)
+  (term-goto term 1 1))
+
+(defun term-soft-reset (term)
+  "DECSTR: put the pen and the cursor back to how a program should assume they
+start, without touching what is on the screen or in the scrollback."
+  (setf (term-wrap-pending term) nil
+        (term-insert-mode term) nil
+        (term-origin-mode term) nil
+        (term-auto-margin term) t
+        (term-cursor-visible term) t
+        (term-scroll-top term) 0
+        (term-scroll-bottom term) (1- (term-height term))
+        (term-g0 term) :us-ascii
+        (term-g1 term) :us-ascii
+        (term-g2 term) :us-ascii
+        (term-g3 term) :us-ascii
+        (term-active-charset term) :g0)
+  (reset-face (term-attrs term))
+  (setf (term-face-now term) nil)
+  (term-goto term 1 1))
 
 (defun term-enter-alt-screen (term)
   (unless (term-in-alt-screen term)
@@ -349,7 +403,19 @@ it."
         (term-g0 term) :us-ascii
         (term-g1 term) :us-ascii
         (term-g2 term) :us-ascii
-        (term-g3 term) :us-ascii)
+        (term-g3 term) :us-ascii
+        (term-origin-mode term) nil
+        (term-newline-mode term) nil
+        (term-reverse-video term) nil
+        (term-reverse-wraparound term) nil
+        (term-synchronized-output term) nil
+        (term-keypad-application-mode term) nil
+        (term-mouse-mode term) nil
+        (term-mouse-utf8 term) nil
+        (term-mouse-sgr term) nil
+        (term-mouse-urxvt term) nil
+        (term-mouse-sgr-pixels term) nil
+        (term-tab-stops term) (make-tab-stops (term-width term)))
   (reset-face (term-attrs term))
   (setf (term-face-now term) nil)
   (clear-grid (term-grid term))
@@ -393,6 +459,7 @@ scrollback, which is where they would have gone had the screen scrolled."
             (term-scroll-top term) 0
             (term-scroll-bottom term) (1- height)
             (term-wrap-pending term) nil
+            (term-tab-stops term) (make-tab-stops width)
             (term-cursor-x term) (min (term-cursor-x term) (1- width))
             (term-cursor-y term) (max 0 (min (- (term-cursor-y term) shift)
                                              (1- height)))

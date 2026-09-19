@@ -34,16 +34,22 @@
                (and (<= #x0591 code) (<= code #x05C7))
                (and (<= #x064B code) (<= code #x065F))
                (and (<= #x200B code) (<= code #x200F))
+               (= code #x2060)
                (and (<= #x20D0 code) (<= code #x20FF))
-               (and (<= #xFE20 code) (<= code #xFE2F)))
+               (and (<= #xFE00 code) (<= code #xFE0F))
+               (and (<= #xFE20 code) (<= code #xFE2F))
+               (= code #xFEFF))
            0)
           ((or (and (<= #x1100 code) (<= code #x115F))
                (and (<= #x2E80 code) (<= code #x2FFF))
                (and (<= #x3000 code) (<= code #x9FFF))
+               (and (<= #xA000 code) (<= code #xA4CF))
                (and (<= #xAC00 code) (<= code #xD7A3))
                (and (<= #xF900 code) (<= code #xFAFF))
                (and (<= #xFF01 code) (<= code #xFF60))
-               (and (<= #x1F300 code) (<= code #x1F9FF)))
+               (and (<= #x1F000 code) (<= code #x1F9FF))
+               (and (<= #x20000 code) (<= code #x2FFFD))
+               (and (<= #x30000 code) (<= code #x3FFFD)))
            2)
           (t 1))))
 
@@ -52,6 +58,12 @@
   (case charset
     (:dec-line-drawing
      (or (gethash ch *dec-line-drawing-table*) ch))
+    (:uk (if (char= ch #\#) #\£ ch))
+    (:dec-supplemental
+     ;; the 96-character DEC Supplemental set sits where ISO Latin-1's
+     ;; supplement does: each 7-bit code an eighth-bit set away from it.
+     (let ((code (char-code ch)))
+       (if (<= #x20 code #x7E) (code-char (+ code #x80)) ch)))
     (t ch)))
 
 (declaim (inline current-charset-mapping))

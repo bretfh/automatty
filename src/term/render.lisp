@@ -116,7 +116,7 @@ every run of a frame."
       (write-number (first color) s) (write-char #\; s)
       (write-number (second color) s) (write-char #\; s)
       (write-number (third color) s))
-     (t (write-number (if (= base 58) 39 (+ base 1)) s)))))
+     (t (write-number (+ base 1) s)))))
 
 (defun write-sgr (face s)
   "Write FACE's SGR escape sequence directly to stream S, no intermediates.

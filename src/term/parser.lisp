@@ -74,7 +74,8 @@ but neither is unbounded, and nothing says a program has to send a terminator.")
                               (let ((ch (char string index)))
                                 (not (or (char<= #\Nul ch #\Us)
                                          (char= ch #\Rubout)
-                                         (char= ch #\Escape)))))
+                                         (char= ch #\Escape)
+                                         (= (char-code ch) 155)))))
                    do (incf index))
              (when (> index span-start)
                (%term-write term string span-start index))
@@ -88,14 +89,15 @@ but neither is unbounded, and nothing says a program has to send a terminator.")
                    (#\Newline (term-line-feed term))
                    (#\Vt (term-index term))
                    (#\Page (term-index term))
-                   (#\Return
-                    (unless (and (< index len)
-                                 (char= (char string index) #\Newline))
-                      (term-carriage-return term)))
+                   (#\Return (term-carriage-return term))
                    (#\So (setf (term-active-charset term) :g1))
                    (#\Si (setf (term-active-charset term) :g0))
                    (#\Escape
-                    (setf (term-parser-state term) :read-esc)))))))
+                    (setf (term-parser-state term) :read-esc))
+                   ;; the 8-bit form of CSI: one byte where the 7-bit form
+                   ;; takes two, ESC then [.
+                   (#.(code-char 155)
+                    (setf (term-parser-state term) :read-csi-format)))))))
 
           ((eq state :read-esc)
            (let ((ch (char string index)))
@@ -108,11 +110,34 @@ but neither is unbounded, and nothing says a program has to send a terminator.")
                (#\) (setf (term-parser-state term) '(:read-charset :g1)))
                (#\* (setf (term-parser-state term) '(:read-charset :g2)))
                (#\+ (setf (term-parser-state term) '(:read-charset :g3)))
+               (#\- (setf (term-parser-state term) '(:read-charset96 :g1)))
+               (#\. (setf (term-parser-state term) '(:read-charset96 :g2)))
+               (#\/ (setf (term-parser-state term) '(:read-charset96 :g3)))
+               (#\% (setf (term-parser-state term) :read-percent))
+               (#\# (setf (term-parser-state term) :read-hash))
                (#\[ (setf (term-parser-state term) :read-csi-format))
                (#\] (setf (term-parser-state term) :read-osc
                           (fill-pointer (term-osc-buf term)) 0))
+               ;; DCS, APC, SOS and PM are all read the same way: a string
+               ;; ended by ST, and nothing here says what any of them mean.
                (#\P (setf (term-parser-state term) :read-dcs))
+               (#\_ (setf (term-parser-state term) :read-dcs))
+               (#\X (setf (term-parser-state term) :read-dcs))
+               (#\^ (setf (term-parser-state term) :read-dcs))
                (t (handle-esc term ch)))))
+
+          ((eq state :read-percent)
+           ;; which character set the terminal reads its input in. This
+           ;; library is handed characters already, not bytes, so there is
+           ;; nothing to change; only reading past the one byte matters.
+           (incf index)
+           (setf (term-parser-state term) nil))
+
+          ((eq state :read-hash)
+           (let ((ch (char string index)))
+             (incf index)
+             (setf (term-parser-state term) nil)
+             (handle-hash term ch)))
 
           ((and (listp state) (eq (car state) :read-charset))
            (let ((ch (char string index))
@@ -121,10 +146,24 @@ but neither is unbounded, and nothing says a program has to send a terminator.")
              (setf (term-parser-state term) nil)
              (let ((charset (case ch
                               (#\0 :dec-line-drawing)
+                              (#\A :uk)
                               (#\B :us-ascii)
                               (t :us-ascii))))
                (case slot
                  (:g0 (setf (term-g0 term) charset))
+                 (:g1 (setf (term-g1 term) charset))
+                 (:g2 (setf (term-g2 term) charset))
+                 (:g3 (setf (term-g3 term) charset))))))
+
+          ((and (listp state) (eq (car state) :read-charset96))
+           (let ((ch (char string index))
+                 (slot (cadr state)))
+             (incf index)
+             (setf (term-parser-state term) nil)
+             (let ((charset (case ch
+                              (#\A :dec-supplemental)
+                              (t :us-ascii))))
+               (case slot
                  (:g1 (setf (term-g1 term) charset))
                  (:g2 (setf (term-g2 term) charset))
                  (:g3 (setf (term-g3 term) charset))))))

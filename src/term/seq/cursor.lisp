@@ -70,6 +70,13 @@
   (declare (ignore format))
   (term-horizontal-backtab term (or (first params) 1)))
 
+(defmethod handle-esc ((term term) (final (eql #\H)))
+  (term-set-tab-stop term))
+
+(defmethod handle-csi ((term term) (final (eql #\g)) format params)
+  (declare (ignore format))
+  (term-clear-tab-stop term (or (first params) 0)))
+
 (defmethod handle-csi ((term term) (final (eql #\s)) format params)
   (declare (ignore params))
   (when (null format) (term-save-cursor term)))

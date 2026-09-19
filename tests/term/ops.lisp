@@ -38,16 +38,27 @@
     (say term "aaaabbbbcccc" (csi "2;3H") (csi "J"))
     (is (equal '("aaaa" "bb" "") (rows term)))))
 
-(test erasing-all-of-it-puts-the-cursor-home
+(test erasing-all-of-it-leaves-the-cursor-where-it-was
   (let ((term (a-term :width 4 :height 2)))
-    (say term "aaaabbbb" (csi "2J"))
-    (is (equal '("" "") (rows term)))
-    (is (equal '(0 0) (cursor term)))))
+    (say term "aaaabbbb")
+    (let ((before (cursor term)))
+      (say term (csi "2J"))
+      (is (equal '("" "") (rows term)))
+      (is (equal before (cursor term)) "ED moved the cursor; it never does"))))
 
 (test what-is-erased-keeps-the-background-that-was-in-force
   (let ((term (a-term :width 4 :height 2)))
     (say term (csi "41m") (csi "K"))
     (is (eql 1 (vt:face-bg (face-at term 2 0))))))
+
+(test what-is-erased-carries-only-the-background
+  (let ((term (a-term :width 4 :height 2)))
+    (say term (csi "1;4;44m") (csi "K"))
+    (let ((f (face-at term 2 0)))
+      (is (eql 4 (vt:face-bg f)))
+      (is (null (vt:face-bold f)) "BCE carried bold along with the background")
+      (is (null (vt:face-underline f))
+          "BCE carried underline along with the background"))))
 
 (test characters-are-deleted-and-inserted-in-place
   (let ((term (a-term :width 8 :height 2)))
@@ -81,8 +92,8 @@
 
 (test what-scrolled-off-the-top-is-in-the-scrollback
   (let ((term (a-term :width 4 :height 2)))
-    (say term "aaaa" (format nil "~C" #\Newline)
-         "bbbb" (format nil "~C" #\Newline)
+    (say term "aaaa" (format nil "~C~C" #\Return #\Newline)
+         "bbbb" (format nil "~C~C" #\Return #\Newline)
          "cccc")
     (is (equal '("bbbb" "cccc") (rows term)))
     (is (= 1 (vt:term-scrollback-size term)))
@@ -91,7 +102,7 @@
 (test the-scrollback-forgets-its-oldest-line-when-it-is-full
   (let ((term (a-term :width 4 :height 1 :max-scrollback 2)))
     (dolist (said '("aaaa" "bbbb" "cccc" "dddd"))
-      (say term said (format nil "~C" #\Newline)))
+      (say term said (format nil "~C~C" #\Return #\Newline)))
     (is (= 2 (vt:term-scrollback-size term)))
     (is (equal "cccc" (vt:term-scrollback-row-string term 0)))
     (is (equal "dddd" (vt:term-scrollback-row-string term 1)))
@@ -246,3 +257,65 @@
     (vt:term-exit-alt-screen term)
     (is (equal "three" (row term 0))
         "the main screen did not come back: ~S" (row term 0))))
+
+(test origin-mode-addresses-inside-the-region
+  (let ((term (a-term :width 10 :height 10)))
+    (say term (csi "3;7r") (csi "?6h") (csi "1;1H"))
+    (is (equal '(0 2) (cursor term))
+        "row 1 of the region is row 3 of the screen: ~S" (cursor term))
+    (say term (csi "?6l") (csi "1;1H"))
+    (is (equal '(0 0) (cursor term)) "origin mode off addresses the screen")))
+
+(test origin-mode-cannot-leave-the-region
+  (let ((term (a-term :width 10 :height 10)))
+    (say term (csi "3;7r") (csi "?6h") (csi "20;1H"))
+    (is (equal '(0 6) (cursor term))
+        "row 20 clamped to the bottom of the region: ~S" (cursor term))))
+
+(test a-bare-linefeed-does-not-return-to-column-one
+  (let ((term (a-term :width 10 :height 10)))
+    (say term (csi "5;5H") "ab" (string #\Newline) "c")
+    (is (equal '(7 5) (cursor term))
+        "LF moved the column when LNM was off: ~S" (cursor term))))
+
+(test lnm-makes-a-bare-linefeed-return-too
+  (let ((term (a-term :width 10 :height 10)))
+    (say term (csi "20h") (csi "5;5H") "ab" (string #\Newline) "c")
+    (is (equal '(1 5) (cursor term)))))
+
+(test a-tab-stop-is-set-and-cleared-where-the-cursor-is
+  (let ((term (a-term :width 40 :height 1)))
+    (say term (csi "4G") (esc "H") (csi "1G") (csi "I"))
+    (is (equal '(3 0) (cursor term)) "the custom stop at column 4 was used")
+    (say term (csi "0g") (csi "1G") (csi "I"))
+    (is (equal '(8 0) (cursor term))
+        "the cleared stop was skipped, landing on the next default one")))
+
+(test tbc-3-clears-every-stop
+  (let ((term (a-term :width 40 :height 1)))
+    (say term (csi "3g") (csi "I"))
+    (is (equal '(39 0) (cursor term))
+        "with no stops left, tab goes to the right margin")))
+
+(test backtab-goes-to-the-stop-before-the-cursor
+  (let ((term (a-term :width 40 :height 1)))
+    (say term (csi "20G") (csi "Z"))
+    (is (equal '(16 0) (cursor term)))))
+
+(test decstr-puts-the-pen-back-without-touching-the-screen
+  (let ((term (a-term :width 10 :height 4)))
+    (say term (csi "31m") (csi "4h") (csi "2;5r") "text" (csi "!p"))
+    (is (not (vt:term-insert-mode term)))
+    (is (eql 0 (vt:term-scroll-top term)))
+    (is (eql 3 (vt:term-scroll-bottom term)))
+    (is (equal '(0 0) (cursor term)))
+    (is (equal "text" (row term 0)) "the screen itself was not touched")
+    (say term "x")
+    (is (vt:face-default-p (face-at term 0 0)) "the pen itself was reset")))
+
+(test decaln-fills-the-screen-with-e
+  (let ((term (a-term :width 4 :height 2)))
+    (say term (csi "31m") (esc "#8"))
+    (is (equal '("EEEE" "EEEE") (rows term)))
+    (is (vt:face-default-p (face-at term 0 0))
+        "the alignment pattern is in the default face")))

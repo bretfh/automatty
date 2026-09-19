@@ -25,6 +25,53 @@
 (defmethod handle-mode ((term term) (number (eql 7)) (privatep (eql t)) set)
   (setf (term-auto-margin term) set))
 
+(defmethod handle-mode ((term term) (number (eql 3)) (privatep (eql t)) set)
+  ;; DECCOLM. Switching columns is defined to clear the screen and home the
+  ;; cursor along with it, and ED itself no longer does the homing.
+  (term-resize term (if set 132 80) (term-height term))
+  (term-erase-in-display term 2)
+  (term-goto term 1 1))
+
+(defmethod handle-mode ((term term) (number (eql 5)) (privatep (eql t)) set)
+  (setf (term-reverse-video term) set))
+
+(defmethod handle-mode ((term term) (number (eql 6)) (privatep (eql t)) set)
+  (setf (term-origin-mode term) set)
+  (term-goto term 1 1))
+
+(defmethod handle-mode ((term term) (number (eql 20)) (privatep null) set)
+  (setf (term-newline-mode term) set))
+
+(defmethod handle-mode ((term term) (number (eql 45)) (privatep (eql t)) set)
+  (setf (term-reverse-wraparound term) set))
+
+(defmethod handle-mode ((term term) (number (eql 2026)) (privatep (eql t)) set)
+  (setf (term-synchronized-output term) set))
+
+(defmethod handle-mode ((term term) (number (eql 47)) (privatep (eql t)) set)
+  (if set (term-enter-alt-screen term) (term-exit-alt-screen term)))
+
+(defmethod handle-mode ((term term) (number (eql 1000)) (privatep (eql t)) set)
+  (setf (term-mouse-mode term) (and set :normal)))
+
+(defmethod handle-mode ((term term) (number (eql 1002)) (privatep (eql t)) set)
+  (setf (term-mouse-mode term) (and set :button-event)))
+
+(defmethod handle-mode ((term term) (number (eql 1003)) (privatep (eql t)) set)
+  (setf (term-mouse-mode term) (and set :any-event)))
+
+(defmethod handle-mode ((term term) (number (eql 1005)) (privatep (eql t)) set)
+  (setf (term-mouse-utf8 term) set))
+
+(defmethod handle-mode ((term term) (number (eql 1006)) (privatep (eql t)) set)
+  (setf (term-mouse-sgr term) set))
+
+(defmethod handle-mode ((term term) (number (eql 1015)) (privatep (eql t)) set)
+  (setf (term-mouse-urxvt term) set))
+
+(defmethod handle-mode ((term term) (number (eql 1016)) (privatep (eql t)) set)
+  (setf (term-mouse-sgr-pixels term) set))
+
 (defparameter +blinking-cursors+
   '((:block . :blinking-block)
     (:underline . :blinking-underline)
@@ -53,3 +100,13 @@
 
 (defmethod handle-mode ((term term) (number (eql 2004)) (privatep (eql t)) set)
   (setf (term-bracketed-paste term) set))
+
+(defmethod handle-esc ((term term) (final (eql #\=)))
+  (setf (term-keypad-application-mode term) t))
+
+(defmethod handle-esc ((term term) (final (eql #\>)))
+  (setf (term-keypad-application-mode term) nil))
+
+(defmethod handle-csi ((term term) (final (eql #\p)) format params)
+  (declare (ignore format params))
+  (term-soft-reset term))

@@ -132,6 +132,12 @@ are twelve, and clearing a line is two fills."
     (dotimes (y height grid)
       (setf (aref grid y) (make-row width)))))
 
+(defun make-tab-stops (width)
+  "A stop every eighth column, which is what a terminal starts with."
+  (let ((v (make-array width :element-type 'bit :initial-element 0)))
+    (loop :for x :from 8 :below width :by 8 :do (setf (aref v x) 1))
+    v))
+
 (defstruct (term (:constructor %make-term))
   (width 80 :type fixnum)
   (height 24 :type fixnum)
@@ -167,9 +173,21 @@ are twelve, and clearing a line is two fills."
   (wrap-pending nil :type boolean)
   (insert-mode nil :type boolean)
   (keypad-mode nil :type boolean)
+  (keypad-application-mode nil :type boolean)
   (bracketed-paste nil :type boolean)
   (cursor-visible t :type boolean)
   (cursor-style :block)
+  (origin-mode nil :type boolean)
+  (newline-mode nil :type boolean)
+  (reverse-video nil :type boolean)
+  (reverse-wraparound nil :type boolean)
+  (synchronized-output nil :type boolean)
+  (mouse-mode nil :type (or null (member :normal :button-event :any-event)))
+  (mouse-utf8 nil :type boolean)
+  (mouse-sgr nil :type boolean)
+  (mouse-urxvt nil :type boolean)
+  (mouse-sgr-pixels nil :type boolean)
+  (tab-stops nil :type (or null simple-bit-vector))
   (g0 :us-ascii)
   (g1 :us-ascii)
   (g2 :us-ascii)
@@ -270,6 +288,7 @@ this and a plain term."
         (term-alt-saved-attrs term) (make-face)
         (term-scroll-top term) 0
         (term-scroll-bottom term) (1- height)
+        (term-tab-stops term) (make-tab-stops width)
         (term-input-fn term) input-fn
         (term-bell-fn term) bell-fn
         (term-title-fn term) title-fn
@@ -284,6 +303,9 @@ this and a plain term."
 
 (defun term-grid-row (term y)
   (the row (svref (the simple-vector (term-grid term)) y)))
+
+(defun term-tab-stop-p (term x)
+  (= 1 (aref (the simple-bit-vector (term-tab-stops term)) x)))
 
 (declaim (inline blank-span move-span))
 
@@ -372,4 +394,26 @@ what it carried.")
 DEC marker, so mode 4 and mode ?4 are two different modes.")
   (:method ((term term) number privatep set)
     (declare (ignore number privatep set))
+    nil))
+
+(defgeneric handle-hash (term final)
+  (:documentation "A DEC screen sequence of the form ESC # FINAL, such as the
+alignment test.")
+  (:method ((term term) final)
+    (declare (ignore final))
+    nil))
+
+(defgeneric term-linked (term uri params)
+  (:documentation "OSC 8: the program is about to write a hyperlink, or has
+finished one when URI is nil. What a hyperlink means to a display is not this
+library's business; it only hands the event over.")
+  (:method ((term term) uri params)
+    (declare (ignore uri params))
+    nil))
+
+(defgeneric term-copied (term selection data)
+  (:documentation "OSC 52: the program asked the terminal to put DATA, base64
+encoded, on SELECTION.")
+  (:method ((term term) selection data)
+    (declare (ignore selection data))
     nil))

@@ -63,6 +63,24 @@
     (is (eql #\─ (at term 0 0)))
     (is (eql #\q (at term 1 0)))))
 
+(test the-uk-charset-only-changes-the-hash
+  (let ((term (a-term :width 10 :height 2)))
+    (say term (esc "(A") "#q" (esc "(B"))
+    (is (eql #\£ (at term 0 0)))
+    (is (eql #\q (at term 1 0)))))
+
+(test dec-supplemental-is-a-96-character-set-not-a-94-one
+  (let ((term (a-term :width 10 :height 2)))
+    (say term (esc "-A") (format nil "~C" #\So) (string (code-char #x41))
+         (format nil "~C" #\Si))
+    (is (eql (code-char (+ #x41 #x80)) (at term 0 0)))))
+
+(test a-charset-selector-does-not-leak-into-the-grid
+  (let ((term (a-term :width 10 :height 2)))
+    (say term (esc "%G") "after")
+    (is (equal "after" (row term 0))
+        "the byte after ESC %% was written as text: ~S" (row term 0))))
+
 (test a-tab-lands-on-the-next-stop
   (let ((term (a-term :width 40 :height 2)))
     (say term (format nil "a~Cb~Cc" #\Tab #\Tab))

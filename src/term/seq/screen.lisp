@@ -44,3 +44,6 @@
 
 (defmethod handle-esc ((term term) (final (eql #\o)))
   (setf (term-active-charset term) :g3))
+
+(defmethod handle-hash ((term term) (final (eql #\8)))
+  (term-align-test term))

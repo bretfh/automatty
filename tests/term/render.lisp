@@ -74,6 +74,33 @@
   (is (= 0 (vt:char-display-width (code-char #x301))))
   (is (= 0 (vt:char-display-width #\Nul))))
 
+(test a-presentation-selector-takes-no-column-of-its-own
+  (is (= 0 (vt:char-display-width (code-char #xFE0E))) "VS15")
+  (is (= 0 (vt:char-display-width (code-char #xFE0F))) "VS16")
+  (is (= 0 (vt:char-display-width (code-char #xFEFF))) "zero width no-break space")
+  (is (= 0 (vt:char-display-width (code-char #x2060))) "word joiner"))
+
+(test yi-and-the-pictographs-below-1f300-are-wide
+  (is (= 2 (vt:char-display-width (code-char #xA000))) "a Yi syllable")
+  (is (= 2 (vt:char-display-width (code-char #x1F000))) "a mahjong tile"))
+
+(test cjk-extension-planes-are-wide
+  (is (= 2 (vt:char-display-width (code-char #x20000))) "extension B")
+  (is (= 2 (vt:char-display-width (code-char #x2FA1D))) "the compatibility supplement"))
+
+(test an-out-of-range-colour-resets-rather-than-picking-white
+  (let ((s (make-string-output-stream)))
+    (vt:write-sgr (vt:make-face :fg 9999) s)
+    (is (search ";39" (get-output-stream-string s))
+        "an unwritable fg reset it instead of choosing 30-something"))
+  (let ((s (make-string-output-stream)))
+    (vt:write-sgr (vt:make-face :bg 9999) s)
+    (is (search ";49" (get-output-stream-string s))))
+  (let ((s (make-string-output-stream)))
+    (vt:write-sgr (vt:make-face :underline-color 9999) s)
+    (is (search ";59" (get-output-stream-string s))
+        "an unwritable underline colour fell back to 39, resetting fg instead")))
+
 (defun round-trips (said)
   "Say SAID to a terminal, write that line back out, and read it into another.
 Answers the two faces at column 0, which a complete encoder makes equal."
