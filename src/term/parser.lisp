@@ -102,24 +102,18 @@ but neither is unbounded, and nothing says a program has to send a terminator.")
            (let ((ch (char string index)))
              (incf index)
              (setf (term-parser-state term) nil)
+             ;; only the ones that say what to read next are the state
+             ;; machine's. What an escape sequence means is a method.
              (case ch
                (#\( (setf (term-parser-state term) '(:read-charset :g0)))
                (#\) (setf (term-parser-state term) '(:read-charset :g1)))
                (#\* (setf (term-parser-state term) '(:read-charset :g2)))
                (#\+ (setf (term-parser-state term) '(:read-charset :g3)))
-               (#\7 (term-save-cursor term))
-               (#\8 (term-restore-cursor term))
-               (#\D (term-index term))
-               (#\E (term-carriage-return term)
-                    (term-line-feed term))
-               (#\M (term-reverse-index term))
                (#\[ (setf (term-parser-state term) :read-csi-format))
                (#\] (setf (term-parser-state term) :read-osc
                           (fill-pointer (term-osc-buf term)) 0))
                (#\P (setf (term-parser-state term) :read-dcs))
-               (#\c (term-reset term))
-               (#\n (setf (term-active-charset term) :g2))
-               (#\o (setf (term-active-charset term) :g3)))))
+               (t (handle-esc term ch)))))
 
           ((and (listp state) (eq (car state) :read-charset))
            (let ((ch (char string index))
@@ -205,7 +199,7 @@ but neither is unbounded, and nothing says a program has to send a terminator.")
                       (if (consp (car p))
                           (setf (car p) (mapcar #'held-param (nreverse (car p))))
                           (setf (car p) (held-param (car p)))))
-                    (dispatch-csi term ch fmt params)))))))
+                    (handle-csi term ch fmt params)))))))
 
           ((eq state :read-osc)
            (let ((end-pos (position-if
@@ -258,139 +252,3 @@ but neither is unbounded, and nothing says a program has to send a terminator.")
 
           (t
            (setf (term-parser-state term) nil)))))))
-
-(defun dispatch-csi (term ch fmt params)
-  (let ((p1 (car params))
-        (p2 (cadr params)))
-    (case ch
-      (#\@ (term-insert-char term (or p1 1)))
-      ((#\A #\k) (term-cursor-up term (or p1 1)))
-      ((#\B #\e) (term-cursor-down term (or p1 1)))
-      ((#\C #\a) (term-cursor-right term (or p1 1)))
-      ((#\D #\j) (term-cursor-left term (or p1 1)))
-      (#\E
-       (term-cursor-down term (or p1 1))
-       (term-carriage-return term))
-      (#\F
-       (term-cursor-up term (or p1 1))
-       (term-carriage-return term))
-      ((#\G #\`) (term-cursor-horizontal-abs term (or p1 1)))
-      ((#\H #\f) (term-goto term (or p1 1) (or p2 1)))
-      (#\I (term-horizontal-tab term (or p1 1)))
-      (#\J (term-erase-in-display term (or p1 0)))
-      (#\K (term-erase-in-line term (or p1 0)))
-      (#\L (term-insert-line term (or p1 1)))
-      (#\M (term-delete-line term (or p1 1)))
-      (#\P (term-delete-char term (or p1 1)))
-      (#\S (unless (eql fmt #\?)
-             (term-scroll-up term (or p1 1))))
-      (#\T (term-scroll-down term (or p1 1)))
-      (#\X (term-erase-char term (or p1 1)))
-      (#\Z (term-horizontal-backtab term (or p1 1)))
-      ;; REP is the one count that repeats rather than clamping to the row, so
-      ;; it is the one that has to be told how much a screen is
-      (#\b (let ((n (min (or p1 1) (* (term-width term) (term-height term)))))
-             (when (graphic-char-p (term-last-char term))
-               (term-write term (make-string n
-                                             :initial-element
-                                             (term-last-char term))))))
-      (#\c (dispatch-device-attrs term (or p1 0) fmt))
-      (#\d (term-cursor-vertical-abs term (or p1 1)))
-      (#\h (dispatch-set-modes term params fmt t))
-      (#\l (dispatch-set-modes term params fmt nil))
-      (#\m (unless fmt
-             (process-sgr term params)))
-      (#\n (dispatch-device-status term (or p1 0)))
-      (#\q (when (and (>= (length params) 1)
-                      (null fmt))
-             (dispatch-cursor-style term (or p1 0))))
-      (#\r (term-set-scroll-region term p1 p2))
-      (#\s (when (null fmt) (term-save-cursor term)))
-      (#\u (when (null fmt) (term-restore-cursor term))))))
-
-(defun dispatch-device-attrs (term n fmt)
-  (when (term-input-fn term)
-    (case fmt
-      ((nil)
-       (when (zerop n)
-         (funcall (term-input-fn term) term (format nil "~C[?12;4c" #\Escape))))
-      (#\>
-       (when (zerop n)
-         (funcall (term-input-fn term) term (format nil "~C[>0;0;0c" #\Escape)))))))
-
-(defun dispatch-device-status (term n)
-  (when (term-input-fn term)
-    (case n
-      (5 (funcall (term-input-fn term) term (format nil "~C[0n" #\Escape)))
-      (6 (funcall (term-input-fn term) term
-                  (format nil "~C[~D;~DR" #\Escape
-                          (1+ (term-cursor-y term))
-                          (1+ (term-cursor-x term))))))))
-
-(defun dispatch-cursor-style (term style)
-  (when (<= 0 style 6)
-    (setf (term-cursor-style term)
-          (aref #(:blinking-block :blinking-block :block
-                  :blinking-underline :underline
-                  :blinking-bar :bar)
-                style))))
-
-(defun dispatch-set-modes (term params fmt set-p)
-  (dolist (p params)
-    (when p
-      (case fmt
-        ((nil)
-         (case p
-           (4 (setf (term-insert-mode term) set-p))))
-        (#\?
-         (case p
-           (1 (setf (term-keypad-mode term) set-p))
-           (7 (setf (term-auto-margin term) set-p))
-           (12 (when set-p
-                 (case (term-cursor-style term)
-                   (:block (setf (term-cursor-style term) :blinking-block))
-                   (:underline (setf (term-cursor-style term) :blinking-underline))
-                   (:bar (setf (term-cursor-style term) :blinking-bar))))
-               (unless set-p
-                 (case (term-cursor-style term)
-                   (:blinking-block (setf (term-cursor-style term) :block))
-                   (:blinking-underline (setf (term-cursor-style term) :underline))
-                   (:blinking-bar (setf (term-cursor-style term) :bar)))))
-           (25 (setf (term-cursor-visible term) set-p))
-           (1047 (if set-p
-                     (term-enter-alt-screen term)
-                     (term-exit-alt-screen term)))
-           (1048 (if set-p
-                     (term-save-cursor term)
-                     (term-restore-cursor term)))
-           (1049 (if set-p
-                     (progn (term-save-cursor term)
-                            (term-enter-alt-screen term))
-                     (progn (term-exit-alt-screen term)
-                            (term-restore-cursor term))))
-           (2004 (setf (term-bracketed-paste term) set-p))))))))
-
-(defun dispatch-osc (term str)
-  (let ((semi (position #\; str)))
-    (when semi
-      (let ((code-str (subseq str 0 semi))
-            (data (subseq str (1+ semi))))
-        (cond
-          ((or (string= code-str "0") (string= code-str "2"))
-           (setf (term-title term) data)
-           (when (term-title-fn term)
-             (funcall (term-title-fn term) term data)))
-          ((string= code-str "7")
-           (setf (term-cwd term) data)
-           (when (term-cwd-fn term)
-             (funcall (term-cwd-fn term) term data)))
-          ((string= code-str "10")
-           (when (and (string= data "?") (term-input-fn term))
-             (funcall (term-input-fn term) term
-                      (format nil "~C]10;rgb:d8d8/d8d8/d8d8~C\\"
-                              #\Escape #\Escape))))
-          ((string= code-str "11")
-           (when (and (string= data "?") (term-input-fn term))
-             (funcall (term-input-fn term) term
-                      (format nil "~C]11;rgb:1818/1818/1818~C\\"
-                              #\Escape #\Escape)))))))))

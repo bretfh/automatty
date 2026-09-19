@@ -159,3 +159,47 @@
     (is (<= (length (vt::term-osc-buf term)) vt::+biggest-string+)
         "an unterminated osc payload grew past its bound: ~D"
         (length (vt::term-osc-buf term)))))
+
+;;; What somebody who did not write this library can do to it: a term of their
+;;; own, and methods that add a sequence, change one, or take the place of a
+;;; callback slot.
+
+(defstruct (a-borrowed-term (:include vt:term))
+  (rang 0 :type fixnum)
+  (marks nil :type list))
+
+(defmethod vt:handle-csi ((term a-borrowed-term) (final (eql #\|)) format params)
+  "A sequence this library has never heard of."
+  (declare (ignore format))
+  (push (or (first params) 0) (a-borrowed-term-marks term)))
+
+(defmethod vt:handle-csi ((term a-borrowed-term) (final (eql #\J)) format params)
+  "A sequence it has, made to mean something else."
+  (declare (ignore format params))
+  (vt:term-write term "kept"))
+
+(defmethod vt:handle-esc ((term a-borrowed-term) (final (eql #\7)))
+  "And one of its escapes."
+  (push :saved (a-borrowed-term-marks term)))
+
+(test a-term-of-your-own-can-add-a-sequence-and-change-one
+  (let ((term (vt:init-term (make-a-borrowed-term) :width 12 :height 2)))
+    (say term (csi "42|"))
+    (is (equal '(42) (a-borrowed-term-marks term))
+        "a sequence nothing defined did not reach the method")
+
+    (say term "keepme" (csi "2J"))
+    (is (equal "keepmekept" (row term 0))
+        "erase still erased, so the method did not take: ~S" (row term 0))
+
+    (say term (esc "7"))
+    (is (equal '(:saved 42) (a-borrowed-term-marks term)))
+
+    (is (equal '(0 0) (cursor (a-term :width 4 :height 1)))
+        "a plain term was changed by somebody else's methods")))
+
+(test a-plain-term-is-untouched-by-them
+  (let ((term (a-term :width 12 :height 2)))
+    (say term "keepme" (csi "2J"))
+    (is (equal "" (row term 0))
+        "the library's own erase stopped erasing: ~S" (row term 0))))

@@ -178,24 +178,33 @@ color change, and the answer stands until something says an attribute moved."
                 (term-face-cache-pos term) (mod (1+ pos) (length cache)))
           new))))
 
-(defun make-term (&key (width 80) (height 24)
-                       input-fn bell-fn title-fn cwd-fn
-                       (max-scrollback 10000))
-  (%make-term :width width
-              :height height
-              :grid (make-grid width height)
-              :attrs (make-face)
-              :saved-attrs (make-face)
-              :alt-saved-attrs (make-face)
-              :scroll-top 0
-              :scroll-bottom (1- height)
-              :input-fn input-fn
-              :bell-fn bell-fn
-              :title-fn title-fn
-              :cwd-fn cwd-fn
-              :max-scrollback max-scrollback
-              :scrollback (when (plusp max-scrollback)
-                            (make-array 64 :initial-element nil))))
+(defun init-term (term &key (width 80) (height 24)
+                            input-fn bell-fn title-fn cwd-fn
+                            (max-scrollback 10000))
+  "Fill TERM in and answer it.
+
+A term of your own is a struct that includes this one, and a struct's
+constructor is its own: make it with yours, then hand it here. MAKE-TERM is
+this and a plain term."
+  (setf (term-width term) width
+        (term-height term) height
+        (term-grid term) (make-grid width height)
+        (term-attrs term) (make-face)
+        (term-saved-attrs term) (make-face)
+        (term-alt-saved-attrs term) (make-face)
+        (term-scroll-top term) 0
+        (term-scroll-bottom term) (1- height)
+        (term-input-fn term) input-fn
+        (term-bell-fn term) bell-fn
+        (term-title-fn term) title-fn
+        (term-cwd-fn term) cwd-fn
+        (term-max-scrollback term) max-scrollback
+        (term-scrollback term) (when (plusp max-scrollback)
+                                 (make-array 64 :initial-element nil)))
+  term)
+
+(defun make-term (&rest args)
+  (apply #'init-term (%make-term) args))
 
 (defun term-grid-row (term y)
   (the simple-vector (aref (the simple-vector (term-grid term)) y)))
@@ -212,3 +221,39 @@ color change, and the answer stands until something says an attribute moved."
   (dotimes (y (length grid))
     (clear-row (the simple-vector (aref grid y)) face)))
 
+
+;;; What a program said, as something to do about it. Each is a generic
+;;; function and each sequence is one method: (defstruct (my-term (:include
+;;; vt:term))) and a method of your own adds one, or changes what one already
+;;; means, without touching this library.
+;;;
+;;; A method of your own on a term of your own beats the one here, because its
+;;; first argument is the more specific. Something that wants every sequence
+;;; rather than one wants :before or :around.
+
+(defgeneric handle-csi (term final format params)
+  (:documentation "A control sequence ending in FINAL. FORMAT is the private
+marker it carried, one of #\\? #\\> #\\= or nil, and PARAMS its numbers.")
+  (:method ((term term) final format params)
+    (declare (ignore final format params))
+    nil))
+
+(defgeneric handle-esc (term final)
+  (:documentation "An escape sequence of one character, such as ESC 7.")
+  (:method ((term term) final)
+    (declare (ignore final))
+    nil))
+
+(defgeneric handle-osc (term code said)
+  (:documentation "An operating system command: its number, and the rest of
+what it carried.")
+  (:method ((term term) code said)
+    (declare (ignore code said))
+    nil))
+
+(defgeneric handle-mode (term number privatep set)
+  (:documentation "A mode set or reset. PRIVATEP is whether it came with the
+DEC marker, so mode 4 and mode ?4 are two different modes.")
+  (:method ((term term) number privatep set)
+    (declare (ignore number privatep set))
+    nil))

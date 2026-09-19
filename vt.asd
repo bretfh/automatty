@@ -15,7 +15,14 @@
                              (:file "write")
                              (:file "parser")
                              (:file "render")
-                             (:file "input"))
+                             (:file "input")
+                             (:file "seq/sgr")
+                             (:file "seq/cursor")
+                             (:file "seq/edit")
+                             (:file "seq/screen")
+                             (:file "seq/modes")
+                             (:file "seq/report")
+                             (:file "seq/osc"))
                 :in-order-to ((asdf:test-op (asdf:test-op #:vt/test/term))))
 
 (asdf:defsystem #:vt/pty

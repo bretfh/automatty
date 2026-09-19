@@ -28,6 +28,7 @@
    #:term
    #:term-p
    #:make-term
+   #:init-term
    #:term-width
    #:term-height
    #:term-grid-row
@@ -52,6 +53,11 @@
    #:decoder
    #:make-decoder
    #:decode-utf-8
+
+   #:handle-csi
+   #:handle-esc
+   #:handle-osc
+   #:handle-mode
 
    #:term-process-output
    #:term-write
