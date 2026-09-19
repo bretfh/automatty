@@ -46,6 +46,9 @@
 
 (asdf:defsystem #:vtx
                 :description "A terminal emulator and multiplexer"
+                :author "Bret Horne"
+                :license "GPL-3.0-or-later"
+                :version "0.0.1"
                 :depends-on (#:libvtx #:vtx/pty #:vtx/tty #:vtx/mode #:vtx/ui #:vtx/cells
                                   (:require #:sb-posix)
                                   (:require #:sb-bsd-sockets))

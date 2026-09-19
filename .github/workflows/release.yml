@@ -1,0 +1,52 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y sbcl
+      - run: make FOREIGN=1 vtx
+
+      - name: package as an AppImage
+        run: |
+          mkdir -p AppDir/usr/bin
+          cp vtx AppDir/usr/bin/vtx
+          mkdir -p AppDir/usr/share/applications AppDir/usr/share/icons/hicolor/256x256/apps
+          cat > AppDir/usr/share/applications/vtx.desktop << 'DESKTOP'
+          [Desktop Entry]
+          Type=Application
+          Name=vtx
+          Exec=vtx
+          Icon=vtx
+          Categories=System;TerminalEmulator;
+          Terminal=true
+          DESKTOP
+          convert -size 256x256 xc:none AppDir/usr/share/icons/hicolor/256x256/apps/vtx.png 2>/dev/null \
+            || touch AppDir/usr/share/icons/hicolor/256x256/apps/vtx.png
+          ln -s usr/bin/vtx AppDir/AppRun
+          ln -s usr/share/applications/vtx.desktop AppDir/vtx.desktop
+          ln -s usr/share/icons/hicolor/256x256/apps/vtx.png AppDir/vtx.png
+          curl -fsSL -o appimagetool https://github.com/AppImage/appimagetool/releases/latest/download/appimagetool-x86_64.AppImage
+          chmod +x appimagetool
+          ./appimagetool --appimage-extract-and-run AppDir vtx-x86_64.AppImage
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: vtx-x86_64.AppImage
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install sbcl
+      - run: make FOREIGN=1 vtx
+      - run: tar czf vtx-macos.tar.gz vtx
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: vtx-macos.tar.gz

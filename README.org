@@ -1,3 +1,69 @@
-#+TITLE: cl-vt
+#+TITLE: vtx
 
-A terminal emulator in Common Lisp. 
+Two things live here, under one name because one is built on the other.
+
+*libvtx* is a VT100-and-extensions terminal emulator: bytes a program writes
+to a pty go in, a grid of cells and faces comes out; a key event goes in, the
+bytes a real terminal would send come out. It opens no pty, reads no keyboard,
+draws nothing to a screen, and knows nothing of what uses it. If you are
+building a terminal, an editor, a game with a text display, or anything else
+that needs to understand what a program running in a terminal is doing,
+libvtx is the part that understands the protocol. Its own package is
+=libvtx=, nicknamed =vt= so it reads the way a terminal emulator's code
+should.
+
+*vtx* is what libvtx is for: a terminal emulator and multiplexer, built on
+top of it. It opens the pty, spawns the shell, reads your keyboard, draws to
+a real screen, and holds several sessions and several panes at once behind
+one server, so a client can attach, detach, and come back. If all you want is
+a terminal to sit in and type at, this is that.
+
+Two names, one repo, because "an assemblage of loosely coupled systems" is
+what it actually is, and pretending otherwise doesn't make it simpler.
+
+** Building
+
+Guix is what this develops against:
+
+#+begin_src sh
+make test        # the whole suite
+make test-term   # libvtx alone, with nothing else loaded
+make vtx         # the binary
+#+end_src
+
+On a Mac, or a Linux box without Guix, put =FOREIGN=1= in front of any of
+those and it uses whatever SBCL is already on the machine:
+
+#+begin_src sh
+make FOREIGN=1 test
+#+end_src
+
+There is nothing to compile beyond Lisp. libvtx has no dependencies at all;
+vtx needs only what SBCL already ships (=sb-posix=, =sb-bsd-sockets=) and
+FiveAM to run its own tests.
+
+** Getting it
+
+If you want *libvtx* to build something of your own on top of, it's an ASDF
+system, and the way to pull it in from outside this tree is [[https://ocicl.github.io/][ocicl]]:
+
+#+begin_src sh
+ocicl install libvtx
+#+end_src
+
+If you want *vtx* to actually sit in and type at, it's a program, not a
+library, and it doesn't go through ocicl for that reason. Pick whichever of
+these you already have:
+
+#+begin_src sh
+ros install bretfhorne/vtx     # roswell
+brew install bretfhorne/vtx/vtx    # homebrew
+guix install vtx                    # guix, once this channel is added
+#+end_src
+
+A tagged release also carries a Linux AppImage and a macOS tarball, if you'd
+rather just take the binary.
+
+** License
+
+GPL-3.0-or-later. See [[file:LICENSE][LICENSE]].

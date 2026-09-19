@@ -1,0 +1,15 @@
+#!/bin/sh
+#|-*- mode:lisp -*-|#
+#|
+exec ros -Q -- $0 "$@"
+|#
+(progn (ros:ensure-asdf))
+
+(defpackage :ros.script.vtx
+  (:use :cl))
+(in-package :ros.script.vtx)
+
+(asdf:load-system :vtx :verbose nil)
+
+(defun main (&rest argv)
+  (vtx:main argv))

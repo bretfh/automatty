@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install sbcl (linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y sbcl
+
+      - name: install sbcl (macos)
+        if: runner.os == 'macOS'
+        run: brew install sbcl
+
+      - name: install ocicl
+        run: |
+          asset=$(case "${{ runner.os }}" in
+            Linux) echo linux ;;
+            macOS) echo darwin ;;
+          esac)
+          url=$(curl -fsSL https://api.github.com/repos/ocicl/ocicl/releases/latest \
+                | grep -o "https://[^\"]*${asset}[^\"]*" | head -1)
+          curl -fsSL -o /usr/local/bin/ocicl "$url"
+          chmod +x /usr/local/bin/ocicl
+
+      - name: install fiveam
+        run: ocicl install fiveam
+
+      - name: test
+        run: make FOREIGN=1 test
+
+      - name: test-term
+        run: make FOREIGN=1 test-term
