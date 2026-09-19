@@ -1,7 +1,5 @@
 (defpackage #:vt/ui
   (:use #:cl)
-  (:import-from #:vt/graph #:value #:place #:same #:as-handler)
-  (:local-nicknames (#:g #:vt/graph))
   (:export
 
    #:widget #:parts #:label #:rule #:gap #:picture #:calendar #:slider #:ring
@@ -15,29 +13,22 @@
    #:rule-glyph #:upright #:spacing #:align #:offset #:fixed-width #:fixed-height
    #:before #:after #:mark-of #:low #:high #:track #:thickness #:diameter
    #:year #:month #:day #:path #:start #:middle #:end
-   #:confirm
 
    #:split-string
 
    #:medium #:text-size #:line-height #:measure #:lay #:paint
    #:boldp #:italicp #:underlinep #:family-of
    #:restyle #:style-of #:with-pass #:under #:clicked #:clicked-at #:value-at
+   #:underline-of
    #:scrolling-under
 
-   #:face #:fg #:bg #:bold #:italic #:underline #:ink #:attrs #:in-force
-   #:with-faces #:faces-in-force #:faces #:sheet
+   #:face #:fg #:bg #:bold #:italic #:underline #:crossed
+   #:ink #:attrs #:in-force
+   #:with-faces #:faces-in-force
    #:theme #:themes #:themed #:define-theme #:set-face
    #:active #:color #:metric #:unhex #:hex
    #:style #:styles #:put-rules #:selector #:rules #:resolve
-   #:property #:properties #:classes #:glass #:mono #:radius #:hovered
-
-   #:surface #:surfaces #:defsurface #:defwindow #:create-surface
-   #:forget-surface #:name #:tree #:size #:visiblep #:windowp #:title #:shown
-   #:show #:hide #:toggle
-   #:reserve
-   #:where #:anchor-edges #:anchor-width #:anchor-height #:anchor-reserve
-   #:anchor-margin #:anchor-keyboard #:anchor-output #:anchor-rect
-   #:keyboardp #:output-of #:on-declare #:on-forget))
+   #:property #:properties #:classes #:glass #:mono #:radius #:hovered))
 (in-package #:vt/ui)
 
 (defun split-string (s &key separator)
@@ -53,6 +44,11 @@ on to tell \".a.b\" from \"a.b\"."
         (setf from (1+ i))))
     (push (subseq s from) out)
     (nreverse out)))
+
+(defgeneric value (x)
+  (:method (x) x)
+  (:documentation "What a widget was given. Anything that is not a widget stands
+for itself."))
 
 (defclass widget ()
   ((parts   :initarg :parts   :accessor parts   :initform nil)
@@ -156,7 +152,7 @@ on to tell \".a.b\" from \"a.b\"."
     (/ v span)))
 
 (defgeneric set-on-click (widget does)
-  (:method ((w widget) does) (setf (on-click w) (as-handler does)) w))
+  (:method ((w widget) does) (setf (on-click w) does) w))
 
 (defgeneric set-on-change (widget does)
   (:method ((w widget) does) (setf (on-change w) does) w))
@@ -178,17 +174,10 @@ on to tell \".a.b\" from \"a.b\"."
   (unless (numberp (low w))  (setf (low w) 0))
   (unless (numberp (high w)) (setf (high w) 100)))
 
-(defgeneric confirm (question thunk))
-
 (defun glyph (code)
   (if (integerp code) (string (code-char code)) (princ-to-string code)))
 
-(defun %click (props)
-  (let ((thunk (as-handler (getf props :on-click)))
-        (ask (getf props :confirm)))
-    (cond ((null thunk) nil)
-          ((null ask) thunk)
-          (t (lambda () (confirm ask thunk))))))
+(defun %click (props) (getf props :on-click))
 
 (defun %one (parts) (when (first parts) (list (first parts))))
 
@@ -204,8 +193,7 @@ on to tell \".a.b\" from \"a.b\"."
     (values props
             (loop :for c :in rest :when c :append (if (listp c) c (list c))))))
 
-(defun %shown (it)
-  (let ((v (value it))) (if (null v) "" v)))
+(defun %shown (it) (or it ""))
 
 (defun label (text &rest props)
   (apply #'make-instance 'label
@@ -265,19 +253,11 @@ on to tell \".a.b\" from \"a.b\"."
 
 (defun rule (&rest props) (apply #'make-instance 'rule props))
 
-(defun %bound (subject)
-  (let ((p (place subject)))
-    (if p
-        (values (or (value p) 0) (lambda (v) (setf (value p) v)))
-        (values (or subject 0) nil))))
-
 (defun slider (&rest args)
   (let ((subject (first args)))
     (if (keywordp subject)
         (apply #'make-instance 'slider args)
-        (multiple-value-bind (now writes) (%bound subject)
-          (apply #'make-instance 'slider :value now :on-change writes
-                 (cl:rest args))))))
+        (apply #'make-instance 'slider :value (or subject 0) (cl:rest args)))))
 
 (defun ring (&rest args)
   (let ((subject (first args)))
@@ -287,7 +267,7 @@ on to tell \".a.b\" from \"a.b\"."
         (multiple-value-bind (props parts) (%split (cl:rest args))
           (apply #'make-instance 'ring
                  :parts (%one parts)
-                 :value (%bound subject)
+                 :value (or subject 0)
                  props)))))
 
 (defun choice (&rest args)
@@ -302,7 +282,7 @@ on to tell \".a.b\" from \"a.b\"."
   (apply #'make-instance 'picture :path (princ-to-string (%shown where)) props))
 
 (defun rows (items builder &rest props)
-  (let ((all (let ((it (value items))) (if (listp it) it (list it)))))
+  (let ((all (if (listp items) items (list items))))
     (apply #'make-instance 'column
            :parts (loop :for item :in all
                         :for i :from 0

@@ -23,7 +23,6 @@
   (scratch (make-array +scratch+ :element-type '(unsigned-byte 8)) :type bytes)
   (owner nil)
   (in-bytes 0 :type fixnum)
-  (out-bytes 0 :type fixnum)
   (open t :type boolean))
 
 (defun grown (vec need)
@@ -63,7 +62,7 @@ somebody else."
     (destructuring-bind (fg bg bold faint italic underline under-color blink
                          inverse conceal crossed)
         said
-      (vt:make-face-attrs :fg fg :bg bg
+      (vt:make-face :fg fg :bg bg
                           :bold (and bold t) :faint (and faint t)
                           :italic (and italic t)
                           :underline underline :underline-color under-color
@@ -89,12 +88,12 @@ first could not be picked up from a different terminal."
                           (incf n)
                           (1- n)))))
       (dolist (run runs)
-        (let ((row (screen-row screen (run-row run)))
+        (let ((row (tty:screen-row screen (tty:run-row run)))
               (spans nil)
               (text (make-array 16 :element-type 'character :adjustable t
                                    :fill-pointer 0))
               (face :none))
-          (loop for x from (run-start run) below (run-end run)
+          (loop for x from (tty:run-start run) below (tty:run-end run)
                 for cell = (svref row x)
                 do (let ((now (vt:cell-face cell)))
                      (unless (or (eq face :none) (eq face now))
@@ -105,14 +104,14 @@ first could not be picked up from a different terminal."
                      (vector-push-extend (vt:cell-char cell) text)))
           (unless (eq face :none)
             (push (cons (number-of face) (coerce text 'simple-string)) spans))
-          (push (list (run-row run) (run-start run) (nreverse spans)) out)))
+          (push (list (tty:run-row run) (tty:run-start run) (nreverse spans)) out)))
       (values (nreverse out) (coerce (nreverse table) 'simple-vector)))))
 
 (defun said-into-screen (screen said faces)
   "Put what came off the wire into SCREEN, and answer the runs it covered."
   (let ((seen (map 'simple-vector #'said-face faces)))
     (loop for (y start spans) in said
-          collect (let ((row (screen-row screen y))
+          collect (let ((row (tty:screen-row screen y))
                         (x start))
                     (dolist (span spans)
                       (let ((face (svref seen (car span)))
@@ -122,7 +121,7 @@ first could not be picked up from a different terminal."
                             (setf (vt:cell-char cell) (char text i)
                                   (vt:cell-face cell) face))
                           (incf x))))
-                    (make-run y start x)))))
+                    (tty:make-run y start x)))))
 
 (defun wire-send (wire form)
   (let* ((text (with-standard-io-syntax
@@ -137,7 +136,6 @@ first could not be picked up from a different terminal."
     (incf (wire-end wire) (length head))
     (replace (wire-out wire) bytes :start1 (wire-end wire))
     (incf (wire-end wire) (length bytes))
-    (incf (wire-out-bytes wire) (+ (length head) (length bytes)))
     wire))
 
 (defun wire-pending (wire)
@@ -187,6 +185,35 @@ it all got out."
            (return got))
           (t (return nil)))))))
 
+(defvar *reading-in* nil)
+(defvar *reads* 0)
+
+(defparameter +most-names+ 4096
+  "How many names a peer may make up before the package it makes them in is
+thrown away and started again.")
+
+(defun too-many-names-p (package)
+  (> (loop :for s :being :the :present-symbols :of package :count s)
+     +most-names+))
+
+(defun reading-package ()
+  "The package a message is read in.
+
+Not VT/MUX: a message names symbols, and reading them where the program's own
+names live lets whoever is on the other end put anything it likes there. A
+package of its own, thrown away and started again once it fills, so a peer
+naming something new every message cannot grow this image without end."
+  (when (or (null *reading-in*)
+            (and (zerop (mod (incf *reads*) 1024))
+                 (too-many-names-p *reading-in*)))
+    (when *reading-in* (ignore-errors (delete-package *reading-in*)))
+    (setf *reading-in*
+          ;; common-lisp so that T and NIL read as themselves; nothing else,
+          ;; so everything a peer makes up is this package's own and goes with
+          ;; it when it is thrown away
+          (make-package (symbol-name (gensym "VT/WIRE")) :use '(#:common-lisp))))
+  *reading-in*)
+
 (defun wire-take (wire)
   "The next whole message, or nil when what has come in is not yet one."
   (let* ((in (wire-in wire))
@@ -218,5 +245,5 @@ it all got out."
                         (wire-read wire) 0)))
             (with-standard-io-syntax
               (let ((*read-eval* nil)
-                    (*package* (find-package '#:vt/mux)))
+                    (*package* (reading-package)))
                 (read-from-string text)))))))))

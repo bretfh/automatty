@@ -2,6 +2,14 @@
 
 (in-package #:vt/mux)
 
+(defparameter +was-known+
+  '(:attach :keys :resize :knock :bar :detach :stop)
+  "What every server has always known how to do.
+
+A server that says nothing about what it can do is one from before it said, and
+these are what it had then. A client assuming more of it would send keys into
+silence.")
+
 (defparameter +prefix+ (code-char 2)
               "What says the next byte is for the multiplexer rather than for the pane.")
 
@@ -20,6 +28,9 @@
            (cols 80 :type fixnum)
            (waiting nil)
            (chord-so-far nil :type list)
+           (partial "" :type string)
+           (greeted nil :type boolean)
+           (knows +was-known+)
            (mode 'pane-mode)
            (going t :type boolean)
            (why nil))
@@ -30,24 +41,34 @@
     (values (make-wire (sb-bsd-sockets:socket-file-descriptor socket) socket)
             socket)))
 
-(defun make-client (path &key (fd +stdin+) (to +stdout+) (takes (takes-of)))
+(declaim (ftype function ask))
+
+(defun make-client (path &key name (fd tty:+stdin+) (to tty:+stdout+)
+                              (takes (tty:takes-of)))
   (multiple-value-bind (rows cols)
-                       (if (a-terminal-p fd) (host-size fd) (values 24 80))
+                       (if (tty:a-terminal-p fd) (tty:host-size fd) (values 24 80))
                        (multiple-value-bind (wire socket) (connect-to path)
                                             (let ((client (%make-client :wire wire :socket socket :fd fd :to to
                                                                         :takes takes :rows rows :cols cols
-                                                                        :screen (make-screen :width cols :height rows)
-                                                                        :waiting (make-waiting 4))))
+                                                                        :screen (tty:make-screen :width cols :height rows)
+                                                                        :waiting (tty:make-waiting 4))))
+                                              ;; the name goes first and on its
+                                              ;; own. A server that does not know
+                                              ;; about names passes it over and
+                                              ;; the attach it does know is the
+                                              ;; shape it has always been
+                                              (when name
+                                                (wire-send wire (list :want name)))
                                               (wire-send wire (list :attach rows cols takes))
                                               (wire-flush wire)
                                               client))))
 
 (defun client-close (client)
-  "Shut it, once. The wire owns the socket, so closing the wire is the close --
+  "Shut it, once. The wire owns the socket, so closing the wire is the close;
 doing it again here would shut a descriptor number that by then belongs to
 whoever opened the next one."
   (setf (client-going client) nil)
-  (free-waiting (client-waiting client))
+  (tty:free-waiting (client-waiting client))
   (wire-close (client-wire client)))
 
 (defun host-say (client said)
@@ -70,9 +91,9 @@ else needs to know about it."))
   (:method (thing) (declare (ignore thing)) 'pane-mode))
 
 (defun client-fit (client rows cols)
-  (setf (client-screen client) (make-screen :width cols :height rows)
-        (client-from client) (make-screen :width cols :height rows)
-        (client-shown client) (make-screen :width cols :height rows)
+  (setf (client-screen client) (tty:make-screen :width cols :height rows)
+        (client-from client) (tty:make-screen :width cols :height rows)
+        (client-shown client) (tty:make-screen :width cols :height rows)
         (client-dirty client) t))
 
 (defun client-show (client)
@@ -83,16 +104,13 @@ because what is on top is this one person's: a prompt somebody opened here is
 not something everybody attached should be shown."
   (let ((work (client-screen client)))
     (when (and work (client-from client) (client-shown client))
-      (screen-copy work (client-from client))
+      (tty:screen-copy work (client-from client))
       (dolist (it (reverse (client-over client)))
         (draw-over it work))
-      (let ((runs (screen-diff (client-shown client) work)))
-        (when runs
-          (host-say client
-                    (with-output-to-string (s)
-                      (encode-runs work runs s :takes (client-takes client)))))
+      (let ((runs (tty:screen-diff (client-shown client) work)))
         (host-say client
-                  (with-output-to-string (s) (encode-cursor work s))))
+                  (with-output-to-string (s)
+                    (tty:encode-frame work runs s :takes (client-takes client)))))
       (setf (client-dirty client) nil))))
 
 (defun client-in-mode (client)
@@ -121,22 +139,34 @@ looks like, not why it happened."
 (defun client-heard (client form)
   (case (first form)
         (:hello
-         (destructuring-bind (name rows cols) (rest form)
+         (destructuring-bind (name rows cols &optional knows) (rest form)
                              (declare (ignore name))
+                             (setf (client-greeted client) t
+                                   (client-knows client) (or knows +was-known+))
                              (client-fit client rows cols)
-                             (host-say client +blanked+)))
+                             (host-say client tty:+blanked+)))
         (:frame
          (destructuring-bind (said faces) (rest form)
                              (said-into-screen (client-from client) said faces)
                              (setf (client-dirty client) t)))
         (:cursor
          (destructuring-bind (y x visible style) (rest form)
-                             (declare (ignore style))
                              (let ((screen (client-from client)))
-                               (setf (screen-cursor-y screen) y
-                                     (screen-cursor-x screen) x
-                                     (screen-cursor-visible screen) (and visible t)))
+                               (setf (tty:screen-cursor-y screen) y
+                                     (tty:screen-cursor-x screen) x
+                                     (tty:screen-cursor-visible screen) (and visible t)
+                                     (tty:screen-cursor-style screen) style))
                              (setf (client-dirty client) t)))
+        (:these
+         (ask client "session"
+              (mapcar (lambda (row)
+                        (destructuring-bind (name rows cols panes watching) row
+                          (format nil "~A  ~Dx~D  ~D pane~:P  ~D watching"
+                                  name cols rows panes watching)))
+                      (second form))
+              :chose (lambda (said c)
+                       (wire-send (client-wire c)
+                                  (list :go (subseq said 0 (position #\Space said)))))))
         (:bell (host-say client (string (code-char 7))))
         (:bye (done-with client (second form)))
         (t nil)))
@@ -144,23 +174,44 @@ looks like, not why it happened."
 (defun client-redraw (client)
   (when (client-shown client)
     (setf (client-shown client)
-          (make-screen :width (screen-width (client-shown client))
-                       :height (screen-height (client-shown client)))))
+          (tty:make-screen :width (tty:screen-width (client-shown client))
+                       :height (tty:screen-height (client-shown client)))))
   (setf (client-dirty client) t)
-  (host-say client +blanked+)
+  (host-say client tty:+blanked+)
   (wire-send (client-wire client)
              (list :resize (client-rows client) (client-cols client))))
 
+(defparameter +half-said+ 64
+  "How much of an unfinished sequence to keep for the next read. More than this
+is not somebody typing a key.")
+
+(defun client-holding (client said)
+  "SAID with whatever was left half-said at the end of the last read in front of
+it."
+  (if (plusp (length (client-partial client)))
+      (prog1 (concatenate 'string (client-partial client) said)
+        (setf (client-partial client) ""))
+      said))
+
+(defun client-hold (client said at n)
+  (setf (client-partial client)
+        (if (> (- n at) +half-said+) "" (subseq said at n))))
+
 (defun client-pressed (client said)
-  "Bytes, as keys, to the mode whatever is on top put the client in."
-  (let ((at 0)
-        (n (length said)))
+  "Bytes, as keys, to the mode whatever is on top put the client in.
+
+A sequence the terminal sent that is no key a mode knows, a mouse report say, is
+passed over rather than made into one, and one the rest of has not arrived yet is
+kept until it has."
+  (let* ((said (client-holding client said))
+         (at 0)
+         (n (length said)))
     (loop :while (< at n)
           :do (multiple-value-bind (event took)
-                  (vt:escape-sequence-to-key-event said at n nil)
-                (when (zerop took) (return))
+                  (tty:escape-sequence-to-key-event said at n nil)
+                (when (zerop took) (client-hold client said at n) (return))
                 (incf at took)
-                (client-chord client (key-of event))))))
+                (when event (client-chord client (key-of event)))))))
 
 (defgeneric unbound (thing chord client)
   (:documentation "What to do with a key the mode has no binding for. A prompt
@@ -180,22 +231,24 @@ finishing each other's chords."
          (vt/mode:*unbound* (lambda (chord) (unbound over chord client))))
     (prog1 (eq :pending (vt/mode:press (vt/mode:spelled key)
                                        (vt/mode:mode-named (client-mode client))))
-      (setf (client-chord-so-far client) vt/mode:*pending*))))
+      (setf (client-chord-so-far client) vt/mode:*pending*)
+      (when over (setf (client-dirty client) t)))))
 
 (defun client-typed (client said)
   "Pass what was typed through, byte for byte, until the one byte that says a
 chord is starting.
 
 The bytes are not decoded into keys and encoded again: a terminal sends more
-than any table of keys knows -- mouse reports, pasted text, whatever encoding it
-was built with -- and what the pane reads should be what the terminal sent. Once
-a chord has started they are read as keys, because that is what a mode is
-written in, and the pane does not see them at all."
+than any table of keys knows, such as mouse reports, pasted text and whatever
+encoding it was built with, and what the pane reads should be what the terminal
+sent. Once a chord has started they are read as keys, because that is what a
+mode is written in, and the pane does not see them at all."
   (when (client-over client)
     (return-from client-typed (client-pressed client said)))
-  (let ((out (make-array (length said) :element-type 'character :fill-pointer 0))
-        (at 0)
-        (n (length said)))
+  (let* ((said (client-holding client said))
+         (out (make-array (length said) :element-type 'character :fill-pointer 0))
+         (at 0)
+         (n (length said)))
     (flet ((send ()
              (when (plusp (fill-pointer out))
                (wire-send (client-wire client)
@@ -204,10 +257,10 @@ written in, and the pane does not see them at all."
       (loop :while (< at n)
             :do (if (client-chord-so-far client)
                     (multiple-value-bind (event took)
-                        (vt:escape-sequence-to-key-event said at n nil)
-                      (when (zerop took) (return))
+                        (tty:escape-sequence-to-key-event said at n nil)
+                      (when (zerop took) (client-hold client said at n) (return))
                       (incf at took)
-                      (client-chord client (key-of event))
+                      (when event (client-chord client (key-of event)))
                       (when (client-over client) (return)))
                     (let ((ch (char said at)))
                       (incf at)
@@ -217,9 +270,9 @@ written in, and the pane does not see them at all."
       (send))))
 
 (defun client-resized (client)
-  (setf *resized* nil)
-  (when (a-terminal-p (client-fd client))
-    (multiple-value-bind (rows cols) (host-size (client-fd client))
+  (setf tty:*resized* nil)
+  (when (tty:a-terminal-p (client-fd client))
+    (multiple-value-bind (rows cols) (tty:host-size (client-fd client))
                          (unless (and (= rows (client-rows client)) (= cols (client-cols client)))
                            (setf (client-rows client) rows
                                  (client-cols client) cols)
@@ -229,25 +282,25 @@ written in, and the pane does not see them at all."
   "One turn of the loop. What the server said is taken in before what was typed:
 a bye says why everything is stopping, and a terminal that fell over at the same
 moment would otherwise answer that question first, and answer it wrongly."
-  (let* ((w (waiting-clear (client-waiting client)))
-         (keys (waiting-add w (client-fd client)))
+  (let* ((w (tty:waiting-clear (client-waiting client)))
+         (keys (tty:waiting-add w (client-fd client)))
          (wire (client-wire client))
-         (sock (waiting-add w (wire-fd wire)
+         (sock (tty:waiting-add w (wire-fd wire)
                             (logior sb-unix:pollin
                                     (if (plusp (wire-pending wire))
                                         sb-unix:pollout
                                       0)))))
-    (wait-on w patience)
-    (when *resized* (client-resized client))
-    (when (writable-p (waiting-back w sock))
+    (tty:wait-on w patience)
+    (when tty:*resized* (client-resized client))
+    (when (tty:writable-p (tty:waiting-back w sock))
       (wire-flush wire))
-    (when (readable-p (waiting-back w sock))
+    (when (tty:readable-p (tty:waiting-back w sock))
       (if (null (wire-fill wire))
           (done-with client :server-gone)
         (loop for form = (wire-take wire)
               while form
               do (client-heard client form))))
-    (when (readable-p (waiting-back w keys))
+    (when (tty:readable-p (tty:waiting-back w keys))
       (let ((said (pty:pty-read-string (client-fd client) 8192)))
         (if (null said)
             (done-with client :input-gone)
@@ -256,15 +309,31 @@ moment would otherwise answer that question first, and answer it wrongly."
     (wire-flush wire)
     client))
 
-(defun attach (path &key (fd +stdin+) (to +stdout+) (takes (takes-of)))
-  (let ((client (make-client path :fd fd :to to :takes takes)))
+(defparameter +patience+ 5
+  "How many seconds to wait for the server to say what we are looking at.
+
+A server that takes the connection and then says nothing leaves a terminal in
+raw mode showing nothing at all, which says neither that anything is wrong nor
+which end of it is wrong.")
+
+(defun answered-p (client since)
+  (or (client-greeted client)
+      (< (- (get-internal-real-time) since)
+         (* +patience+ internal-time-units-per-second))
+      (progn (done-with client :no-answer) nil)))
+
+(defun attach (path &key name (fd tty:+stdin+) (to tty:+stdout+)
+                         (takes (tty:takes-of)))
+  (let ((client (make-client path :name name :fd fd :to to :takes takes))
+        (since (get-internal-real-time)))
     (unwind-protect
-        (with-host (fd :to to)
+        (tty:with-host (fd :to to)
                    (loop while (and (client-going client)
-                                    (not *asked-to-stop*)
+                                    (not tty:*asked-to-stop*)
+                                    (answered-p client since)
                                     (wire-open (client-wire client)))
                          do (client-step client))
-                   (when *asked-to-stop* (done-with client :asked-to-stop))
+                   (when tty:*asked-to-stop* (done-with client :asked-to-stop))
                    (client-why client))
       (ignore-errors (wire-send (client-wire client) '(:detach))
                      (wire-flush (client-wire client)))

@@ -1,6 +1,6 @@
-(in-package #:vt/test)
+(in-package #:vt/test/term)
 
-(def-suite ops :in all)
+(def-suite ops :in emulator)
 (in-suite ops)
 
 (test a-cursor-goes-where-it-was-sent-and-no-further
@@ -170,3 +170,79 @@
     (is (zerop (vt:term-scrollback-size term)) "the alt screen went to scrollback")
     (say term (csi "?1049l"))
     (is (equal "main-line" (row term 0)) "the main screen did not come back")))
+
+(test deleting-a-line-does-not-put-it-behind-the-screen
+  (let ((term (a-term :width 8 :height 3)))
+    (say term "one" (csi "2;1H") "two" (csi "3;1H") "three")
+    (say term (csi "H") (csi "M"))
+    (is (equal "two" (row term 0)) "the line under it did not come up")
+    (is (zerop (vt:term-scrollback-size term))
+        "a line deleted out of the screen was put in the scrollback")))
+
+(test a-cursor-saved-on-a-bigger-screen-comes-back-inside-this-one
+  (let ((term (a-term :width 80 :height 40)))
+    (say term (csi "?1049h") (csi "40;70H"))
+    (vt:term-resize term 20 10)
+    (say term (csi "?1049l"))
+    (is (equal '(0 0) (cursor term))
+        "restored to ~S on a 20x10 screen" (cursor term))
+    (say term "x")
+    (is (equal "x" (row term 0)) "writing after the restore did not land")))
+
+(test the-alt-screen-keeps-its-own-saved-cursor
+  (let ((term (a-term :width 20 :height 10)))
+    (say term (csi "3;5H") (csi "?1049h"))
+    ;; a save the program does while it is over there
+    (say term (csi "8;12H") (esc "7") (csi "1;1H") (esc "8"))
+    (is (equal '(11 7) (cursor term))
+        "the save made inside the alt screen did not come back: ~S"
+        (cursor term))
+    (say term (csi "?1049l"))
+    (is (equal '(4 2) (cursor term))
+        "leaving the alt screen did not restore where it was entered: ~S"
+        (cursor term))))
+
+(test a-screen-can-be-driven-by-hand-without-any-escapes
+  ;; the operations are the vocabulary a sequence is written in, so they are
+  ;; part of the surface: somebody adding one reaches for these
+  (let ((term (a-term :width 12 :height 4)))
+    (vt:term-goto term 1 1)
+    (vt:term-write term "one")
+    (vt:term-goto term 2 1)
+    (vt:term-write term "two")
+    (vt:term-goto term 3 1)
+    (vt:term-write term "three")
+    (is (equal '("one" "two" "three" "") (rows term)))
+
+    (vt:term-goto term 2 1)
+    (vt:term-delete-line term 1)
+    (is (equal '("one" "three" "" "") (rows term))
+        "delete-line: ~S" (rows term))
+
+    (vt:term-goto term 1 2)
+    (vt:term-insert-char term 2)
+    (is (equal "o  ne" (row term 0)) "insert-char: ~S" (row term 0))
+
+    (vt:term-goto term 1 1)
+    (vt:term-erase-in-line term 0)
+    (is (equal "" (row term 0)) "erase-in-line: ~S" (row term 0))
+
+    (vt:term-set-scroll-region term 1 2)
+    (is (eql 0 (vt:term-scroll-top term)))
+    (is (eql 1 (vt:term-scroll-bottom term)))
+    (vt:term-scroll-up term 1)
+    (is (equal '("three" "" "" "") (rows term))
+        "scroll-up inside the region: ~S" (rows term))
+
+    (vt:term-save-cursor term)
+    (vt:term-goto term 4 4)
+    (vt:term-restore-cursor term)
+    (is (equal '(0 0) (cursor term)) "save and restore: ~S" (cursor term))
+
+    (vt:term-enter-alt-screen term)
+    (vt:term-write term "over")
+    (is (equal "over" (row term 0)))
+    (is-true (vt:term-in-alt-screen term))
+    (vt:term-exit-alt-screen term)
+    (is (equal "three" (row term 0))
+        "the main screen did not come back: ~S" (row term 0))))

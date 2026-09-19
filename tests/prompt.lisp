@@ -51,7 +51,7 @@
     (is (equal "r" (mux:prompt-query p)))))
 
 (test the-prompt-draws-itself-at-the-foot-and-says-what-was-typed
-  (let ((screen (mux:make-screen :width 30 :height 10))
+  (let ((screen (tty:make-screen :width 30 :height 10))
         (p (mux:make-prompt "run" '("detach" "redraw" "rename"))))
     (setf (mux:prompt-query p) "re")
     (mux:draw-over p screen)
@@ -64,14 +64,14 @@
       (is (find-if (lambda (r) (search "rename" r)) rows))
       (is (null (find-if (lambda (r) (search "detach" r)) rows))
           "something that does not match was drawn"))
-    (is (>= (mux:screen-cursor-y screen) 7)
+    (is (>= (tty:screen-cursor-y screen) 7)
         "the prompt did not take the foot of the screen")))
 
 (test the-prompt-covers-only-what-it-needs
-  (let ((screen (mux:make-screen :width 30 :height 10))
+  (let ((screen (tty:make-screen :width 30 :height 10))
         (p (mux:make-prompt "run" '("one"))))
     (dotimes (x 30)
-      (setf (vt:cell-char (aref (mux:screen-row screen 0) x)) #\x))
+      (setf (vt:cell-char (aref (tty:screen-row screen 0) x)) #\x))
     (mux:draw-over p screen)
     (is (equal (make-string 30 :initial-element #\x) (shown screen 0))
         "the prompt drew over the top of the screen")))
@@ -125,3 +125,66 @@
     (pressing p "C-b")
     (is (equal "red " (mux:prompt-query p))
         "a key with a modifier inserted itself")))
+
+(test a-sequence-that-is-no-key-is-passed-over
+  (let ((client (mux::%make-client))
+        (p (mux:make-prompt "run" '("one" "two" "three"))))
+    (mux:client-over-put client p)
+    (mux::client-pressed client (csi "<0;12;34M"))
+    (is (equal "" (mux:prompt-query p))
+        "a mouse report was read as something typed")
+    (is (eql 0 (mux:prompt-index p)))
+    (mux::client-pressed client (csi "B"))
+    (is (eql 1 (mux:prompt-index p))
+        "the Down after it did not arrive")))
+
+(test a-sequence-split-across-two-reads-is-still-one-key
+  (let ((client (mux::%make-client))
+        (p (mux:make-prompt "run" '("one" "two" "three"))))
+    (mux:client-over-put client p)
+    (mux::client-pressed client (esc "["))
+    (is (equal "" (mux:prompt-query p)) "half a sequence was read as text")
+    (is (eql 0 (mux:prompt-index p)))
+    (mux::client-pressed client "B")
+    (is (eql 1 (mux:prompt-index p))
+        "the two halves did not make one Down")))
+
+(test moving-in-the-prompt-asks-for-the-screen-again
+  (let ((client (mux::%make-client))
+        (p (mux:make-prompt "run" '("one" "two" "three"))))
+    (mux:client-over-put client p)
+    (setf (mux:client-dirty client) nil)
+    (mux::client-pressed client (csi "B"))
+    (is (eql 1 (mux:prompt-index p)))
+    (is-true (mux:client-dirty client)
+             "the prompt moved and nothing was redrawn")))
+
+(test what-only-works-inside-a-prompt-is-not-offered-by-one
+  (is (member "detach" (mux:command-names) :test #'equal))
+  (is (null (member "prompt next" (mux:command-names) :test #'equal))
+      "the palette offers a command that closes the palette before it runs")
+  (is (member "prompt next" (mux:command-names nil) :test #'equal)
+      "it is not a command at all any more")
+  (is-true (gethash "prompt next" mux:*commands*)
+           "it can no longer be bound to a key"))
+
+(test every-command-asks-the-server-for-something-it-knows
+  ;; a command naming a message the server has not got shows a note saying so.
+  ;; Against a server that knows everything, no command may show one: a name
+  ;; that drifted out of +understood+ is a key that quietly does nothing, which
+  ;; looks exactly like a key that is broken
+  (multiple-value-bind (in out) (sb-posix:pipe)
+    (unwind-protect
+         (dolist (name (mux:command-names nil))
+           (let* ((client (mux::%make-client :knows mux:+understood+
+                                             :to out
+                                             :wire (mux:make-wire out))))
+             (mux:run-command name client)
+             (let ((note (find "not here" (mux:client-over client)
+                               :key (lambda (it) (and (typep it 'mux:note)
+                                                      (mux::note-title it)))
+                               :test #'equal)))
+               (is (null note)
+                   "~S asks the server for something it does not know" name))))
+      (ignore-errors (sb-posix:close in))
+      (ignore-errors (sb-posix:close out)))))

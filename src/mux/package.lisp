@@ -2,62 +2,8 @@
 
 (defpackage #:vt/mux
   (:use #:cl)
-  (:local-nicknames (#:pty #:vt/pty))
+  (:local-nicknames (#:pty #:vt/pty) (#:tty #:vt/tty))
   (:export
-   #:screen
-   #:screen-p
-   #:make-screen
-   #:screen-width
-   #:screen-height
-   #:screen-grid
-   #:screen-row
-   #:screen-cursor-x
-   #:screen-cursor-y
-   #:screen-cursor-visible
-   #:screen-cursor-style
-   #:screen-resize
-   #:screen-clear
-   #:screen-copy
-   #:screen-blit
-   #:screen-diff
-   #:screen-dump-to-string
-
-   #:run-row
-   #:run-start
-   #:run-end
-   #:run-cells
-
-   #:*gap*
-   #:encode-runs
-   #:encode-cursor
-   #:encode-frame
-   #:takes-of
-
-   #:make-waiting
-   #:free-waiting
-   #:waiting-clear
-   #:waiting-add
-   #:waiting-back
-   #:waiting-count
-   #:readable-p
-   #:writable-p
-   #:gone-p
-   #:wait-on
-
-   #:+tiocgwinsz+
-   #:+stdin+
-   #:+stdout+
-   #:a-terminal-p
-   #:host-size
-   #:host-raw
-   #:host-put-back
-   #:*resized*
-   #:hear-resizes
-   #:*asked-to-stop*
-   #:stop-hearing-resizes
-   #:+blanked+
-   #:with-host
-
    #:wire
    #:make-wire
    #:wire-fd
@@ -69,7 +15,6 @@
    #:wire-flush
    #:wire-pending
    #:wire-in-bytes
-   #:wire-out-bytes
    #:face-said
    #:said-face
    #:runs-said
@@ -77,6 +22,8 @@
 
    #:pane
    #:make-pane
+   #:pane-start
+   #:pane-started
    #:pane-term
    #:pane-fd
    #:pane-pid
@@ -90,49 +37,53 @@
 
    #:*interval*
    #:make-server
-   #:pane-rows
-   #:*bar*
-   #:*bar-rows*
-   #:default-bar
-   #:session-name
-   #:draw-bar
    #:server-close
-   #:pane-rows
-   #:*bar*
-   #:*bar-rows*
-   #:default-bar
-   #:session-name
-   #:draw-bar
    #:server-going
-   #:pane-rows
-   #:*bar*
-   #:*bar-rows*
-   #:default-bar
-   #:session-name
-   #:draw-bar
    #:server-sessions
-   #:pane-rows
-   #:*bar*
-   #:*bar-rows*
-   #:default-bar
-   #:session-name
-   #:draw-bar
+   #:server-knocking
+   #:watcher-wire
+   #:watcher-here
+   #:server-command
+   #:session-named
+   #:join-session
+   #:drop-watcher
    #:server-step
+   #:serve
    #:add-session
-   #:session-pane
+   #:session-name
+   #:session-layout
+   #:session-focus
+   #:session-panes
+   #:split
+   #:make-split
+   #:split-way
+   #:split-parts
+   #:panes-in
+   #:put-beside
+   #:without-pane
+   #:layout-tree
+   #:split-the-session
+   #:close-the-pane
+   #:focus-the-next
+   #:only-the-pane
+   #:+understood+
    #:session-screen
    #:session-rows
    #:session-cols
    #:session-watchers
-   #:pane-rows
+   #:session-barp
+   #:session-tree
+   #:pane-view
+   #:view-pane
+   #:views-in
    #:*bar*
-   #:*bar-rows*
    #:default-bar
-   #:session-name
-   #:draw-bar
-   #:serve
+   #:session-bar
 
    #:+prefix+
+   #:+was-known+
+   #:client-knows
+   #:tell-the-server
    #:make-client
    #:client-close
    #:client-step
@@ -152,17 +103,22 @@
    #:client-rows
    #:client-cols
    #:client-resized
+   #:attach
+
    #:defcommand
    #:*commands*
+   #:*unlisted*
    #:command-names
    #:*client*
    #:key-of
    #:pane-mode
+   #:run-command
+
    #:note
    #:make-note
    #:show-note
    #:show-broke
-   #:run-command
+
    #:prompt
    #:make-prompt
    #:prompt-query
@@ -175,10 +131,9 @@
    #:matches
    #:score
 
-   #:attach
-
    #:mux-dir
    #:socket-path
    #:sessions-here
+   #:stop-a-server
    #:run
    #:main))

@@ -34,11 +34,17 @@
     (error () nil)))
 
 (defmacro with-server ((path &key (command "cat") (rows 10) (cols 40)) &body body)
-  (let ((thread (gensym "THREAD")))
-    `(let ((,path (a-socket-path)))
+  (let ((thread (gensym "THREAD")) (broke (gensym "BROKE")))
+    `(let ((,path (a-socket-path))
+           ;; a fault in the loop is stepped over rather than fatal, so a test
+           ;; would go on passing over one. This is where the server says what
+           ;; broke, and a test that leaves anything here has found something
+           (,broke (make-string-output-stream)))
        (let ((,thread (sb-thread:make-thread
-                       (lambda () (mux:serve ,path ,command :rows ,rows :cols ,cols
-                                             :interval 0))
+                       (lambda ()
+                         (let ((*error-output* ,broke))
+                           (mux:serve ,path ,command :rows ,rows :cols ,cols
+                                      :interval 0)))
                        :name "a test server")))
          (unwind-protect
               (progn (until 5 (lambda () (probe-file ,path)))
@@ -49,7 +55,9 @@
            (when (eq :gave-up (sb-thread:join-thread ,thread :timeout 15
                                                              :default :gave-up))
              (error "a test server would not stop"))
-           (ignore-errors (delete-file ,path)))))))
+           (ignore-errors (delete-file ,path))
+           (let ((said (get-output-stream-string ,broke)))
+             (is (equal "" said) "the server said something broke:~%~A" said)))))))
 
 (defstruct seer client host master slave (decoder (vt:make-decoder)))
 
@@ -57,7 +65,7 @@
   (multiple-value-bind (master slave-path) (pty:open-pty)
     (let ((slave (sb-posix:open slave-path sb-posix:o-rdwr)))
       (pty:pty-set-size master rows cols)
-      (mux:host-raw slave)
+      (tty:host-raw slave)
       (make-seer :client (mux:make-client path :fd slave :to slave)
                  :host (a-term :width cols :height rows)
                  :master master
@@ -159,7 +167,7 @@ already failing."
                "the program was not given the rows the bar left it")
       (pty:pty-set-size (seer-master seer) 20 60)
       (vt:term-resize (seer-host seer) 60 20)
-      (multiple-value-bind (rows cols) (mux:host-size (seer-slave seer))
+      (multiple-value-bind (rows cols) (tty:host-size (seer-slave seer))
         (is (eql 20 rows))
         (is (eql 60 cols)))
       (mux:client-resized (seer-client seer))
@@ -273,23 +281,23 @@ already failing."
                      :rows 10 :cols 40)
     (with-seer (seer path :rows 10 :cols 40)
       (is-true (pump seer :want "9 40") "the bar was not taking a row")
-      (type-at seer (format nil "~Cbo" mux:+prefix+))
+      (type-at seer (format nil "~Ct" mux:+prefix+))
       (is-true (pump seer :want "10 40")
                "the bar did not come off: ~S" (seen seer))
-      (type-at seer (format nil "~Cbb" mux:+prefix+))
+      (type-at seer (format nil "~Ct" mux:+prefix+))
       (is-true (pump seer :want "9 40")
                "the bar did not come back: ~S" (seen seer)))))
 
 (test with-no-bar-the-program-has-the-whole-terminal
   ;; the server runs in a thread of its own, and a special bound here would not
   ;; reach it
-  (let ((was mux:*bar-rows*))
+  (let ((was mux:*bar*))
     (unwind-protect
-         (progn (setf mux:*bar-rows* 0)
+         (progn (setf mux:*bar* nil)
                 (with-server (path :command "stty size; sleep 30" :rows 10 :cols 40)
                   (with-seer (seer path :rows 10 :cols 40)
                     (is-true (pump seer :want "10 40") "~S" (seen seer)))))
-      (setf mux:*bar-rows* was))))
+      (setf mux:*bar* was))))
 
 (test the-prompt-opens-on-the-prefix-and-runs-what-was-chosen
   (with-server (path :command "printf 'the-pane\\n'; sleep 30" :rows 12 :cols 50)
@@ -350,6 +358,176 @@ already failing."
       (pump seer :seconds 3)
       (let ((host (seer-host seer)))
         (is (vt:face-default-p (face-at host 20 6))
-            "an empty cell came back wearing ~S -- the clear was done in whatever
-colour was last in force"
-            (vt:face-attrs-to-plist (face-at host 20 6)))))))
+            "an empty cell came back wearing ~S, so the clear was done in
+whatever colour was last in force"
+            (vt:face-plist (face-at host 20 6)))))))
+
+(test a-bar-that-has-stood-long-enough-puts-a-watcher-behind
+  (let ((session (mux::%make-session))
+        (w (mux::%make-watcher :here t)))
+    (setf (mux::session-watchers session) (list w)
+          (mux::session-clocked session) 0
+          (mux::watcher-behind w) nil)
+    (is-true (mux::session-clock session mux::+bar-gap+)
+             "the bar stood a whole gap and nobody was put behind")
+    (is-true (mux::watcher-behind w))
+    (setf (mux::watcher-behind w) nil)
+    (is (null (mux::session-clock session (1+ mux::+bar-gap+)))
+        "the bar was drawn again the moment after")
+    (is-false (mux::watcher-behind w))
+    (is-true (mux::session-clock session (* 2 mux::+bar-gap+)))
+    (is-true (mux::watcher-behind w))))
+
+(defun where-said (seer said)
+  "Which column SAID starts at on the seer's screen, or nil."
+  (loop :for y :below (vt:term-height (seer-host seer))
+        :for found := (search said (vt:term-dump-row-string (seer-host seer) y))
+        :when found :do (return found)))
+
+(test a-split-gives-the-new-pane-half-the-terminal-and-the-cursor
+  (with-server (path :command "cat" :rows 10 :cols 40)
+    (with-seer (seer path :rows 10 :cols 40)
+      (type-at seer "on-the-first")
+      (is-true (pump seer :want "on-the-first"))
+      (type-at seer (format nil "~C3" mux:+prefix+))
+      (is-true (pump seer :until (lambda () (search "│" (seen seer))))
+               "no rule came up between the two panes: ~S" (seen seer))
+      (type-at seer "on-the-second")
+      (is-true (pump seer :want "on-the-second")
+               "what was typed reached nobody: ~S" (seen seer))
+      (is (eql 1 (count-of "on-the-second" (seen seer)))
+          "what was typed reached both panes: ~S" (seen seer))
+      (is (>= (or (where-said seer "on-the-second") 0) 20)
+          "what was typed went to the pane on the left, not the new one: ~S"
+          (seen seer))
+      (is (eql 0 (where-said seer "on-the-first"))
+          "the first pane moved: ~S" (seen seer)))))
+
+(test closing-the-last-pane-ends-the-session
+  (with-server (path :command "cat" :rows 10 :cols 40)
+    (with-seer (seer path :rows 10 :cols 40)
+      (is-true (pump seer :until (lambda () (mux:client-screen (seer-client seer)))))
+      (type-at seer (format nil "~C0" mux:+prefix+))
+      (is-true (pump seer :until (lambda ()
+                                   (not (mux:client-going (seer-client seer)))))
+               "the client was not told the session was over")
+      (is (eq :done (mux:client-why (seer-client seer)))
+          "the session ended for the wrong reason: ~S"
+          (mux:client-why (seer-client seer))))))
+
+(test two-sessions-in-one-server-do-not-see-each-other
+  (with-server (path :command "cat" :rows 10 :cols 40)
+    (with-seer (seer path :rows 10 :cols 40)
+      (type-at seer "in-the-first")
+      (is-true (pump seer :want "in-the-first"))
+      (type-at seer (format nil "~Cc" mux:+prefix+))
+      (is-true (pump seer :until (lambda ()
+                                   (null (search "in-the-first" (seen seer)))))
+               "the new session was shown what the first one holds: ~S" (seen seer))
+      (type-at seer "in-the-second")
+      (is-true (pump seer :want "in-the-second"))
+      (is (null (search "in-the-first" (seen seer)))
+          "the two sessions are sharing a screen: ~S" (seen seer))
+      (type-at seer (format nil "~Cb" mux:+prefix+))
+      (is-true (pump seer :want "session") "no chooser came up: ~S" (seen seer))
+      (is-true (pump seer :until (lambda () (search "1 pane" (seen seer))))
+               "the chooser does not say what is in them: ~S" (seen seer))
+      (type-at seer (string #\Return))
+      (is-true (pump seer :want "in-the-first")
+               "choosing the first session did not go back to it: ~S" (seen seer))
+      (is (null (search "in-the-second" (seen seer)))
+          "what the second session holds came along: ~S" (seen seer)))))
+
+(defun step-until (server test &optional (seconds 5))
+  (let ((deadline (+ (get-internal-real-time)
+                     (* seconds internal-time-units-per-second))))
+    (loop :until (funcall test)
+          :do (mux:server-step server :interval 0)
+              (when (> (get-internal-real-time) deadline) (return nil))
+          :finally (return t))))
+
+(defmacro with-a-server-here ((server path) &body body)
+  "A server stepped by hand, so a test can look at what it holds between steps."
+  `(let ((,path (a-socket-path)))
+     (unwind-protect
+          (let ((,server (mux:make-server ,path)))
+            (unwind-protect (progn ,@body)
+              (mux:server-close ,server)))
+       (ignore-errors (delete-file ,path)))))
+
+(test a-watcher-whose-wire-was-shut-here-is-let-go
+  (with-a-server-here (server path)
+    (let ((session (mux:add-session server "cat" :rows 6 :cols 20))
+          (socket (make-instance 'sb-bsd-sockets:local-socket :type :stream)))
+      (sb-bsd-sockets:socket-connect socket path)
+      (let ((wire (mux:make-wire (sb-bsd-sockets:socket-file-descriptor socket)
+                                 socket)))
+        (mux:wire-send wire (list :attach 6 20 t))
+        (mux:wire-flush wire)
+        (is-true (step-until server (lambda () (mux:session-watchers session)))
+                 "the watcher never joined the session")
+        (let ((watcher (first (mux:session-watchers session))))
+          ;; this is what a write that came apart leaves behind
+          (mux:wire-close (mux:watcher-wire watcher))
+          (is-true (step-until server
+                               (lambda () (null (mux:session-watchers session))))
+                   "a watcher with a shut wire stayed on the session"))
+        (mux:wire-close wire)))))
+
+(test a-message-the-server-cannot-make-sense-of-is-not-the-end-of-it
+  ;; a client newer than the server it reached sends shapes that server has
+  ;; never seen. One of them must not take down the sessions everybody else is
+  ;; looking at
+  (with-a-server-here (server path)
+    (let ((session (mux:add-session server "cat" :rows 6 :cols 20))
+          (socket (make-instance 'sb-bsd-sockets:local-socket :type :stream))
+          (said (make-string-output-stream)))
+      (sb-bsd-sockets:socket-connect socket path)
+      (let ((wire (mux:make-wire (sb-bsd-sockets:socket-file-descriptor socket)
+                                 socket))
+            (*error-output* said))
+        (mux:wire-send wire '(:attach 6))
+        (mux:wire-flush wire)
+        (step-until server (lambda () nil) 1)
+        (is-true (mux:server-going server)
+                 "a message it could not parse stopped the server")
+        (is (member session (mux:server-sessions server))
+            "a message it could not parse took the session with it")
+        (is-true (search "ATTACH" (get-output-stream-string said))
+                 "it passed over the message without saying so")
+        (mux:wire-send wire '(:attach 6 20 t))
+        (mux:wire-flush wire)
+        (is-true (step-until server (lambda () (mux:session-watchers session)))
+                 "it would not take a message it does know afterwards")
+        (mux:wire-close wire)))))
+
+(test a-server-that-does-not-know-the-name-message-still-attaches
+  ;; a server older than the client that reached it: it has never heard of
+  ;; :want, and what it does with one must be nothing at all
+  (with-server (path :command "printf 'still-here\\n'; sleep 30" :rows 10 :cols 40)
+    (with-seer (seer path :rows 10 :cols 40)
+      (mux:wire-send (mux:client-wire (seer-client seer))
+                     '(:a-message-from-a-later-build 1 2 3))
+      (is-true (pump seer :want "still-here")
+               "one message the server did not know took the screen with it: ~S"
+               (seen seer)))))
+
+(test only-this-pane-leaves-the-one-with-the-cursor
+  (with-server (path :command "cat" :rows 10 :cols 40)
+    (with-seer (seer path :rows 10 :cols 40)
+      (type-at seer "in-the-first")
+      (is-true (pump seer :want "in-the-first"))
+      (type-at seer (format nil "~C3" mux:+prefix+))
+      (is-true (pump seer :until (lambda () (search "│" (seen seer))))
+               "nothing split: ~S" (seen seer))
+      (type-at seer "in-the-second")
+      (is-true (pump seer :want "in-the-second"))
+      (type-at seer (format nil "~C1" mux:+prefix+))
+      (is-true (pump seer :until (lambda () (null (search "│" (seen seer)))))
+               "the rule is still there, so both panes are: ~S" (seen seer))
+      (is-true (pump seer :until (lambda () (null (search "in-the-first"
+                                                          (seen seer)))))
+               "the pane without the cursor was kept: ~S" (seen seer))
+      (type-at seer "still-typing")
+      (is-true (pump seer :want "still-typing")
+               "the pane that was kept stopped taking keys: ~S" (seen seer)))))

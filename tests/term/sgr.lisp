@@ -1,6 +1,6 @@
-(in-package #:vt/test)
+(in-package #:vt/test/term)
 
-(def-suite sgr :in all)
+(def-suite sgr :in emulator)
 (in-suite sgr)
 
 (defun face-said (said)

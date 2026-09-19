@@ -9,13 +9,16 @@
    (bg        :initarg :bg        :accessor bg        :initform nil)
    (bold      :initarg :bold      :accessor bold      :initform nil)
    (italic    :initarg :italic    :accessor italic    :initform nil)
-   (underline :initarg :underline :accessor underline :initform nil)))
+   (underline :initarg :underline :accessor underline :initform nil)
+   (crossed   :initarg :crossed   :accessor crossed   :initform nil)))
 
 (defstruct (theme (:constructor %theme (palette metrics faces)) (:copier nil))
   palette metrics faces)
 
-(defvar *active* (g:make-cell +theme+))
-(defvar *worn* (g:make-cell nil))
+(defvar *active* +theme+)
+(defvar *worn* nil)
+
+(declaim (ftype function forget-rules))
 
 (defun %as-keyword (name)
   (etypecase name
@@ -31,10 +34,13 @@
   (or (gethash (%as-keyword name) *themes*)
       (error "no theme called ~s" name)))
 
-(defun active () (value *active*))
+(defun active () *active*)
 
 (defun (setf active) (name)
-  (setf (value *active*) (%as-keyword name)))
+  (setf *active* (%as-keyword name))
+  (forget-faces)
+  (forget-rules)
+  *active*)
 
 (defun %role (plist name)
   (loop :for (k v) :on plist :by #'cddr
@@ -53,10 +59,13 @@
          (metrics (loop :for (key v) :on metrics-plist :by #'cddr
                         :append (list (%as-keyword key) v)))
          (faces (loop :for (fname . spec) :in specs
-                      :append (destructuring-bind (&key fg bg bold italic underline) spec
+                      :append (destructuring-bind (&key fg bg bold italic underline
+                                                        crossed)
+                                  spec
                                 (list fname (list :fg (hex fg palette) :bg (hex bg palette)
                                                   :bold bold :italic italic
-                                                  :underline underline))))))
+                                                  :underline underline
+                                                  :crossed crossed))))))
     (setf (gethash (%as-keyword name) *themes*) (%theme palette metrics faces))
     (%as-keyword name)))
 
@@ -64,33 +73,37 @@
   (when (and (consp m) (keywordp (first m)))
     (make-instance 'face :fg (getf m :fg) :bg (getf m :bg)
                          :bold (getf m :bold) :italic (getf m :italic)
-                         :underline (getf m :underline))))
+                         :underline (getf m :underline)
+                         :crossed (getf m :crossed))))
 
 (defun %dropped (plist key)
   (loop :for (k v) :on plist :by #'cddr
         :unless (eq k key) :append (list k v)))
 
 (defun set-face (name spec)
-  (setf (value *worn*)
-        (append (list (%as-keyword name) spec)
-                (%dropped (value *worn*) (%as-keyword name))))
+  (setf *worn* (append (list (%as-keyword name) spec)
+                       (%dropped *worn* (%as-keyword name))))
+  (forget-faces)
   name)
 
 (defun %made ()
   (let ((out (make-hash-table :test 'eq))
-        (worn (value *worn*)))
+        (worn *worn*))
     (loop :for (key plist) :on (theme-faces (themed (active))) :by #'cddr
           :do (setf (gethash key out) (%as-face (or (getf worn key) plist))))
     (loop :for (key plist) :on worn :by #'cddr
           :do (setf (gethash key out) (%as-face plist)))
     out))
 
-(defvar *faces* (g:make-derived #'%made))
+(defvar *faces* nil
+  "What the theme and whatever is worn over it work out to, kept rather than
+worked out again. SET-FACE and (SETF ACTIVE) are the two things that change it,
+and each forgets this.")
 
-(defun faces () *faces*)
+(defun forget-faces () (setf *faces* nil))
 
 (defun faces-in-force ()
-  (or *in-force* (value *faces*)))
+  (or *in-force* *faces* (setf *faces* (%made))))
 
 (defmacro with-faces (&body body)
   `(let ((*in-force* (faces-in-force))) ,@body))
@@ -100,7 +113,8 @@
 
 (defun attrs (f)
   (if f
-      (logior (if (bold f) 1 0) (if (italic f) 2 0) (if (underline f) 4 0))
+      (logior (if (bold f) 1 0) (if (italic f) 2 0)
+              (if (underline f) 4 0) (if (crossed f) 8 0))
       0))
 
 (defun unhex (h)
@@ -152,6 +166,8 @@
     (:accent    :fg fg-alt)
     (:hover     :fg accent-fg :bg bg-active)
     (:error     :fg red)
+    (:warning   :fg yellow)
+    (:done      :fg fg-dim :crossed t)
     (:border-active   :fg accent)
     (:border-inactive :fg bg-alt)
     (:ws-active  :fg accent-fg :bg accent :bold t)

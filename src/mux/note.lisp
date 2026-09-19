@@ -32,18 +32,18 @@
                                           line))))))
 
 (defmethod draw-over ((n note) screen)
-  (let* ((cols (screen-width screen))
-         (rows (screen-height screen))
-         (m (vt/cells:make-cells (screen-grid screen) cols rows))
+  (let* ((cols (tty:screen-width screen))
+         (rows (tty:screen-height screen))
+         (m (vt/cells:make-cells (tty:screen-grid screen) cols rows))
          (tree (note-tree n cols (max 1 (- rows 3))))
          (high (nth-value 1 (vt/ui:with-pass
                               (vt/ui:restyle tree)
                               (vt/ui:measure tree m cols rows))))
          (top (max 0 (- rows high))))
     (vt/cells:fill-rect m 0 top cols (- rows top)
-                        (vt:make-face-attrs :bg (bar-face :bg-dim)))
-    (vt/cells:draw tree (screen-grid screen) cols rows :top top)
-    (setf (screen-cursor-visible screen) nil)))
+                        (vt:make-face :bg (bar-face :bg-dim)))
+    (vt/cells:draw tree (tty:screen-grid screen) cols rows :top top)
+    (setf (tty:screen-cursor-visible screen) nil)))
 
 (vt/mode:define-mode note-mode ())
 

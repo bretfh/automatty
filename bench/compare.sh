@@ -2,7 +2,7 @@
 # What the same bytes cost somebody else's terminal.
 #
 # tmux runs detached, with no client attached to it: it is then doing what cl-vt
-# does and no more -- read the pty, parse it, keep the grid and the scrollback,
+# does and no more: read the pty, parse it, keep the grid and the scrollback,
 # draw nothing. alacritty runs in a nested headless sway of its own, so it never
 # touches the screen you are looking at, and it is drawing as well as parsing.
 #
@@ -20,7 +20,7 @@ trap 'rm -rf "$WORK"; tmux -L $SOCK kill-server 2>/dev/null || true' EXIT
 CORPORA="plain color redraw"
 
 for name in $CORPORA; do
-  test -f "$DIR/$name.txt" || { echo "no $DIR/$name.txt -- run make bench first"; exit 1; }
+  test -f "$DIR/$name.txt" || { echo "no $DIR/$name.txt; run make bench first"; exit 1; }
 done
 
 median () { sort -n | awk '{v[NR]=$1} END {print v[int((NR+1)/2)]}'; }
@@ -35,7 +35,7 @@ say () {
   }'
 }
 
-# --- tmux ------------------------------------------------------------------
+# === tmux ===================================================================
 cat > "$WORK/tmux.conf" <<EOF
 set -g history-limit 10000
 set -g status off
@@ -60,7 +60,7 @@ for name in $CORPORA; do
   say "$name" "$DIR/$name.txt" "$(median < "$WORK/tmux-$name")" "$EMPTY"
 done
 
-# --- alacritty, in a headless compositor of its own ------------------------
+# === alacritty, in a headless compositor of its own =========================
 command -v alacritty >/dev/null 2>&1 || { echo; echo "no alacritty here"; exit 0; }
 command -v sway >/dev/null 2>&1 || { echo; echo "no sway here to put alacritty in"; exit 0; }
 

@@ -1,11 +1,11 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(in-package #:vt/mux)
+(in-package #:vt/tty)
 
 ;;; What a system calls a thing, in the shape src/pty/pty.lisp already uses:
 ;;; one table, frozen ABI, and a system nobody has checked stops at load rather
-;;; than running on a guess. Everything else the host terminal needs -- every
-;;; termios flag -- sb-posix groveled on the machine it was built on.
+;;; than running on a guess. Everything else the host terminal needs, which is
+;;; every termios flag, sb-posix groveled on the machine it was built on.
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defun bsd-ioctl-read (group number length)
@@ -86,9 +86,9 @@ nothing else: it runs between any two instructions there are.")
   "Nothing on the screen, and nothing left in force.
 
 The reset has to come first. An erase paints in whatever colour was last set, so
-clearing while the bar's background is in force fills the terminal with it --
-and then every cell that is genuinely blank matches what we think is there and
-is never drawn over.")
+clearing while the bar's background is in force fills the terminal with it, and
+then every cell that is genuinely blank matches what we think is there and is
+never drawn over.")
 
 (defparameter +took-over+
   (format nil "~C[?1049h~C[?7l~C[?25l~A" #\Escape #\Escape #\Escape +blanked+)

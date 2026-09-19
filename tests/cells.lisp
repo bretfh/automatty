@@ -4,8 +4,8 @@
 (in-suite cells)
 
 (defun a-canvas (&key (cols 40) (rows 4))
-  (let ((screen (mux:make-screen :width cols :height rows)))
-    (values screen (mux:screen-grid screen) cols rows)))
+  (let ((screen (tty:make-screen :width cols :height rows)))
+    (values screen (tty:screen-grid screen) cols rows)))
 
 (defun drawn (tree &key (cols 40) (rows 4))
   (multiple-value-bind (screen grid c r) (a-canvas :cols cols :rows rows)
@@ -16,7 +16,7 @@
   (string-right-trim " " (shown screen y)))
 
 (test a-string-is-as-wide-as-the-columns-it-takes
-  (let ((m (cells:make-cells (mux:screen-grid (mux:make-screen)) 80 24)))
+  (let ((m (cells:make-cells (tty:screen-grid (tty:make-screen)) 80 24)))
     (is (eql 5 (vt/ui:text-size m "hello" nil)))
     (is (eql 1 (nth-value 1 (vt/ui:text-size m "hello" nil))))
     (is (eql 4 (vt/ui:text-size m (format nil "~C~C" (code-char #x6F22)
@@ -92,10 +92,10 @@
                          (vt/ui:rule :expand 1)
                          (vt/ui:label "below"))
                         :cols 24 :rows 4))
-         (was (mux:make-screen :width 24 :height 4))
+         (was (tty:make-screen :width 24 :height 4))
          (host (a-host screen)))
     (say host (with-output-to-string (s)
-                (mux:encode-frame screen (mux:screen-diff was screen) s)))
+                (tty:encode-frame screen (tty:screen-diff was screen) s)))
     (is (null (difference screen host)) "~A" (difference screen host))))
 
 (test a-face-from-the-theme-becomes-a-face-on-the-grid
@@ -113,3 +113,20 @@
                                   (vt/ui:label "after")))))
     (is (eql #\a (at-screen screen 5 0))
         "the label after the wide characters did not start at column 5")))
+
+(test the-attributes-a-face-carries-reach-the-grid
+  (vt/ui:set-face :a-test-face '(:fg "#ff0000" :bold t :italic t
+                                 :underline :curly :crossed t))
+  (unwind-protect
+       (let* ((screen (drawn (vt/ui:label "marked" :face :a-test-face)))
+              (face (vt:cell-face (cell-at screen 0 0))))
+         (is-true (vt:face-bold face))
+         (is-true (vt:face-italic face))
+         (is (eq :curly (vt:face-underline face))
+             "the underline style was flattened: ~S" (vt:face-underline face))
+         (is-true (vt:face-crossed face) "crossed never reached the cell"))
+    (vt/ui:set-face :a-test-face nil)))
+
+(test the-warning-face-is-one-the-theme-has
+  (is-true (vt/ui:in-force :warning)
+           "the bar asks for a warning face the theme does not define"))

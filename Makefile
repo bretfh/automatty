@@ -1,4 +1,4 @@
-.PHONY: repl check test run bench latency mux mux-bench attached compare eval clean
+.PHONY: repl check test test-term run bench latency mux-bench attached compare eval clean
 
 # Two ways to get what cl-vt needs, and every target works under either. Guix is
 # what it develops against and what plain `make' uses. FOREIGN=1 is for a mac or
@@ -40,6 +40,11 @@ check:
 
 # the fiveam suite. Exits nonzero on failure.
 test:
+	$(IN) '$(ENV) $(SBCL) --non-interactive --eval "(asdf:test-system :vt/test)"'
+
+# the emulator's own suite, with nothing but the emulator loaded: vt depends on
+# nothing and this is what says so
+test-term:
 	$(IN) '$(ENV) $(SBCL) --non-interactive --eval "(asdf:test-system :vt)"'
 
 # run a command on a pty and print the screen it drew:
@@ -56,12 +61,10 @@ bench:
 latency:
 	$(IN) '$(ENV) BENCH_DIR="$(BENCH_DIR)" $(SBCL) --non-interactive --load bench/latency.lisp'
 
-# a shell in a session of its own, drawn by cl-vt inside this terminal. ^B d
-# detaches, ^B r redraws. MUX names the session or says what to do:
-#   make mux            a shell in session 0
-#   make mux MUX=list   what is running
-mux:
-	MUX='$(MUX)' $(IN) '$(ENV) $(SBCL) --disable-debugger --eval "(asdf:load-system :vt/mux)" --eval "(vt/mux:main (remove \"\" (list (uiop:getenv \"MUX\")) :test (function equal)))" --quit'
+# the program. ./vt-mux is the whole of it: run it, put it on PATH, copy it to
+# another machine. Everything it does is its own argument, not a make target.
+vt-mux: build.lisp vt.asd $(wildcard src/*/*.lisp)
+	$(IN) '$(ENV) VT_MUX_OUT="$$PWD/vt-mux" $(SBCL) --non-interactive --load build.lisp'
 
 # what a frame costs: a pane blitted to a screen, diffed against what was last
 # sent, and encoded as the bytes a terminal reads
@@ -84,4 +87,4 @@ eval:
 	FORM='$(FORM)' $(IN) '$(ENV) $(SBCL) --disable-debugger --eval "(asdf:load-system :vt/test)" --eval "(in-package :vt/test)" --eval "(eval (read-from-string (uiop:getenv \"FORM\")))" --quit'
 
 clean:
-	rm -rf $(BENCH_DIR) "$$HOME/.cache/common-lisp/cl-vt"
+	rm -rf $(BENCH_DIR) vt-mux "$$HOME/.cache/common-lisp/cl-vt"

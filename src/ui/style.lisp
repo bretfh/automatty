@@ -234,7 +234,7 @@
                                     (read-from-string v))))))))
               (when (realp n) (float (max 0 (min 1 n)) 1.0)))))
 
-(defvar *rules* (g:make-cell nil))
+(defvar *rules* nil)
 
 (defun %tone (role else)
   (or (%role (theme-palette (themed (active))) role) else))
@@ -253,7 +253,7 @@
   (:method ((it symbol)) (format nil ".~(~a~)" (symbol-name it)))
   (:method ((it cons)) (format nil "~{.~(~a~)~}" (mapcar #'symbol-name it))))
 
-(defun styles () (value *rules*))
+(defun styles () *rules*)
 
 (defun style (selector &rest properties)
   (put-rules (list (list selector properties)))
@@ -263,13 +263,14 @@
   (format nil "~{~a:hover~^, ~}" selectors))
 
 (defun put-rules (pairs)
-  (let* ((had (value *rules*))
+  (let* ((had *rules*)
          (now (loop :for (sel props) :in pairs
                     :collect (list (%readable (selector sel)) props)))
          (named (mapcar #'first now))
          (kept (remove-if (lambda (rule) (member (first rule) named :test #'string=))
                           had)))
-    (setf (value *rules*) (append kept now))))
+    (setf *rules* (append kept now))
+    (forget-rules)))
 
 (defun built-in ()
   (list
@@ -296,9 +297,11 @@
                              :border-radius (radius)
                              :padding "8px 18px" :min-width "80px"))))
 
-(defvar *sheet*
-  (g:make-derived (lambda () (%compiled (append (built-in) (styles))))))
+(defvar *sheet* nil
+  "The built-in rules and whatever was put over them, compiled, and kept rather
+than compiled again. PUT-RULES and (SETF ACTIVE) are the two things that change
+it, and each forgets this.")
 
-(defun rules () (value *sheet*))
+(defun forget-rules () (setf *sheet* nil))
 
-(defun sheet () *sheet*)
+(defun rules () (or *sheet* (setf *sheet* (%compiled (append (built-in) (styles))))))

@@ -2,8 +2,8 @@
 (in-package #:vt/bench)
 
 ;; What a frame costs before a socket exists. Everything the multiplexer does
-;; between a pane writing and a terminal reading is here -- blit, diff, encode
-;; -- and if the three of them together do not fit inside a frame there is no
+;; between a pane writing and a terminal reading is here: blit, diff, encode.
+;; If the three of them together do not fit inside a frame there is no
 ;; arrangement of servers and clients that rescues it.
 (declaim (inline nanos))
 (defun nanos ()
@@ -35,8 +35,9 @@
 
 (defun frames (name said cols rows gap)
   (let* ((pane (vt:make-term :width cols :height rows))
-         (screen (mux:make-screen :width cols :height rows))
-         (was (mux:make-screen :width cols :height rows))
+         (screen (tty:make-screen :width cols :height rows))
+         (was (tty:make-screen :width cols :height rows))
+         (m (cells:make-cells (tty:screen-grid screen) cols rows))
          (out (make-string-output-stream))
          (feed (slices said +frames+))
          (blit 0) (diff 0) (enc 0)
@@ -50,16 +51,16 @@
       ;; measured by make latency and is not what this is asking about.
       (let ((mark (sb-ext:get-bytes-consed))
             (then (nanos)))
-        (mux:screen-blit screen pane)
+        (cells:blit m pane 0 0 cols rows)
         (let ((mid (nanos)))
           (incf blit (- mid then))
-          (let ((these (mux:screen-diff was screen gap)))
+          (let ((these (tty:screen-diff was screen gap)))
             (let ((after (nanos)))
               (incf diff (- after mid))
               (incf runs (length these))
               (dolist (r these)
-                (incf cells (- (mux:run-end r) (mux:run-start r))))
-              (mux:encode-frame screen these out)
+                (incf cells (- (tty:run-end r) (tty:run-start r))))
+              (tty:encode-frame screen these out)
               (let ((done (nanos)))
                 (incf enc (- done after))
                 (vector-push (- done then) whole)
@@ -79,7 +80,7 @@
 
 (defun run-it ()
   (make-corpora)
-  (format t "~&~%cl-vt frame cost -- blit, diff and encode, ~D frames each~%~%"
+  (format t "~&~%cl-vt frame cost: blit, diff and encode, ~D frames each~%~%"
           +frames+)
   (format t "~&  ~7A ~8A ~4A ~8A ~8A ~8A ~9A ~9A ~8A ~8A ~9A~%"
           "corpus" "size" "gap" "blit us" "diff us" "enc us" "p99 us" "max us"
@@ -97,7 +98,7 @@
 
 
 ;;; The whole loop, over a real socket: a pane writing, a server composing and
-;;; diffing, a wire, and a client encoding for a terminal that is a vt:term --
+;;; diffing, a wire, and a client encoding for a terminal that is a vt:term,
 ;;; so the bench checks what it measures as it measures it.
 
 (defparameter +intervals+ '(0 4 8 16 33))
@@ -210,7 +211,7 @@ standing in for one, and answer how many bytes that was."
       (stop-rig rig))))
 
 (defun run-the-loop ()
-  (format t "~&~%the whole loop -- a pane, a server, a socket and a client~%~%")
+  (format t "~&~%the whole loop: a pane, a server, a socket and a client~%~%")
   (format t "~&  ~7A ~8A ~7A ~9A ~9A ~7A ~10A~%"
           "corpus" "interval" "fps" "host B/f" "sock B/f" "ratio" "host KB/s")
   (dolist (name +corpora+)
@@ -220,7 +221,7 @@ standing in for one, and answer how many bytes that was."
   (format t "~%  The ratio is what the socket carries over what the terminal reads.~%")
   (format t "  Near one says s-expressions cost about what the escapes they turn~%")
   (format t "  into cost, and the wire does not need to be binary.~%")
-  (format t "~&~%what a keystroke costs -- typed, to the frame that shows it~%~%")
+  (format t "~&~%what a keystroke costs: typed, to the frame that shows it~%~%")
   (format t "~&  ~8A ~7A ~10A ~10A ~10A~%" "interval" "kept" "p50 us" "p99 us" "max us")
   (dolist (interval +intervals+)
     (keystrokes interval))

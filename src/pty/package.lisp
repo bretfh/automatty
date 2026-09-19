@@ -5,6 +5,7 @@
   (:export
    #:open-pty
    #:spawn-pty-process
+   #:spawn-in-its-own-session
    #:pty-set-size
    #:pty-wait
    #:pty-read-string

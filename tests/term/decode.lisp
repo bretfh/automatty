@@ -1,6 +1,6 @@
-(in-package #:vt/test)
+(in-package #:vt/test/term)
 
-(def-suite decode :in all)
+(def-suite decode :in emulator)
 (in-suite decode)
 
 (defun bytes-of (string)

@@ -1,6 +1,6 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(in-package #:vt/mux)
+(in-package #:vt/tty)
 
 (declaim (optimize (speed 3) (safety 1)))
 
@@ -37,14 +37,6 @@
         (screen-cursor-y screen) (min (screen-cursor-y screen) (1- height)))
   screen)
 
-(defun screen-clear (screen)
-  (dotimes (y (screen-height screen) screen)
-    (let ((row (screen-row screen y)))
-      (dotimes (x (screen-width screen))
-        (let ((cell (svref row x)))
-          (setf (vt:cell-char cell) #\Space
-                (vt:cell-face cell) nil))))))
-
 (defun screen-copy (into from)
   "Put what FROM holds into INTO, cells and cursor both."
   (dotimes (y (min (screen-height into) (screen-height from)))
@@ -61,26 +53,6 @@
         (screen-cursor-style into) (screen-cursor-style from))
   into)
 
-(defun screen-blit (screen term &key (top 0) (left 0))
-  "Copy what TERM holds into SCREEN at TOP LEFT, clipped to both.
-
-The cells are copied, never shared: the pane goes on writing into its own grid,
-and a screen that pointed at those cells would show every later frame as
-already sent and repaint nothing ever again."
-  (declare (type fixnum top left))
-  (let ((rows (min (vt:term-height term) (- (screen-height screen) top)))
-        (cols (min (vt:term-width term) (- (screen-width screen) left))))
-    (declare (type fixnum rows cols))
-    (dotimes (y rows screen)
-      (when (>= (+ top y) 0)
-        (let ((from (vt:term-grid-row term y))
-              (into (screen-row screen (+ top y))))
-          (dotimes (x cols)
-            (let ((a (svref from x))
-                  (b (svref into (+ left x))))
-              (setf (vt:cell-char b) (vt:cell-char a)
-                    (vt:cell-face b) (vt:cell-face a)))))))))
-
 (defstruct (run (:constructor make-run (row start end)))
            (row 0 :type fixnum)
            (start 0 :type fixnum)
@@ -95,7 +67,7 @@ few unchanged cells are cheaper written again than jumped over.")
 (defun same-cell-p (a b)
   (and (char= (vt:cell-char a) (vt:cell-char b))
        (let ((fa (vt:cell-face a)) (fb (vt:cell-face b)))
-         (or (eq fa fb) (vt:face-attrs-equal fa fb)))))
+         (or (eq fa fb) (vt:face-equal fa fb)))))
 
 (defun widened (row start)
   "START, or one column back when what sits there is the right half of a wide
@@ -136,12 +108,3 @@ what it is about to send and the shadow already says it was sent."
         (unless (minusp start)
           (push (make-run y (widened new start) end) runs))))
     (nreverse runs)))
-
-(defun screen-dump-to-string (screen)
-  (with-output-to-string (s)
-                         (dotimes (y (screen-height screen))
-                           (let ((row (screen-row screen y)))
-                             (dotimes (x (screen-width screen))
-                               (write-char (vt:cell-char (svref row x)) s)))
-                           (unless (= y (1- (screen-height screen)))
-                             (terpri s)))))

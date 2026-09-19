@@ -1,8 +1,11 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(in-package #:vt/mux)
+(in-package #:vt/tty)
 
 (declaim (optimize (speed 3) (safety 1)))
+
+(defparameter +everything+ '(:rgb :underline-style :underline-color :blink)
+  "Everything past the old SGR set that a face can carry.")
 
 (defun takes-of (&optional (term (sb-ext:posix-getenv "TERM"))
                            (colorterm (sb-ext:posix-getenv "COLORTERM")))
@@ -20,7 +23,46 @@ past the old SGR set are each either advertised or assumed absent."
               (search "ghostty" term))
       (push :underline-style takes)
       (push :underline-color takes))
-    takes))
+    ;; a terminal that takes all of it says so, rather than being asked four
+    ;; questions about every face that goes out
+    (if (= (length takes) (length +everything+)) t takes)))
+
+(defun taken (what takes)
+  (or (eq takes t) (and (member what takes) t)))
+
+(defun flattened (colour)
+  "An rgb triple as the nearest of the 256, and anything else as it was."
+  (if (and (consp colour) (= 3 (length colour)))
+      (vt:rgb-to-color-index (first colour) (second colour) (third colour))
+      colour))
+
+(defun as-taken (face takes)
+  "FACE as a face this terminal can wear.
+
+vt writes a face whole and has no opinion about terminals. Which of it this one
+will accept is this side's business, so what it cannot take comes down to what
+it can before the face ever reaches VT:WRITE-SGR. A terminal that takes
+everything gets the face it was given and nothing is copied."
+  (if (or (null face) (eq takes t))
+      face
+      (let ((rgb (taken :rgb takes))
+            (style (taken :underline-style takes))
+            (under (taken :underline-color takes))
+            (blink (taken :blink takes)))
+        (if (and rgb style under blink)
+            face
+            (let ((out (vt:copy-face face)))
+              (unless rgb
+                (setf (vt:face-fg out) (flattened (vt:face-fg out))
+                      (vt:face-bg out) (flattened (vt:face-bg out))
+                      (vt:face-underline-color out)
+                      (flattened (vt:face-underline-color out))))
+              (unless style
+                (when (vt:face-underline out)
+                  (setf (vt:face-underline out) :single)))
+              (unless under (setf (vt:face-underline-color out) nil))
+              (unless blink (setf (vt:face-blink out) nil))
+              out)))))
 
 (defun write-cup (y x s)
   (declare (type fixnum y x))
@@ -66,8 +108,8 @@ carry on from it."
                         (ch (vt:cell-char cell))
                         (now (vt:cell-face cell)))
                    (unless (and (not (eq face :none))
-                                (vt:face-attrs-equal face now))
-                     (vt:write-sgr now s takes)
+                                (vt:face-equal face now))
+                     (vt:write-sgr (as-taken now takes) s)
                      (setf face now))
                    (write-char (if (graphic-char-p ch) ch #\Space) s)
                    (incf x (if (and (= 2 (vt:char-display-width ch))
@@ -76,11 +118,25 @@ carry on from it."
                              1))))
         (when (< stop end)
           (unless (and (not (eq face :none)) (vt:face-default-p face))
-            (vt:write-sgr nil s takes)
+            (vt:write-sgr nil s)
             (setf face nil))
           (write-char #\Escape s) (write-char #\[ s) (write-char #\K s))))))
 
+(defparameter +cursor-shapes+
+  '((:blinking-block . 1) (:block . 2)
+    (:blinking-underline . 3) (:underline . 4)
+    (:blinking-bar . 5) (:bar . 6))
+  "What DECSCUSR calls each shape a program can ask its cursor to be.")
+
+(defun write-cursor-shape (style s)
+  (let ((n (cdr (assoc style +cursor-shapes+))))
+    (when n
+      (write-char #\Escape s) (write-char #\[ s)
+      (vt:write-number n s)
+      (write-char #\Space s) (write-char #\q s))))
+
 (defun encode-cursor (screen s)
+  (write-cursor-shape (screen-cursor-style screen) s)
   (write-cup (screen-cursor-y screen) (screen-cursor-x screen) s)
   (write-char #\Escape s) (write-char #\[ s)
   (write-char #\? s) (write-char #\2 s) (write-char #\5 s)
@@ -88,5 +144,5 @@ carry on from it."
 
 (defun encode-frame (screen runs s &key (takes t))
   (encode-runs screen runs s :takes takes)
-  (vt:write-sgr nil s takes)
+  (vt:write-sgr nil s)
   (encode-cursor screen s))

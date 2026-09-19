@@ -1,6 +1,6 @@
-(in-package #:vt/test)
+(in-package #:vt/test/term)
 
-(def-suite write :in all)
+(def-suite write :in emulator)
 (in-suite write)
 
 (test what-was-written-is-where-the-cursor-was
@@ -90,12 +90,12 @@
   (let ((term (a-term :width 8 :height 2)))
     (say term "abcdefgh")
     (is (equal '(7 0) (cursor term)) "the cursor went past the last column")
-    (is (vt:term-wrap-pending term))
+    (is (vt::term-wrap-pending term))
     (is (equal "abcdefgh" (row term 0)))
     (say term "i")
     (is (equal '(1 1) (cursor term)) "the next character did not wrap")
     (is (equal "i" (row term 1)))
-    (is (null (vt:term-wrap-pending term)))))
+    (is (null (vt::term-wrap-pending term)))))
 
 (test a-backspace-at-the-right-margin-moves-one-column
   (let ((term (a-term :width 8 :height 2)))
@@ -126,3 +126,21 @@
     (say term "XY")
     (is (equal "abcY" (row term 0)) "it wrapped with the margin off")
     (is (equal "" (row term 1)))))
+
+(test insert-mode-still-wraps-at-the-margin
+  (let ((term (a-term :width 10 :height 3)))
+    (say term (csi "4h") "abcdefghijklmno")
+    (is (equal "abcdefghij" (row term 0))
+        "the first row is not full: ~S" (row term 0))
+    (is (equal "klmno" (row term 1))
+        "insert mode never left the first row: ~S" (row term 1))
+    (is (equal '(5 1) (cursor term)))))
+
+(test insert-mode-inserts-into-the-row-the-wrap-moved-to
+  (let ((term (a-term :width 5 :height 3)))
+    (say term (csi "2;1H") "zz" (csi "1;1H"))
+    (say term (csi "4h") "abcde" "X")
+    (is (equal "abcde" (row term 0)) "~S" (row term 0))
+    (is (equal "Xzz" (row term 1))
+        "the character was inserted into the row it wrapped off: ~S"
+        (row term 1))))

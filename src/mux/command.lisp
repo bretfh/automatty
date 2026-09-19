@@ -16,17 +16,29 @@ this, the way a command in an editor reads which buffer it is in.")
 
 (declaim (ftype function show-broke))
 
+(defvar *unlisted* (make-hash-table :test 'equal)
+  "Commands that are not offered when asking for one by name: the ones that only
+mean anything while something is up that the asking would have closed.")
+
 (defmacro defcommand (name &body body)
   "Define a command, and register it under its name with the dashes read as
-spaces: DETACH is asked for as \"detach\", BAR-OFF as \"bar off\"."
-  (let ((said (string-downcase (substitute #\Space #\- (symbol-name name)))))
-    `(progn
-       (defun ,name () ,@body)
-       (setf (gethash ,said *commands*) (function ,name))
-       ',name)))
+spaces: DETACH is asked for as \"detach\", BAR-OFF as \"bar off\".
 
-(defun command-names ()
-  (sort (loop :for name :being :the :hash-keys :of *commands* :collect name)
+A name written as (NAME :unlisted) is a command that still has a name and can
+still be bound, but is not among the ones offered when somebody asks for one."
+  (destructuring-bind (name &rest marks) (if (listp name) name (list name))
+    (let ((said (string-downcase (substitute #\Space #\- (symbol-name name)))))
+      `(progn
+         (defun ,name () ,@body)
+         (setf (gethash ,said *commands*) (function ,name))
+         ,@(when (member :unlisted marks) `((setf (gethash ,said *unlisted*) t)))
+         ',name))))
+
+(defun command-names (&optional (offered t))
+  "What the commands are called. OFFERED leaves out the ones that cannot be run
+from a prompt, which is where being asked for a command happens."
+  (sort (loop :for name :being :the :hash-keys :of *commands*
+              :unless (and offered (gethash name *unlisted*)) :collect name)
         #'string<))
 
 (defun tried (does what)

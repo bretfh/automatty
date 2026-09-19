@@ -14,21 +14,38 @@
   (decoder (vt:make-decoder)))
 
 (defun make-pane (command &key (rows 24) (cols 80))
-  (multiple-value-bind (fd pid)
-      (pty:spawn-pty-process command :rows rows :cols cols)
-    (let ((pane (%make-pane :fd fd :pid pid :command command)))
-      (setf (pane-term pane)
-            (vt:make-term :width cols :height rows
-                          :bell-fn (lambda (term)
-                                     (declare (ignore term))
-                                     (setf (pane-rang pane) t))
-                          :title-fn (lambda (term title)
-                                      (declare (ignore term))
-                                      (setf (pane-named pane) title))
-                          :input-fn (lambda (term said)
-                                      (declare (ignore term))
-                                      (pane-say pane said))))
-      pane)))
+  "A pane with a terminal that size and no program in it yet.
+
+Starting it is a second step because the size it is started at is the size it is
+told, once: a shell that asks stty for it on its first line must be told the
+room the layout gave it rather than a guess it is corrected out of afterwards."
+  (let ((pane (%make-pane :command command)))
+    (setf (pane-term pane)
+          (vt:make-term :width cols :height rows
+                        :bell-fn (lambda (term)
+                                   (declare (ignore term))
+                                   (setf (pane-rang pane) t))
+                        :title-fn (lambda (term title)
+                                    (declare (ignore term))
+                                    (setf (pane-named pane) title))
+                        :input-fn (lambda (term said)
+                                    (declare (ignore term))
+                                    (pane-say pane said))))
+    pane))
+
+(defun pane-started (pane) (>= (pane-fd pane) 0))
+
+(defun pane-start (pane)
+  "Run the pane's program on a terminal of its own, the size the pane is now."
+  (unless (pane-started pane)
+    (let ((term (pane-term pane)))
+      (multiple-value-bind (fd pid)
+          (pty:spawn-pty-process (pane-command pane)
+                                 :rows (vt:term-height term)
+                                 :cols (vt:term-width term))
+        (setf (pane-fd pane) fd
+              (pane-pid pane) pid))))
+  pane)
 
 (defun pane-drain (pane &key (budget 16) (size 65536))
   "Read what the program wrote and give it to the term. Answers nil when the
@@ -51,7 +68,7 @@ comes straight back, so one pane writing without pause cannot starve the rest."
 (declaim (ftype function pane-say))
 
 (defun pane-say (pane said)
-  (when (pane-running pane)
+  (when (and (pane-running pane) (pane-started pane))
     (ignore-errors (pty:pty-write-string (pane-fd pane) said))))
 
 (defun pane-resize (pane rows cols)
@@ -62,5 +79,6 @@ comes straight back, so one pane writing without pause cannot starve the rest."
 
 (defun pane-close (pane)
   (setf (pane-running pane) nil)
-  (ignore-errors (pty:pty-close (pane-fd pane)))
-  (ignore-errors (pty:pty-reap (pane-pid pane))))
+  (when (pane-started pane)
+    (ignore-errors (pty:pty-close (pane-fd pane)))
+    (ignore-errors (pty:pty-reap (pane-pid pane)))))

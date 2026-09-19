@@ -51,22 +51,22 @@
          (vt/ui:label " nothing matches that")))))
 
 (defmethod draw-over ((p prompt) screen)
-  (let* ((cols (screen-width screen))
-         (rows (screen-height screen))
-         (m (vt/cells:make-cells (screen-grid screen) cols rows))
+  (let* ((cols (tty:screen-width screen))
+         (rows (tty:screen-height screen))
+         (m (vt/cells:make-cells (tty:screen-grid screen) cols rows))
          (tree (prompt-tree p cols))
          (high (nth-value 1 (vt/ui:with-pass
                               (vt/ui:restyle tree)
                               (vt/ui:measure tree m cols rows))))
          (top (max 0 (- rows high))))
     (vt/cells:fill-rect m 0 top cols (- rows top)
-                        (vt:make-face-attrs :bg (bar-face :bg-dim)))
-    (vt/cells:draw tree (screen-grid screen) cols rows :top top)
-    (setf (screen-cursor-y screen) top
-          (screen-cursor-x screen) (min (1- cols)
+                        (vt:make-face :bg (bar-face :bg-dim)))
+    (vt/cells:draw tree (tty:screen-grid screen) cols rows :top top)
+    (setf (tty:screen-cursor-y screen) top
+          (tty:screen-cursor-x screen) (min (1- cols)
                                         (+ 2 (length (prompt-title p))
                                            (length (prompt-query p))))
-          (screen-cursor-visible screen) t)))
+          (tty:screen-cursor-visible screen) t)))
 
 (defun prompt-close (p client)
   "Take it away. Nothing else needs doing: what it was covering is still in the
@@ -95,46 +95,46 @@ was typed."
             (client-dirty client) t)
       t)))
 
-(defcommand prompt-next
+(defcommand (prompt-next :unlisted)
   (let ((p (the-prompt))) (when p (prompt-moved p (1+ (prompt-index p))))))
 
-(defcommand prompt-previous
+(defcommand (prompt-previous :unlisted)
   (let ((p (the-prompt))) (when p (prompt-moved p (1- (prompt-index p))))))
 
-(defcommand prompt-page-down
+(defcommand (prompt-page-down :unlisted)
   (let ((p (the-prompt)))
     (when p (prompt-moved p (+ (prompt-index p) (prompt-most p))))))
 
-(defcommand prompt-page-up
+(defcommand (prompt-page-up :unlisted)
   (let ((p (the-prompt)))
     (when p (prompt-moved p (- (prompt-index p) (prompt-most p))))))
 
-(defcommand prompt-first
+(defcommand (prompt-first :unlisted)
   (let ((p (the-prompt))) (when p (prompt-moved p 0))))
 
-(defcommand prompt-last
+(defcommand (prompt-last :unlisted)
   (let ((p (the-prompt)))
     (when p (prompt-moved p (length (prompt-showing p))))))
 
-(defcommand prompt-rub-out
+(defcommand (prompt-rub-out :unlisted)
   (let ((p (the-prompt)))
     (when p
       (let ((q (prompt-query p)))
         (setf (prompt-query p) (subseq q 0 (max 0 (1- (length q))))
               (prompt-index p) 0)))))
 
-(defcommand prompt-clear
+(defcommand (prompt-clear :unlisted)
   (let ((p (the-prompt)))
     (when p (setf (prompt-query p) "" (prompt-index p) 0))))
 
-(defcommand prompt-accept
+(defcommand (prompt-accept :unlisted)
   (let ((p (the-prompt)))
     (when p
       (let ((it (prompt-chosen p)))
         (prompt-close p *client*)
         (when (and it (prompt-chose p)) (funcall (prompt-chose p) it *client*))))))
 
-(defcommand prompt-cancel
+(defcommand (prompt-cancel :unlisted)
   (let ((p (the-prompt)))
     (when p
       (prompt-close p *client*)
@@ -163,43 +163,3 @@ was typed."
 (defun ask-a-command (client)
   (ask client "run" (command-names)
        :chose (lambda (name client) (run-command name client))))
-
-(defcommand detach
-  (done-with *client* :detached))
-
-(defcommand redraw
-  (client-redraw *client*))
-
-(defun tell-the-server (form)
-  (wire-send (client-wire *client*) form))
-
-(defcommand bar-off
-  (tell-the-server (list :bar 0)))
-
-(defcommand bar-on
-  (tell-the-server (list :bar 1)))
-
-(defcommand run-a-command
-  (ask-a-command *client*))
-
-(defcommand send-the-prefix
-  (wire-send (client-wire *client*) (list :keys (string +prefix+))))
-
-(defcommand what-the-keys-do
-  (show-note *client* "keys"
-             (format nil "~{~A~%~}"
-                     (loop :for (chord . nil) :in (vt/mode:keys-in-force
-                                                   (vt/mode:mode-named 'pane-mode))
-                           :collect (format nil "  ~A" chord)))
-             :face :accent))
-
-;;; What the keys mean. A mode holds them, so another mode may be defined on
-;;; top of this one and change or add to what is here without touching it.
-
-(vt/mode:define-key 'pane-mode "C-b d" #'detach)
-(vt/mode:define-key 'pane-mode "C-b r" #'redraw)
-(vt/mode:define-key 'pane-mode "C-b :" #'run-a-command)
-(vt/mode:define-key 'pane-mode "C-b ?" #'what-the-keys-do)
-(vt/mode:define-key 'pane-mode "C-b C-b" #'send-the-prefix)
-(vt/mode:define-key 'pane-mode "C-b b o" #'bar-off)
-(vt/mode:define-key 'pane-mode "C-b b b" #'bar-on)

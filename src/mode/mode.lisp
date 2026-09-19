@@ -5,7 +5,7 @@
    (values :initform (make-hash-table :test 'eq)    :reader mode-values)))
 
 (defvar *modes* (make-hash-table :test 'eq))
-(defvar *current* (g:make-cell nil))
+(defvar *current* nil)
 (defvar *pending* nil)
 
 (defmacro define-mode (name parents &body options)
@@ -34,16 +34,22 @@
 (defun global-map () (mode-named 'mode))
 
 (defun current-mode ()
-  (or (g:value *current*) (global-map)))
+  (or *current* (global-map)))
 
 (defun (setf current-mode) (it)
-  (setf (g:value *current*) (and it (as-mode it)))
+  (setf *current* (and it (as-mode it)))
   it)
 
 (defmacro with-mode (it &body body)
-  `(let ((was (g:value *current*)))
-     (unwind-protect (progn (setf (current-mode) ,it) ,@body)
-       (setf (g:value *current*) was))))
+  `(let ((*current* (and ,it (as-mode ,it)))) ,@body))
+
+(defun as-handler (does)
+  "What a key does, as something to call: a function, or a form to evaluate."
+  (typecase does
+    (null nil)
+    (function does)
+    (cons (lambda () (eval does)))
+    (t (error "~s is not something a press can do." does))))
 
 (defun %chain (m)
   (loop :for c :in (sb-mop:class-precedence-list (class-of m))
@@ -54,14 +60,12 @@
 
 (defun define-key (it chord does)
   (let ((m (as-mode it)) (chord (%spelled chord)))
-    (setf (gethash chord (mode-keys m)) (g:as-handler does))
-    (g:touch *current*)
+    (setf (gethash chord (mode-keys m)) (as-handler does))
     chord))
 
 (defun undefine-key (it chord)
   (let ((m (as-mode it)) (chord (%spelled chord)))
     (remhash chord (mode-keys m))
-    (g:touch *current*)
     chord))
 
 (defun global-set-key (chord does) (define-key (global-map) chord does))
@@ -81,14 +85,6 @@
                  (setf out (cons (cons chord does)
                                  (remove chord out :key #'car :test #'string=))))
                (mode-keys m)))))
-
-(defvar *chords*
-  (g:name-place 'chords-in-force
-                (g:make-derived (lambda ()
-                                  (g:depend-on *current*)
-                                  (mapcar #'car (keys-in-force))))))
-
-(defun chords-in-force () (g:value *chords*))
 
 (defvar *unbound* nil)
 
@@ -111,13 +107,8 @@
          (does (lookup-key chord it)))
     (cond (does
            (setf *pending* nil)
-           (handler-case (progn (funcall *run* does) :taken)
-             (error (c)
-               (g:note "~a: ~a" chord c)
-               (ignore-errors
-                (let ((*print-pretty* nil))
-                  (sb-debug:print-backtrace :count 20 :stream *error-output*)))
-               :taken)))
+           (funcall *run* does)
+           :taken)
           ((prefixp chord it) (setf *pending* keys) :pending)
           (t (setf *pending* nil)
              (or (and *unbound* (funcall *unbound* chord)) :unbound)))))

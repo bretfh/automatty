@@ -3,7 +3,7 @@
 (in-package #:vt/pty)
 
 ;;; What a system calls a thing. These are the only per-system numbers here, and
-;;; every one of them is frozen ABI -- TIOCSWINSZ has not moved since the 1980s.
+;;; every one of them is frozen ABI. TIOCSWINSZ has not moved since the 1980s.
 ;;; A system nobody has checked stops at load with the name of what it is
 ;;; missing, rather than running and silently handing back a pipe that looks
 ;;; like a terminal.
@@ -156,8 +156,8 @@ The child is made a session leader by the spawn itself, and then opens the
 slave by name rather than inheriting it already open: opening a terminal is how
 a session leader with none takes one as its controlling terminal. That is what
 makes ^C a signal and a resize a SIGWINCH, and it is why no code has to run in
-the child between the fork and the exec -- which is the only thing posix_spawn
-cannot do, and the reason this used to want a helper program written in C."
+the child between the fork and the exec, which is the only thing posix_spawn
+cannot do and the reason this used to want a helper program written in C."
   (multiple-value-bind (master slave) (open-pty)
     (sb-alien:with-alien ((actions (sb-alien:array sb-alien:char #.+opaque+))
                           (attr (sb-alien:array sb-alien:char #.+opaque+))
@@ -194,6 +194,60 @@ cannot do, and the reason this used to want a helper program written in C."
                  (free-c-strings envp (length environment))))
           (%actions-destroy actions-sap)
           (%attr-destroy attr-sap))))))
+
+(defun spawn-in-its-own-session (program arguments &key input output
+                                                       (environment
+                                                        (sb-ext:posix-environ)))
+  "Run PROGRAM in a session of its own. Answers its pid.
+
+INPUT is a path it reads, OUTPUT a path it appends to; both go to /dev/null when
+they are not given, and what it writes to standard error goes where its output
+does.
+
+A child started any other way keeps the session, the foreground group and the
+controlling terminal of whatever started it, and the hangup that closes that
+terminal reaches it. This one is out of reach of all three before it has run a
+single instruction of its own: the spawn does it, so there is nothing to run
+between the fork and the exec."
+  (sb-alien:with-alien ((actions (sb-alien:array sb-alien:char #.+opaque+))
+                        (attr (sb-alien:array sb-alien:char #.+opaque+))
+                        (pid sb-alien:int))
+    (let ((actions-sap (sb-alien:alien-sap actions))
+          (attr-sap (sb-alien:alien-sap attr))
+          (arguments (cons (file-namestring program) arguments)))
+      (check (%actions-init actions-sap) "posix_spawn_file_actions_init")
+      (check (%attr-init attr-sap) "posix_spawnattr_init")
+      (unwind-protect
+           (let ((argv (c-strings arguments))
+                 (envp (c-strings environment)))
+             (unwind-protect
+                  (progn
+                    (check (%actions-addopen actions-sap 0
+                                             (or input "/dev/null")
+                                             sb-unix:o_rdonly 0)
+                           "addopen of the input")
+                    (check (%actions-addopen actions-sap 1
+                                             (or output "/dev/null")
+                                             (logior sb-unix:o_wronly
+                                                     sb-unix:o_creat
+                                                     sb-unix:o_append)
+                                             #o600)
+                           "addopen of the output")
+                    (check (%actions-adddup2 actions-sap 1 2) "adddup2 to stderr")
+                    (check (%attr-setflags attr-sap +posix-spawn-setsid+)
+                           "setflags SETSID")
+                    (let ((rc (%spawn (sb-alien:alien-sap (sb-alien:addr pid))
+                                      (namestring program) actions-sap attr-sap
+                                      (sb-alien:alien-sap argv)
+                                      (sb-alien:alien-sap envp))))
+                      (unless (zerop rc)
+                        (error "could not start ~S: ~A"
+                               program (sb-int:strerror rc)))
+                      pid))
+               (free-c-strings argv (length arguments))
+               (free-c-strings envp (length environment))))
+        (%actions-destroy actions-sap)
+        (%attr-destroy attr-sap)))))
 
 (defun pty-set-size (fd rows cols)
   (sb-alien:with-alien ((size (sb-alien:array sb-alien:unsigned-short 4)))
@@ -235,10 +289,10 @@ thread that had it goes on holding what it already has."
 character split across two reads is not made nonsense of; what the bytes mean is
 for whoever knows the encoding.
 
-Answers nil when the program is done -- an end of file, or the EIO a master is
-given once the last slave is closed -- and an empty string when a signal
-interrupted the read, which is not the program being done and must not be read
-as it. Anything else is a fault and is signalled."
+Answers nil when the program is done, which is an end of file or the EIO a
+master is given once the last slave is closed. Answers an empty string when a
+signal interrupted the read, which is not the program being done and must not be
+read as it. Anything else is a fault and is signalled."
   (let ((octets (read-buffer size)))
     (sb-sys:with-pinned-objects (octets)
       (multiple-value-bind (n errno)
@@ -256,8 +310,8 @@ can be a short one, so it is finished rather than assumed.
 
 One byte a character by default, which is what pty-read-string answers, so what
 was read from one terminal can be written to another and be the same bytes. What
-the bytes mean is for whoever knows the encoding -- see decode-utf-8 -- and a
-caller holding real characters rather than bytes says so."
+the bytes mean is for whoever knows the encoding, which is what decode-utf-8 is
+for, and a caller holding real characters rather than bytes says so."
   (let* ((octets (sb-ext:string-to-octets string :external-format external-format))
          (len (length octets))
          (sent 0))
@@ -287,8 +341,8 @@ it is the usual answer about something already gone."
   "Tell PID its terminal is gone and wait for it, so it is not left a zombie.
 Answers its status, or nil when it would not go.
 
-It never waits without end. A shell ignores the polite ask -- that is what makes
-it a shell -- and whoever is tidying up would wait on it forever; and the thing
+It never waits without end. A shell ignores the polite ask, which is what makes
+it a shell, so whoever is tidying up would wait on it forever; and the thing
 tidying up is usually a server on its way out, still holding the socket
 everybody else is trying to reach. So: the hangup a terminal going away sends,
 then PATIENCE seconds, then the one nothing ignores, then give up and let init

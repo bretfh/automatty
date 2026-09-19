@@ -38,28 +38,19 @@ another tree, and it is another bar."
    :spacing 1
    :background-color (bar-face :bg-alt)
    (vt/ui:label (format nil " ~A " (session-name session)) :face :accent)
-   (vt/ui:label (pane-says (session-pane session)))
+   (vt/ui:label (pane-says (session-focus session)))
    (vt/ui:gap)
-   (vt/ui:label (if (pane-running (session-pane session)) "" "done") :face :warning)
-   (vt/ui:label (format nil "~Dx~D" (session-cols session)
-                        (pane-rows session)))
+   (vt/ui:label (if (pane-running (session-focus session)) "" "done") :face :warning)
+   (vt/ui:label (let ((term (session-pane-term session)))
+                  (format nil "~Dx~D" (vt:term-width term) (vt:term-height term))))
    (vt/ui:label (clock-says))
    (vt/ui:label " ")))
 
 (defvar *bar* #'default-bar)
 
-
-
-(defun draw-bar (session screen)
-  (let ((rows *bar-rows*))
-    (when (and (plusp rows) *bar* (> (screen-height screen) rows))
-      (let* ((tree (funcall *bar* session))
-             (top (- (screen-height screen) rows))
-             (m (vt/cells:make-cells (screen-grid screen)
-                                     (screen-width screen)
-                                     (screen-height screen))))
-        (vt/cells:fill-rect m 0 top (screen-width screen) rows
-                            (vt:make-face-attrs :bg (bar-face :bg-alt)))
-        (vt/cells:draw tree (screen-grid screen)
-                       (screen-width screen) (screen-height screen)
-                       :top top)))))
+(defun session-bar (session)
+  "The bar for SESSION, or nothing when it is turned off. It is the last child
+of the column the panes are in, so how many rows it takes is whatever it
+measures to rather than a number somebody has to keep in step."
+  (when (and (session-barp session) *bar*)
+    (funcall *bar* session)))

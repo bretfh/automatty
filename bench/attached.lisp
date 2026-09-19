@@ -4,7 +4,7 @@
 ;; Both multiplexers doing the whole job: a program writing hard, a grid kept,
 ;; a frame worked out and escapes put on a terminal somebody is reading. The
 ;; terminal is one of ours, so the same harness drains both and the same
-;; emulator reads back what each drew -- which measures them and checks them
+;; emulator reads back what each drew, which measures them and checks them
 ;; against each other at the same time.
 
 (declaim (inline nanos))
@@ -99,7 +99,7 @@ between the two markers: seconds, bytes it wrote, cpu seconds, and peak rss.
 
 Reading is the only thing this does in a hurry. Looking at the screen and
 walking /proc are done on a clock, because doing either per read leaves the
-terminal unread and the program blocked on writing to it -- which measures the
+terminal unread and the program blocked on writing to it, which measures the
 harness rather than what it was pointed at."
   (ignore-errors (delete-file (go-path)))
   (multiple-value-bind (fd pid) (pty:spawn-pty-process command :rows +rows+
@@ -128,7 +128,7 @@ harness rather than what it was pointed at."
                      ;; the pane waits until the terminal it is drawing on is
                      ;; actually up: a client that takes seconds to start would
                      ;; otherwise attach to a program that had already finished.
-                     ;; Letting it go is also the moment to start the clock --
+                     ;; Letting it go is also the moment to start the clock:
                      ;; a marker it printed on its way past would have scrolled
                      ;; off the screen before anybody looked.
                      ((not began)
@@ -283,7 +283,7 @@ wanders."
 (defun run-it ()
   (make-corpora)
   (let ((tmux (tmux-there-p)))
-    (format t "~&~%attached, both drawing -- ~Dx~D, ~D MB in, ~D rounds each~%~%"
+    (format t "~&~%attached, both drawing: ~Dx~D, ~D MB in, ~D rounds each~%~%"
             +cols+ +rows+ +megabytes-in+ +rounds+)
     (when tmux (format t "~&  ~A~%~%" tmux))
     (format t "~&  ~7A ~7A ~8A ~17A ~8A ~9A ~8A~%"

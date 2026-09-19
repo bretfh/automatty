@@ -3,8 +3,8 @@
 A terminal emulator in Common Lisp. It reads what a program wrote and keeps the
 screen that means: a grid of cells, each with the face it was written in, a
 cursor, a scroll region, an alternate screen and a scrollback. It draws nothing
-itself. What you do with the grid -- paint it, put it in a buffer, diff it
-against the last frame -- is yours.
+itself. What you do with the grid is yours: paint it, put it in a buffer, diff
+it against the last frame.
 
 * The shape of it
 
@@ -50,8 +50,9 @@ a real terminal and what a round trip is tested against.
 
 ** What it answers
 
-A program asks a terminal questions -- where is the cursor, what are you, what
-colour is your background -- and expects an answer on its input. Give the term an
+A program asks a terminal questions, such as where is the cursor, what are you
+and what colour is your background, and expects an answer on its input. Give the
+term an
 =input-fn= and it answers them:
 
 #+begin_src lisp
@@ -97,7 +98,7 @@ ioctl.
 
 fork is not an option and not merely a risk: =sb-posix:fork= refuses outright in
 an image with threads, and any real application has threads. posix_spawn is the
-only door -- but posix_spawn has no hook to run code in the child, which is the
+only door, but posix_spawn has no hook to run code in the child, which is the
 one thing a controlling terminal traditionally needs, and is why this used to
 ship a helper program written in C. It does not need one. =POSIX_SPAWN_SETSID=
 makes the child a session leader with no terminal, and then the child *opens the
@@ -111,15 +112,15 @@ thread inside a foreign call wedges the image at the next GC. So a reader waits
 with a timeout and looks at its own flag between waits.
 
 The two systems are separate. =vt= is portable Common Lisp with no dependencies
-at all, and is what you load if the bytes come from somewhere else -- a socket, a
+at all, and is what you load if the bytes come from somewhere else: a socket, a
 file, a log. =vt/pty= is the sbcl-shaped half.
 
 ** What a system calls a thing
 
 Four numbers differ between systems, and they are all at the top of
 =src/pty/pty.lisp=: =O_RDWR=, =O_NOCTTY=, =POSIX_SPAWN_SETSID= and =TIOCSWINSZ=.
-Every one of them is frozen ABI -- TIOCSWINSZ has not moved since the 1980s -- so
-the table is written once and does not rot. The BSD ioctl numbers are not
+Every one of them is frozen ABI, and TIOCSWINSZ has not moved since the 1980s,
+so the table is written once and does not rot. The BSD ioctl numbers are not
 tabulated but derived, because a BSD ioctl number is a documented bit layout
 rather than a list, so one rule covers macos and every BSD. A system nobody has
 checked stops at load saying which number it wants, rather than running and
@@ -162,8 +163,8 @@ DCS is parsed far enough to be skipped.
 =vt:term-process-output= takes characters, and what a program wrote is bytes. The
 two are not the same thing and the emulator does not guess: =vt:decode-utf-8=
 turns the one into the other, keeping the half of a character left at the end of
-a read until the rest of it arrives, and answering the replacement character --
-one per maximal subpart, as Unicode asks -- for anything that is not utf-8.
+a read until the rest of it arrives, and answering the replacement character,
+one per maximal subpart as Unicode asks, for anything that is not utf-8.
 
 Reading and writing a pty are byte for byte, so what was read from one terminal
 can be written to another and be the same bytes. A caller holding real characters
@@ -172,7 +173,12 @@ rather than bytes says so: =(pty-write-string fd said :utf-8)=.
 * Building it
 
 Nothing is built. There is no C, so there is no compile step, no shared library
-and no helper program -- =(asdf:load-system :vt/all)= is the whole of it.
+and no helper program. =(asdf:load-system :vt/all)= is the whole of it.
+
+=vt= itself depends on nothing at all, and =make test-term= says so: it runs the
+emulator's suite in an image with the emulator and nothing else in it. =vt/pty=
+depends on nothing either, though it is SBCL in fact rather than in principle,
+and says so at load rather than failing to read.
 
 Two ways to get an sbcl and the test systems, and every target works under
 either. Guix is what it develops against and what plain =make= uses; =FOREIGN=1=
@@ -181,10 +187,11 @@ already finds them.
 
 #+begin_src sh
   make test              # the fiveam suite
+  make test-term         # the emulator's own suite, with only the emulator loaded
   make check             # load everything and say so
   make repl
   make run CMD='top -b -n 1'    # a command on a pty, and the screen it drew
-  make mux               # a shell in a session of its own, in this terminal
+  make vt-mux            # build ./vt-mux, which is the program
   make bench             # bytes a second
   make latency           # what one read costs, and what a terminal weighs
   make mux-bench         # what a frame costs, and what a keystroke costs
@@ -194,8 +201,8 @@ already finds them.
 
 * How fast
 
-=make bench= reads 32 MB corpora -- plain text, coloured text, and full-screen
-redraws -- through the parser and again through a real pty, and =make compare=
+=make bench= reads 32 MB corpora of plain text, coloured text and full-screen
+redraws, through the parser and again through a real pty, and =make compare=
 puts the same bytes through tmux and through an alacritty in a headless sway of
 its own, so the three numbers are read off one screen. On a Ryzen AI Max+ 395,
 80x24, through a pty:
@@ -210,8 +217,8 @@ tmux detached is the fair comparison: no client is attached, so it is parsing
 and keeping a grid and drawing nothing, which is all cl-vt does. alacritty is
 drawing as well, in software, which is what its redraw column costs it.
 
-Nothing in here is written for speed -- no unsafe declarations, no unrolling,
-no special-cased fast paths. What the numbers took was telling the compiler what
+Nothing in here is written for speed: no unsafe declarations, no unrolling, no
+special-cased fast paths. What the numbers took was telling the compiler what
 it was already holding: a row is a =simple-vector=, output is a
 =(simple-array character (*))=, and a colour is nearly always a number, so it is
 compared with =eql= before anything asks =equal=. Before that it read 40 MB/s.
@@ -222,10 +229,32 @@ stops talking, and prints the screen back with its escapes.
 * Many terminals inside one
 
 =vt/mux= is a multiplexer built on the emulator, running inside the terminal you
-are already in. =make mux= puts a shell in a session of its own; =C-b d= detaches,
-=C-b r= redraws, =C-b C-b= types a =C-b=. =make mux MUX=list= says what is
-running, and =make mux MUX=<name>= joins a session by name, starting it if it is
-not there.
+are already in. =make vt-mux= builds =./vt-mux=, and that is the whole program:
+one file with no runtime to find and nothing to load, so it starts in under a
+second and copies to another machine as it is.
+
+#+begin_src sh
+  vt-mux                 # a shell in a session called 0, made if it is not there
+  vt-mux <name>          # the same, under another name
+  vt-mux run <name> <command>
+  vt-mux attach <name>   # join a session already running
+  vt-mux list            # what is running
+  vt-mux stop <name>     # stop a session, and the programs in it
+#+end_src
+
+=C-b d= detaches, =C-b r= redraws, =C-b C-b= types a =C-b=, =C-b := runs a
+command by name and =C-b ?= says what every key does.
+
+Panes are windows, and the keys for them are the ones an editor uses for
+windows: =C-b 2= splits below, =C-b 3= splits beside, =C-b 0= closes this one,
+=C-b 1= leaves only this one, =C-b o= goes to the next. =C-b c= starts another
+session in the same server, =C-b b= chooses between them, and =C-b t= turns the
+bar off and on.
+
+A server outlives the builds that reach it: it has been running since whenever,
+and the client is the one that was started a moment ago. So the greeting says
+what the server can be asked to do, and a key this one has never heard of says
+so rather than doing nothing and looking broken.
 
 It is a server and a client from the first line. The server holds the sessions
 and never goes near a terminal; a client attaches over a unix socket in
@@ -235,15 +264,36 @@ is out of date.
 
 Leaving is as much a part of it as running. A server on its way out gives up its
 name before anything else, so nobody new can reach one that is already going,
-and nothing it waits for is waited for without end -- a shell ignores being
-asked politely to go, which is what makes it a shell. A client knocks before it
+and nothing it waits for is waited for without end, because a shell ignores
+being asked politely to go, which is what makes it a shell. A client knocks before it
 attaches, because a socket somebody is still holding is not the same as a server
 that answers.
 
 A fault in one wakeup is said to the log and stepped over rather than taken as
-the end -- the panes are somebody's shells, and losing them to a bug in the
+the end. The panes are somebody's shells, and losing them to a bug in the
 emulator is worse than drawing one frame wrong. The log is beside the socket,
 and a client whose server did stop says where it is.
+
+** How a session is put together
+
+A session is one widget tree: the panes, and the bar under them. The split
+arrangement is a tree of panes, and it becomes a =row= or a =column= of views
+with a rule between each; the bar is the last child of the column they sit in.
+Laying that out is what decides how many rows and columns each program is given,
+and the program is told before it is started rather than corrected afterwards.
+A shell asking =stty size= on its first line has to be told the truth the first
+time.
+
+That is the whole reason the widget toolkit is here. Splitter geometry is flex,
+padding and alignment, and =src/ui/layout.lisp= already does all three; the bar
+taking a row off the pane under it is the same arithmetic as two panes sharing a
+column. Nothing about it is reactive: a tree is built for each frame and thrown
+away, which at eight milliseconds costs a handful of =make-instance= calls
+against a frame that already costs twenty microseconds.
+
+One server holds as many sessions as you make in it. A watcher belongs to one of
+them and is told which on attaching; the server polls every pane of every
+session in a single wait, and composes only the sessions somebody is behind on.
 
 ** What goes over the socket
 
@@ -261,12 +311,12 @@ would stall every pane in the server on one message that arrived in two pieces.
 =*read-eval*= is nil, so a =#.= in a payload signals rather than runs.
 
 Typed bytes go through untouched. The client watches for one prefix byte and
-forwards everything else exactly as the terminal sent it -- mouse reports,
-pasted text, whatever encoding it was built with. Decoding keys and encoding them
+forwards everything else exactly as the terminal sent it: mouse reports, pasted
+text, whatever encoding it was built with. Decoding keys and encoding them
 again would narrow all of that to the intersection of two tables.
 
 The emulator will still read bytes back into keys when something wants them
-named -- =vt:escape-sequence-to-key-event= is the inverse of
+named. =vt:escape-sequence-to-key-event= is the inverse of
 =vt:key-event-to-escape-sequence=, and the suite holds the two of them to it over
 every key and modifier the old encoding has room for. It answers how many
 characters it took, and nothing at all when what is there is the beginning of
@@ -305,10 +355,10 @@ compose, diff, encode, and back out as the escapes that show it.
 
 That gap is a least gap, never a tick: a client that has heard nothing recently
 is answered the moment a byte arrives. The last two rows are what happens when
-it is set wide enough to bite -- typing faster than the gap, every keystroke
-waits out the rest of it. Eight milliseconds is the default because it is the
+it is set wide enough to bite: typing faster than the gap, every keystroke waits
+out the rest of it. Eight milliseconds is the default because it is the
 widest that never showed up in the number.
 
-The socket carries between 1.3 and 2.0 times what the terminal reads -- 1076
-bytes a frame against 642 on the redraw corpus. S-expressions are not what this
+The socket carries between 1.3 and 2.0 times what the terminal reads, 1076 bytes
+a frame against 642 on the redraw corpus. S-expressions are not what this
 costs, so the wire stays readable: =socat= on it shows you plain text.
