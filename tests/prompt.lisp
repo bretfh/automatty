@@ -50,7 +50,7 @@
     (pressing p "e" "DEL")
     (is (equal "r" (mux:prompt-query p)))))
 
-(test the-prompt-draws-itself-at-the-foot-and-says-what-was-typed
+(test the-prompt-draws-itself-under-the-bar-and-says-what-was-typed
   (let ((screen (tty:make-screen :width 30 :height 10))
         (p (mux:make-prompt "run" '("detach" "redraw" "rename"))))
     (setf (mux:prompt-query p) "re")
@@ -64,8 +64,8 @@
       (is (find-if (lambda (r) (search "rename" r)) rows))
       (is (null (find-if (lambda (r) (search "detach" r)) rows))
           "something that does not match was drawn"))
-    (is (>= (tty:screen-cursor-y screen) 7)
-        "the prompt did not take the foot of the screen")))
+    (is (eql 2 (tty:screen-cursor-y screen))
+        "the cursor is not on the prompt's own line, just under the bar")))
 
 (test the-prompt-covers-only-what-it-needs
   (let ((screen (tty:make-screen :width 30 :height 10))
