@@ -83,8 +83,9 @@ mux-bench:
 	$(IN) '$(ENV) BENCH_DIR="$(BENCH_DIR)" $(SBCL) --non-interactive --load bench/mux.lisp'
 
 # the same corpora through cl-vt and through tmux, both attached to a terminal
-# and both drawing: bytes out, cpu and memory for the same work
-attached:
+# and both drawing: bytes out, cpu and memory for the same work. Against the
+# built binary, not a fresh SBCL loading ASDF: that is not what runs it.
+attached: vtx
 	$(IN) '$(ENV) BENCH_DIR="$(BENCH_DIR)" $(SBCL) --non-interactive --load bench/attached.lisp'
 
 # the same corpora through tmux and through alacritty, under cl-vt's own

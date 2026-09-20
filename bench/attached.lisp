@@ -206,14 +206,22 @@ and swallows whatever is said next."
 printf '~A\\n'~%cat ~A~%printf '\\n~A\\n'~%sleep 3~%"
                   +ready+ (go-path) +began+ (slice corpus) +ended+)))
 
+(defparameter +vtx-bin+
+  (or (uiop:getenv "VTX_BIN")
+      (namestring (make-pathname :name "vtx" :type nil
+                                 :directory (butlast (pathname-directory *load-truename*))
+                                 :defaults *load-truename*)))
+  "What a user actually runs is the saved executable, not an SBCL loading ASDF
+fresh every time: the two pay entirely different costs to get to the same
+running program, and only one of them is what this is measuring against tmux.")
+
 (defun ours (corpus)
+  (unless (probe-file +vtx-bin+)
+    (error "no vtx binary at ~A: run make vtx first" +vtx-bin+))
   (let* ((pane (pane-script corpus))
          (name (format nil "bench-~D" (sb-posix:getpid)))
          (run (script "ours"
-                      (format nil "exec sbcl --no-userinit --disable-debugger ~
---eval '(require :asdf)' --eval '(asdf:load-system :vtx)' ~
---eval '(vtx:main (list \"run\" \"~A\" \"sh ~A\"))' --quit~%"
-                              name pane))))
+                      (format nil "exec ~A run ~A 'sh ~A'~%" +vtx-bin+ name pane))))
     (multiple-value-prog1 (watch-one (format nil "sh ~A" run))
       (ignore-errors (delete-file (format nil "~A/cl-vt/~A"
                                           (sb-ext:posix-getenv "XDG_RUNTIME_DIR")
