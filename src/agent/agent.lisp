@@ -43,17 +43,17 @@
           (agent-traced agent) (floor +trace-length+ 2))))
 
 (defun screen-lines (term)
-  (let ((lines (loop :for y :below (vt:term-height term)
-                     :collect (string-right-trim " " (vt:term-dump-row-string term y)))))
+  (let ((lines (loop :for y :below (term:term-height term)
+                     :collect (string-right-trim " " (term:term-dump-row-string term y)))))
     (subseq lines 0 (1+ (or (position-if (lambda (l) (plusp (length l))) lines :from-end t)
                             -1)))))
 
 (defun last-lines (term n)
   (let* ((screen (screen-lines term))
          (above (max 0 (- n (length screen))))
-         (size (vt:term-scrollback-size term)))
+         (size (term:term-scrollback-size term)))
     (append (loop :for i :from (max 0 (- size above)) :below size
-                  :collect (string-right-trim " " (vt:term-scrollback-row-string term i)))
+                  :collect (string-right-trim " " (term:term-scrollback-row-string term i)))
             (last screen (min n (length screen))))))
 
 (defun rule-line-p (line)
@@ -96,7 +96,7 @@
 (defun region-lines (term lines region)
   (cond
     ((eq region :whole) lines)
-    ((eq region :title) (list (vt:term-title term)))
+    ((eq region :title) (list (term:term-title term)))
     ((eq region :after-last-rule) (after-last-rule lines))
     ((eq region :prompt-box) (prompt-box-body lines))
     ((eq region :above-prompt-box) (above-prompt-box lines))

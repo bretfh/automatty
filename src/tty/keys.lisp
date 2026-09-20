@@ -4,7 +4,7 @@
 
 ;;; What a terminal sent, as the key somebody pressed. This is the host's half:
 ;;; an abstract terminal never receives these bytes, it only ever produces them
-;;; (vt:key-event-to-escape-sequence is the other direction and lives there).
+;;; (term:key-event-to-escape-sequence is the other direction and lives there).
 
 (defun modifier-mods (code)
   (let ((bits (1- (max 1 (or code 1))))

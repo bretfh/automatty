@@ -16,7 +16,7 @@
 (defun make-screen-grid (width height)
   (let ((grid (make-array height)))
     (dotimes (y height grid)
-      (setf (svref grid y) (vt:make-row width)))))
+      (setf (svref grid y) (term:make-row width)))))
 
 (defun make-screen (&key (width 80) (height 24))
   (%make-screen :width width :height height
@@ -24,7 +24,7 @@
 
 (declaim (inline screen-row))
 (defun screen-row (screen y)
-  (the vt:row (svref (screen-grid screen) y)))
+  (the term:row (svref (screen-grid screen) y)))
 
 (defun screen-resize (screen width height)
   (setf (screen-width screen) width
@@ -40,8 +40,8 @@
     (dotimes (y (min (screen-height into) (screen-height from)))
       (let ((a (screen-row into y))
             (b (screen-row from y)))
-        (replace (vt:row-chars a) (vt:row-chars b) :end1 n :end2 n)
-        (replace (vt:row-faces a) (vt:row-faces b) :end1 n :end2 n))))
+        (replace (term:row-chars a) (term:row-chars b) :end1 n :end2 n)
+        (replace (term:row-faces a) (term:row-faces b) :end1 n :end2 n))))
   (setf (screen-cursor-x into) (screen-cursor-x from)
         (screen-cursor-y into) (screen-cursor-y from)
         (screen-cursor-visible into) (screen-cursor-visible from)
@@ -61,16 +61,16 @@ few unchanged cells are cheaper written again than jumped over.")
 (declaim (inline same-cell-p))
 (defun same-cell-p (old new x)
   (declare (type fixnum x))
-  (and (char= (vt:row-char old x) (vt:row-char new x))
-       (let ((fa (vt:row-face old x)) (fb (vt:row-face new x)))
-         (or (eq fa fb) (vt:face-equal fa fb)))))
+  (and (char= (term:row-char old x) (term:row-char new x))
+       (let ((fa (term:row-face old x)) (fb (term:row-face new x)))
+         (or (eq fa fb) (term:face-equal fa fb)))))
 
 (defun widened (row start)
   "START, or one column back when what sits there is the right half of a wide
 character: writing that half alone would put the terminal a column out."
   (declare (type fixnum start))
   (if (and (plusp start)
-           (= 2 (vt:char-display-width (vt:row-char row (1- start)))))
+           (= 2 (term:char-display-width (term:row-char row (1- start)))))
       (1- start)
     start))
 
@@ -92,8 +92,8 @@ what it is about to send and the shadow already says it was sent."
         (dotimes (x w)
           (progn
             (unless (same-cell-p old new x)
-              (setf (vt:row-char old x) (vt:row-char new x)
-                    (vt:row-face old x) (vt:row-face new x))
+              (setf (term:row-char old x) (term:row-char new x)
+                    (term:row-face old x) (term:row-face new x))
               (when (and (not (minusp start)) (> (- x end) gap))
                 (push (make-run y (widened new start) end) runs)
                 (setf start -1))

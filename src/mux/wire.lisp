@@ -51,18 +51,18 @@ somebody else."
 
 (defun face-said (face)
   (when face
-    (list (vt:face-fg face) (vt:face-bg face)
-          (vt:face-bold face) (vt:face-faint face) (vt:face-italic face)
-          (vt:face-underline face) (vt:face-underline-color face)
-          (vt:face-blink face)
-          (vt:face-inverse face) (vt:face-conceal face) (vt:face-crossed face))))
+    (list (term:face-fg face) (term:face-bg face)
+          (term:face-bold face) (term:face-faint face) (term:face-italic face)
+          (term:face-underline face) (term:face-underline-color face)
+          (term:face-blink face)
+          (term:face-inverse face) (term:face-conceal face) (term:face-crossed face))))
 
 (defun said-face (said)
   (when said
     (destructuring-bind (fg bg bold faint italic underline under-color blink
                          inverse conceal crossed)
         said
-      (vt:make-face :fg fg :bg bg
+      (term:make-face :fg fg :bg bg
                           :bold (and bold t) :faint (and faint t)
                           :italic (and italic t)
                           :underline underline :underline-color under-color
@@ -94,13 +94,13 @@ first could not be picked up from a different terminal."
                                    :fill-pointer 0))
               (face :none))
           (loop for x from (tty:run-start run) below (tty:run-end run)
-                do (let ((now (vt:row-face row x)))
+                do (let ((now (term:row-face row x)))
                      (unless (or (eq face :none) (eq face now))
                        (push (cons (number-of face) (coerce text 'simple-string))
                              spans)
                        (setf (fill-pointer text) 0))
                      (setf face now)
-                     (vector-push-extend (vt:row-char row x) text)))
+                     (vector-push-extend (term:row-char row x) text)))
           (unless (eq face :none)
             (push (cons (number-of face) (coerce text 'simple-string)) spans))
           (push (list (tty:run-row run) (tty:run-start run) (nreverse spans)) out)))
@@ -116,8 +116,8 @@ first could not be picked up from a different terminal."
                       (let* ((face (svref seen (car span)))
                              (text (cdr span))
                              (n (length text)))
-                        (replace (vt:row-chars row) text :start1 x)
-                        (fill (vt:row-faces row) face :start x :end (+ x n))
+                        (replace (term:row-chars row) text :start1 x)
+                        (fill (term:row-faces row) face :start x :end (+ x n))
                         (incf x n)))
                     (tty:make-run y start x)))))
 
@@ -197,7 +197,7 @@ thrown away and started again.")
 (defun reading-package ()
   "The package a message is read in.
 
-Not VT/MUX: a message names symbols, and reading them where the program's own
+Not the mux: a message names symbols, and reading them where the program's own
 names live lets whoever is on the other end put anything it likes there. A
 package of its own, thrown away and started again once it fills, so a peer
 naming something new every message cannot grow this image without end."
@@ -209,7 +209,7 @@ naming something new every message cannot grow this image without end."
           ;; common-lisp so that T and NIL read as themselves; nothing else,
           ;; so everything a peer makes up is this package's own and goes with
           ;; it when it is thrown away
-          (make-package (symbol-name (gensym "VT/WIRE")) :use '(#:common-lisp))))
+          (make-package (symbol-name (gensym "ATTY/WIRE")) :use '(#:common-lisp))))
   *reading-in*)
 
 (defun wire-take (wire)

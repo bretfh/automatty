@@ -12,15 +12,15 @@
 (defun difference (screen term)
   (dotimes (y (tty:screen-height screen))
     (dotimes (x (tty:screen-width screen))
-      (let ((row (vt:term-grid-row term y)))
-        (unless (and (char= (char-at screen x y) (vt:row-char row x))
-                     (vt:face-equal (face-on screen x y) (vt:row-face row x)))
+      (let ((row (term:term-grid-row term y)))
+        (unless (and (char= (char-at screen x y) (term:row-char row x))
+                     (term:face-equal (face-on screen x y) (term:row-face row x)))
           (return-from difference
             (format nil "~D,~D is ~S ~S on the screen and ~S ~S on the host"
                     x y (char-at screen x y)
-                    (vt:face-plist (face-on screen x y))
-                    (vt:row-char row x)
-                    (vt:face-plist (vt:row-face row x)))))))))
+                    (term:face-plist (face-on screen x y))
+                    (term:row-char row x)
+                    (term:face-plist (term:row-face row x)))))))))
 
 (defun sent (screen runs &key (takes t))
   (with-output-to-string (s)
@@ -115,7 +115,7 @@
     (put screen 0 0 #\x)
     (say host (sent screen (tty:screen-diff was screen)))
     (is (equal '(7 2) (cursor host)))
-    (is (null (vt:term-cursor-visible host)))))
+    (is (null (term:term-cursor-visible host)))))
 
 (test a-terminal-that-cannot-do-true-colour-is-given-the-nearest-index
   (let* ((pane (a-term :width 8 :height 1))
@@ -125,7 +125,7 @@
     (say pane (csi "38;2;255;255;255m") "x")
     (blit screen pane)
     (say host (sent screen (tty:screen-diff was screen) :takes '(:blink)))
-    (is (eql 231 (vt:face-fg (face-at host 0 0))))))
+    (is (eql 231 (term:face-fg (face-at host 0 0))))))
 
 (test what-a-terminal-takes-is-read-off-its-name
   (is (member :rgb (tty:takes-of "xterm-256color" "truecolor")))
@@ -137,42 +137,42 @@
   (let* ((screen (a-screen :width 8 :height 1))
          (host (a-host screen)))
     (setf (tty:screen-cursor-style screen) :bar)
-    (vt:term-process-output host (sent screen nil))
-    (is (eq :bar (vt:term-cursor-style host))
-        "the terminal was not told the shape: ~S" (vt:term-cursor-style host))
+    (term:term-process-output host (sent screen nil))
+    (is (eq :bar (term:term-cursor-style host))
+        "the terminal was not told the shape: ~S" (term:term-cursor-style host))
     (setf (tty:screen-cursor-style screen) :blinking-underline)
-    (vt:term-process-output host (sent screen nil))
-    (is (eq :blinking-underline (vt:term-cursor-style host)))))
+    (term:term-process-output host (sent screen nil))
+    (is (eq :blinking-underline (term:term-cursor-style host)))))
 
 (defun worn (said takes)
   "Say SAID to a terminal, bring the face it made down to what TAKES allows,
 write it back out and read it into another. Answers the face that arrived."
   (let ((term (a-term :width 8 :height 1))
         (again (a-term :width 8 :height 1)))
-    (vt:term-process-output term said)
-    (vt:term-process-output term "x")
-    (vt:term-process-output
+    (term:term-process-output term said)
+    (term:term-process-output term "x")
+    (term:term-process-output
      again (with-output-to-string (s)
-             (vt:write-sgr (tty:as-taken (face-at term 0 0) takes) s)
+             (term:write-sgr (tty:as-taken (face-at term 0 0) takes) s)
              (write-char #\x s)))
     (face-at again 0 0)))
 
 (test a-terminal-that-takes-less-is-told-less
   (let ((now (worn (csi "5;4:3;58;5;9m") '(:rgb))))
-    (is (null (vt:face-blink now)) "blink was left out")
-    (is (eql :single (vt:face-underline now)) "the style flattened to one line")
-    (is (null (vt:face-underline-color now)) "the underline colour was left out")))
+    (is (null (term:face-blink now)) "blink was left out")
+    (is (eql :single (term:face-underline now)) "the style flattened to one line")
+    (is (null (term:face-underline-color now)) "the underline colour was left out")))
 
 (test an-rgb-colour-becomes-the-nearest-of-the-256
-  (is (eql 231 (vt:face-fg (worn (csi "38;2;255;255;255m") '(:blink))))
+  (is (eql 231 (term:face-fg (worn (csi "38;2;255;255;255m") '(:blink))))
       "white is the top of the cube")
-  (is (eql 16 (vt:face-fg (worn (csi "38;2;0;0;0m") nil)))
+  (is (eql 16 (term:face-fg (worn (csi "38;2;0;0;0m") nil)))
       "black is the bottom of it"))
 
 (test a-terminal-that-takes-everything-is-told-everything
   (let* ((term (a-term :width 8 :height 1))
-         (face (progn (vt:term-process-output term (csi "5;4:3;58;5;9m"))
-                      (vt:term-process-output term "x")
+         (face (progn (term:term-process-output term (csi "5;4:3;58;5;9m"))
+                      (term:term-process-output term "x")
                       (face-at term 0 0))))
     (is (eq face (tty:as-taken face t))
         "a face nothing had to be taken out of was copied anyway")))

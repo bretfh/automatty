@@ -1,5 +1,5 @@
 (load (merge-pathnames "corpus.lisp" *load-truename*))
-(in-package #:vt/bench)
+(in-package #:term/bench)
 
 ;; get-internal-real-time steps by 4 ms on this kernel, which is a hundred times
 ;; coarser than the thing being measured. Everything here is nanoseconds off the
@@ -38,7 +38,7 @@
              (chunk (if (= n +read+) buffer (subseq buffer 0 n))))
         (replace buffer said :start2 i :end2 end)
         (let ((then (nanos)))
-          (vt:term-process-output term chunk)
+          (term:term-process-output term chunk)
           (vector-push (- (nanos) then) times))))))
 
 (defun sweep (said)
@@ -54,7 +54,7 @@
         ;; one terminal for every pass. A terminal is a long-lived thing, and
         ;; making a fresh one per pass measures allocating a scrollback, which
         ;; is not what a terminal spends its life doing.
-        (let ((term (vt:make-term :width 80 :height 24)))
+        (let ((term (term:make-term :width 80 :height 24)))
           (reads-of term said buffer times)
           (watch-gc)
           (let ((then (nanos)))
@@ -83,10 +83,10 @@
     (values (- after before) kept)))
 
 (defun a-full-term (lines)
-  (let ((term (vt:make-term :width 80 :height 24 :max-scrollback lines))
+  (let ((term (term:make-term :width 80 :height 24 :max-scrollback lines))
         (line (format nil "~A~C" (make-string 79 :initial-element #\x) #\Newline)))
     (dotimes (i (+ lines 24) term)
-      (vt:term-process-output term line))))
+      (term:term-process-output term line))))
 
 (defun run ()
   (make-corpora)
@@ -102,7 +102,7 @@
   (format t "~&~%What a terminal weighs~%")
   (multiple-value-bind (bytes kept)
       (live-bytes (lambda () (loop :repeat 100
-                                   :collect (vt:make-term :width 80 :height 24))))
+                                   :collect (term:make-term :width 80 :height 24))))
     (format t "~&  ~18A ~8,1F KB~%" "80x24, no history" (/ bytes 100 1024d0))
     (length kept))
   (dolist (lines '(2000 10000))
@@ -111,7 +111,7 @@
               (format nil "+ ~D lines" lines)
               (/ bytes 1024d0 1024d0)
               (/ bytes (* 80 (+ lines 24))))
-      (vt:term-width kept)))
+      (term:term-width kept)))
   (format t "~&~%")
   (finish-output))
 

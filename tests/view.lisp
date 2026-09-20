@@ -5,7 +5,7 @@
 
 (defun a-pane (said &key (rows 3) (cols 8))
   (let ((pane (mux:make-pane "true" :rows rows :cols cols)))
-    (vt:term-process-output (mux:pane-term pane) said)
+    (term:term-process-output (mux:pane-term pane) said)
     pane))
 
 (defun laid (tree screen)

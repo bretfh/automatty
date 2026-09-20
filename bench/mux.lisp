@@ -1,5 +1,5 @@
 (load (merge-pathnames "corpus.lisp" *load-truename*))
-(in-package #:vt/bench)
+(in-package #:term/bench)
 
 ;; What a frame costs before a socket exists. Everything the multiplexer does
 ;; between a pane writing and a terminal reading is here: blit, diff, encode.
@@ -34,7 +34,7 @@
             (subseq said (* i each) (min (length said) (* (1+ i) each)))))))
 
 (defun frames (name said cols rows gap)
-  (let* ((pane (vt:make-term :width cols :height rows))
+  (let* ((pane (term:make-term :width cols :height rows))
          (screen (tty:make-screen :width cols :height rows))
          (was (tty:make-screen :width cols :height rows))
          (m (cells:make-cells (tty:screen-grid screen) cols rows))
@@ -46,7 +46,7 @@
          (weight 0))
     (sb-ext:gc :full t)
     (dotimes (i +frames+)
-      (vt:term-process-output pane (aref feed i))
+      (term:term-process-output pane (aref feed i))
       ;; only the frame is weighed. The pane parsing what the program wrote is
       ;; measured by make latency and is not what this is asking about.
       (let ((mark (sb-ext:get-bytes-consed))
@@ -98,7 +98,7 @@
 
 
 ;;; The whole loop, over a real socket: a pane writing, a server composing and
-;;; diffing, a wire, and a client encoding for a terminal that is a vt:term,
+;;; diffing, a wire, and a client encoding for a terminal that is a term:term,
 ;;; so the bench checks what it measures as it measures it.
 
 (defparameter +intervals+ '(0 4 8 16 33))
@@ -120,7 +120,7 @@
         (multiple-value-bind (to-read to-write) (sb-posix:pipe)
           (let ((client (mux:make-client path :fd in-read :to to-write)))
             (make-rig :path path :thread thread :client client
-                      :host (vt:make-term :width cols :height rows)
+                      :host (term:make-term :width cols :height rows)
                       :in-write in-write :to-read to-read)))))))
 
 (defun rig-draw (rig)
@@ -132,7 +132,7 @@ standing in for one, and answer how many bytes that was."
                (unless said (return))
                (when (zerop (length said)) (return))
                (incf got (length said))
-               (vt:term-process-output (rig-host rig) said)))
+               (term:term-process-output (rig-host rig) said)))
     got))
 
 (defun stop-rig (rig)
@@ -194,10 +194,10 @@ standing in for one, and answer how many bytes that was."
                (loop until (or saw (> (- (nanos) then) 200000000))
                      do (mux:client-step (rig-client rig) 1)
                         (rig-draw rig)
-                        (when (find ch (vt:term-dump-to-string (rig-host rig)))
+                        (when (find ch (term:term-dump-to-string (rig-host rig)))
                           (setf saw t)))
                (when saw (vector-push (- (nanos) then) times))
-               (vt:term-reset (rig-host rig))
+               (term:term-reset (rig-host rig))
                (pty:pty-write-string (rig-in-write rig) (string #\Return))
                (loop repeat 20 do (mux:client-step (rig-client rig) 1) (rig-draw rig))))
            (let ((sorted (sort (copy-seq times) #'<)))

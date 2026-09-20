@@ -90,7 +90,7 @@
         (is (char= (char-at screen x y) (char-at there x y))
             "~D,~D is ~S here and ~S there" x y
             (char-at screen x y) (char-at there x y))
-        (is (vt:face-equal (face-on screen x y) (face-on there x y))
+        (is (term:face-equal (face-on screen x y) (face-on there x y))
             "~D,~D wears a different face there" x y)))))
 
 (test what-came-off-the-wire-drawn-is-what-was-put-on-it

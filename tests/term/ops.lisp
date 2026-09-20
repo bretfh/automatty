@@ -24,14 +24,14 @@
     (say term (csi "2;3H") (csi "31m") (esc "7")
          (csi "5;5H") (csi "0m") (esc "8") "x")
     (is (equal '(3 1) (cursor term)))
-    (is (eql 1 (vt:face-fg (face-at term 2 1))))))
+    (is (eql 1 (term:face-fg (face-at term 2 1))))))
 
 (test erasing-a-line-erases-the-half-it-was-asked-for
   (let ((term (a-term :width 8 :height 2)))
     (say term "abcdefgh" (csi "1;4H") (csi "K"))
     (is (equal "abc" (row term 0)))
     (say term (csi "2;1H") "abcdefgh" (csi "2;4H") (csi "1K"))
-    (is (equal "    efgh" (vt:term-dump-row-string term 1)))))
+    (is (equal "    efgh" (term:term-dump-row-string term 1)))))
 
 (test erasing-the-display-erases-from-here-on
   (let ((term (a-term :width 4 :height 3)))
@@ -49,15 +49,15 @@
 (test what-is-erased-keeps-the-background-that-was-in-force
   (let ((term (a-term :width 4 :height 2)))
     (say term (csi "41m") (csi "K"))
-    (is (eql 1 (vt:face-bg (face-at term 2 0))))))
+    (is (eql 1 (term:face-bg (face-at term 2 0))))))
 
 (test what-is-erased-carries-only-the-background
   (let ((term (a-term :width 4 :height 2)))
     (say term (csi "1;4;44m") (csi "K"))
     (let ((f (face-at term 2 0)))
-      (is (eql 4 (vt:face-bg f)))
-      (is (null (vt:face-bold f)) "BCE carried bold along with the background")
-      (is (null (vt:face-underline f))
+      (is (eql 4 (term:face-bg f)))
+      (is (null (term:face-bold f)) "BCE carried bold along with the background")
+      (is (null (term:face-underline f))
           "BCE carried underline along with the background"))))
 
 (test characters-are-deleted-and-inserted-in-place
@@ -65,12 +65,12 @@
     (say term "abcdefgh" (csi "1;3H") (csi "2P"))
     (is (equal "abefgh" (row term 0)))
     (say term (csi "1;3H") (csi "2@"))
-    (is (equal "ab  efgh" (vt:term-dump-row-string term 0)))))
+    (is (equal "ab  efgh" (term:term-dump-row-string term 0)))))
 
 (test erase-char-leaves-a-hole-where-it-stood
   (let ((term (a-term :width 8 :height 2)))
     (say term "abcdefgh" (csi "1;3H") (csi "3X"))
-    (is (equal "ab   fgh" (vt:term-dump-row-string term 0)))))
+    (is (equal "ab   fgh" (term:term-dump-row-string term 0)))))
 
 (test lines-are-inserted-and-deleted-under-the-cursor
   (let ((term (a-term :width 4 :height 4)))
@@ -96,40 +96,40 @@
          "bbbb" (format nil "~C~C" #\Return #\Newline)
          "cccc")
     (is (equal '("bbbb" "cccc") (rows term)))
-    (is (= 1 (vt:term-scrollback-size term)))
-    (is (equal "aaaa" (vt:term-scrollback-row-string term 0)))))
+    (is (= 1 (term:term-scrollback-size term)))
+    (is (equal "aaaa" (term:term-scrollback-row-string term 0)))))
 
 (test the-scrollback-forgets-its-oldest-line-when-it-is-full
   (let ((term (a-term :width 4 :height 1 :max-scrollback 2)))
     (dolist (said '("aaaa" "bbbb" "cccc" "dddd"))
       (say term said (format nil "~C~C" #\Return #\Newline)))
-    (is (= 2 (vt:term-scrollback-size term)))
-    (is (equal "cccc" (vt:term-scrollback-row-string term 0)))
-    (is (equal "dddd" (vt:term-scrollback-row-string term 1)))
-    (is (null (vt:term-scrollback-row term 2)))))
+    (is (= 2 (term:term-scrollback-size term)))
+    (is (equal "cccc" (term:term-scrollback-row-string term 0)))
+    (is (equal "dddd" (term:term-scrollback-row-string term 1)))
+    (is (null (term:term-scrollback-row term 2)))))
 
 (test the-alt-screen-is-another-screen-and-the-first-one-is-kept
   (let ((term (a-term :width 4 :height 2)))
     (say term "main" (csi "?1049h"))
-    (is (vt:term-in-alt-screen term))
+    (is (term:term-in-alt-screen term))
     (is (equal '("" "") (rows term)))
     (say term "alt" (csi "?1049l"))
-    (is (not (vt:term-in-alt-screen term)))
+    (is (not (term:term-in-alt-screen term)))
     (is (equal "main" (row term 0)))))
 
 (test the-alt-screen-scrolls-into-no-scrollback
   (let ((term (a-term :width 4 :height 2)))
     (say term (csi "?1049h") "aaaa" (format nil "~C" #\Newline)
          "bbbb" (format nil "~C" #\Newline) "cccc")
-    (is (zerop (vt:term-scrollback-size term)))))
+    (is (zerop (term:term-scrollback-size term)))))
 
 (test a-resize-keeps-what-still-fits
   (let ((term (a-term :width 8 :height 3)))
     (say term "abcdefgh" (csi "2;1H") "second")
-    (vt:term-resize term 4 2)
+    (term:term-resize term 4 2)
     (is (equal '("abcd" "seco") (rows term)))
-    (is (= 4 (vt:term-width term)))
-    (is (= 2 (vt:term-height term)))
+    (is (= 4 (term:term-width term)))
+    (is (= 2 (term:term-height term)))
     (is (equal '(3 1) (cursor term)))))
 
 (test a-reset-is-a-terminal-as-it-was-made
@@ -137,10 +137,10 @@
     (say term (csi "31m") (csi "?25l") (csi "2;4r") "text" (esc "c"))
     (is (equal '("" "" "") (rows term)))
     (is (equal '(0 0) (cursor term)))
-    (is (vt:term-cursor-visible term))
-    (is (= 2 (vt:term-scroll-bottom term)))
+    (is (term:term-cursor-visible term))
+    (is (= 2 (term:term-scroll-bottom term)))
     (say term "x")
-    (is (null (vt:face-fg (face-at term 0 0))))))
+    (is (null (term:face-fg (face-at term 0 0))))))
 
 (test a-shorter-screen-keeps-what-the-cursor-is-on
   (let ((term (a-term :width 10 :height 6)))
@@ -148,24 +148,24 @@
       (say term (format nil "line~D" i))
       (when (< i 5) (say term (format nil "~C~C" #\Return #\Newline))))
     (is (equal '(5 5) (cursor term)))
-    (vt:term-resize term 10 3)
+    (term:term-resize term 10 3)
     (is (equal '(5 2) (cursor term)) "the cursor came with its line")
     (is (equal '("line3" "line4" "line5") (rows term)))
-    (is (equal "line0" (string-right-trim " " (vt:term-scrollback-row-string term 0)))
+    (is (equal "line0" (string-right-trim " " (term:term-scrollback-row-string term 0)))
         "the top went to the scrollback, not away")))
 
 (test a-shorter-screen-that-the-cursor-still-fits-on-loses-nothing
   (let ((term (a-term :width 10 :height 6)))
     (say term "top")
-    (vt:term-resize term 10 3)
+    (term:term-resize term 10 3)
     (is (equal '(3 0) (cursor term)))
     (is (equal "top" (row term 0)))
-    (is (zerop (vt:term-scrollback-size term)))))
+    (is (zerop (term:term-scrollback-size term)))))
 
 (test a-taller-screen-keeps-what-was-there-where-it-was
   (let ((term (a-term :width 10 :height 3)))
     (say term "one" (format nil "~C~C" #\Return #\Newline) "two")
-    (vt:term-resize term 10 8)
+    (term:term-resize term 10 8)
     (is (equal "one" (row term 0)))
     (is (equal "two" (row term 1)))
     (is (equal '(3 1) (cursor term)))))
@@ -177,8 +177,8 @@
     (dotimes (i 6)
       (say term (format nil "alt~D" i))
       (when (< i 5) (say term (format nil "~C~C" #\Return #\Newline))))
-    (vt:term-resize term 10 3)
-    (is (zerop (vt:term-scrollback-size term)) "the alt screen went to scrollback")
+    (term:term-resize term 10 3)
+    (is (zerop (term:term-scrollback-size term)) "the alt screen went to scrollback")
     (say term (csi "?1049l"))
     (is (equal "main-line" (row term 0)) "the main screen did not come back")))
 
@@ -187,13 +187,13 @@
     (say term "one" (csi "2;1H") "two" (csi "3;1H") "three")
     (say term (csi "H") (csi "M"))
     (is (equal "two" (row term 0)) "the line under it did not come up")
-    (is (zerop (vt:term-scrollback-size term))
+    (is (zerop (term:term-scrollback-size term))
         "a line deleted out of the screen was put in the scrollback")))
 
 (test a-cursor-saved-on-a-bigger-screen-comes-back-inside-this-one
   (let ((term (a-term :width 80 :height 40)))
     (say term (csi "?1049h") (csi "40;70H"))
-    (vt:term-resize term 20 10)
+    (term:term-resize term 20 10)
     (say term (csi "?1049l"))
     (is (equal '(0 0) (cursor term))
         "restored to ~S on a 20x10 screen" (cursor term))
@@ -217,44 +217,44 @@
   ;; the operations are the vocabulary a sequence is written in, so they are
   ;; part of the surface: somebody adding one reaches for these
   (let ((term (a-term :width 12 :height 4)))
-    (vt:term-goto term 1 1)
-    (vt:term-write term "one")
-    (vt:term-goto term 2 1)
-    (vt:term-write term "two")
-    (vt:term-goto term 3 1)
-    (vt:term-write term "three")
+    (term:term-goto term 1 1)
+    (term:term-write term "one")
+    (term:term-goto term 2 1)
+    (term:term-write term "two")
+    (term:term-goto term 3 1)
+    (term:term-write term "three")
     (is (equal '("one" "two" "three" "") (rows term)))
 
-    (vt:term-goto term 2 1)
-    (vt:term-delete-line term 1)
+    (term:term-goto term 2 1)
+    (term:term-delete-line term 1)
     (is (equal '("one" "three" "" "") (rows term))
         "delete-line: ~S" (rows term))
 
-    (vt:term-goto term 1 2)
-    (vt:term-insert-char term 2)
+    (term:term-goto term 1 2)
+    (term:term-insert-char term 2)
     (is (equal "o  ne" (row term 0)) "insert-char: ~S" (row term 0))
 
-    (vt:term-goto term 1 1)
-    (vt:term-erase-in-line term 0)
+    (term:term-goto term 1 1)
+    (term:term-erase-in-line term 0)
     (is (equal "" (row term 0)) "erase-in-line: ~S" (row term 0))
 
-    (vt:term-set-scroll-region term 1 2)
-    (is (eql 0 (vt:term-scroll-top term)))
-    (is (eql 1 (vt:term-scroll-bottom term)))
-    (vt:term-scroll-up term 1)
+    (term:term-set-scroll-region term 1 2)
+    (is (eql 0 (term:term-scroll-top term)))
+    (is (eql 1 (term:term-scroll-bottom term)))
+    (term:term-scroll-up term 1)
     (is (equal '("three" "" "" "") (rows term))
         "scroll-up inside the region: ~S" (rows term))
 
-    (vt:term-save-cursor term)
-    (vt:term-goto term 4 4)
-    (vt:term-restore-cursor term)
+    (term:term-save-cursor term)
+    (term:term-goto term 4 4)
+    (term:term-restore-cursor term)
     (is (equal '(0 0) (cursor term)) "save and restore: ~S" (cursor term))
 
-    (vt:term-enter-alt-screen term)
-    (vt:term-write term "over")
+    (term:term-enter-alt-screen term)
+    (term:term-write term "over")
     (is (equal "over" (row term 0)))
-    (is-true (vt:term-in-alt-screen term))
-    (vt:term-exit-alt-screen term)
+    (is-true (term:term-in-alt-screen term))
+    (term:term-exit-alt-screen term)
     (is (equal "three" (row term 0))
         "the main screen did not come back: ~S" (row term 0))))
 
@@ -305,17 +305,17 @@
 (test decstr-puts-the-pen-back-without-touching-the-screen
   (let ((term (a-term :width 10 :height 4)))
     (say term (csi "31m") (csi "4h") (csi "2;5r") "text" (csi "!p"))
-    (is (not (vt:term-insert-mode term)))
-    (is (eql 0 (vt:term-scroll-top term)))
-    (is (eql 3 (vt:term-scroll-bottom term)))
+    (is (not (term:term-insert-mode term)))
+    (is (eql 0 (term:term-scroll-top term)))
+    (is (eql 3 (term:term-scroll-bottom term)))
     (is (equal '(0 0) (cursor term)))
     (is (equal "text" (row term 0)) "the screen itself was not touched")
     (say term "x")
-    (is (vt:face-default-p (face-at term 0 0)) "the pen itself was reset")))
+    (is (term:face-default-p (face-at term 0 0)) "the pen itself was reset")))
 
 (test decaln-fills-the-screen-with-e
   (let ((term (a-term :width 4 :height 2)))
     (say term (csi "31m") (esc "#8"))
     (is (equal '("EEEE" "EEEE") (rows term)))
-    (is (vt:face-default-p (face-at term 0 0))
+    (is (term:face-default-p (face-at term 0 0))
         "the alignment pattern is in the default face")))

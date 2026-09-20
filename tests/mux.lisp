@@ -59,7 +59,7 @@
            (let ((said (get-output-stream-string ,broke)))
              (is (equal "" said) "the server said something broke:~%~A" said)))))))
 
-(defstruct seer client host master slave (decoder (vt:make-decoder)))
+(defstruct seer client host master slave (decoder (term:make-decoder)))
 
 (defun a-seer (path &key (rows 10) (cols 40))
   (multiple-value-bind (master slave-path) (pty:open-pty)
@@ -89,10 +89,10 @@ already failing."
      (when (pty:pty-wait (seer-master seer) 0)
        (let ((said (pty:pty-read-string (seer-master seer) 65536)))
          (when said
-           (vt:term-process-output
+           (term:term-process-output
             (seer-host seer)
-            (vt:decode-utf-8 (seer-decoder seer) said)))))
-     (when (and want (search want (vt:term-dump-to-string (seer-host seer))))
+            (term:decode-utf-8 (seer-decoder seer) said)))))
+     (when (and want (search want (term:term-dump-to-string (seer-host seer))))
        (return t))
      (when (and until (funcall until))
        (return t))
@@ -103,7 +103,7 @@ already failing."
   (pty:pty-write-string (seer-master seer) said))
 
 (defun seen (seer)
-  (vt:term-dump-to-string (seer-host seer)))
+  (term:term-dump-to-string (seer-host seer)))
 
 (defmacro with-seer ((seer path &rest args) &body body)
   `(let ((,seer (a-seer ,path ,@args)))
@@ -157,8 +157,8 @@ already failing."
                               (is-true (pump seer :want "red"))
                               (pump seer :seconds 1/4)
                               (let ((host (seer-host seer)))
-                                (is (eql 1 (vt:face-fg (face-at host 0 1))) "the red did not come across")
-                                (is (vt:face-bold (face-at host 4 1)) "the bold did not come across")))))
+                                (is (eql 1 (term:face-fg (face-at host 0 1))) "the red did not come across")
+                                (is (term:face-bold (face-at host 4 1)) "the bold did not come across")))))
 
 (test a-resize-reaches-the-program-and-the-screen
       (with-server (path :command "trap 'stty size' WINCH; stty size; sleep 1; sleep 60" :rows 10 :cols 40)
@@ -166,7 +166,7 @@ already failing."
                               (is-true (pump seer :want "9 40")
                                        "the program was not given the rows the bar left it")
                               (pty:pty-set-size (seer-master seer) 20 60)
-                              (vt:term-resize (seer-host seer) 60 20)
+                              (term:term-resize (seer-host seer) 60 20)
                               (multiple-value-bind (rows cols) (tty:host-size (seer-slave seer))
                                                    (is (eql 20 rows))
                                                    (is (eql 60 cols)))
@@ -272,7 +272,7 @@ already failing."
                                 (mux:wire-send wire (list :agent-keys "0" id (format nil "hello~C" #\Return)))
                                 (mux:wire-flush wire)
                                 (is-true (step-until server (lambda ()
-                                                              (search "hello" (vt:term-dump-to-string (mux:pane-term pane)))))
+                                                              (search "hello" (term:term-dump-to-string (mux:pane-term pane)))))
                                          "the keys did not reach the pane")
                                 (mux:wire-send wire (list :agent-read "0" id 3))
                                 (mux:wire-flush wire)
@@ -298,7 +298,7 @@ already failing."
                                                               (eq :idle (agent:agent-state (mux:pane-agent pane))))))
                                 (is (equal (list :agent-prompted "0" id t) (hear :agent-prompted)))
                                 (is-true (step-until server (lambda ()
-                                                              (search "more" (vt:term-dump-to-string (mux:pane-term pane)))))
+                                                              (search "more" (term:term-dump-to-string (mux:pane-term pane)))))
                                          "the prompt did not reach the pane")
                                 (mux:wire-close wire))))))
 
@@ -473,15 +473,15 @@ already failing."
                    (with-seer (seer path :rows 10 :cols 40)
                               (is-true (pump seer :want "before"))
                               (pty:pty-set-size (seer-master seer) 14 50)
-                              (vt:term-resize (seer-host seer) 50 14)
+                              (term:term-resize (seer-host seer) 50 14)
                               (mux:client-resized (seer-client seer))
                               (is-true (pump seer :want "before") "the pane did not come back after a resize")
                               (pump seer :seconds 3)
                               (let ((host (seer-host seer)))
-                                (is (vt:face-default-p (face-at host 20 6))
+                                (is (term:face-default-p (face-at host 20 6))
                                     "an empty cell came back wearing ~S, so the clear was done in
 whatever colour was last in force"
-                                    (vt:face-plist (face-at host 20 6)))))))
+                                    (term:face-plist (face-at host 20 6)))))))
 
 (test a-bar-that-has-stood-long-enough-puts-a-watcher-behind
       (let ((session (mux::%make-session))
@@ -501,8 +501,8 @@ whatever colour was last in force"
 
 (defun where-said (seer said)
   "Which column SAID starts at on the seer's screen, or nil."
-  (loop :for y :below (vt:term-height (seer-host seer))
-        :for found := (search said (vt:term-dump-row-string (seer-host seer) y))
+  (loop :for y :below (term:term-height (seer-host seer))
+        :for found := (search said (term:term-dump-row-string (seer-host seer) y))
         :when found :do (return found)))
 
 (test a-split-gives-the-new-pane-half-the-terminal-and-the-cursor

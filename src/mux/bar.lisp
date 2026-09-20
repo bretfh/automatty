@@ -96,7 +96,7 @@ another tree, and it is another bar."
    (atty/ui:gap)
    (atty/ui:label (if (pane-running (session-focus session)) "" "done") :face :warning)
    (atty/ui:label (let ((term (session-pane-term session)))
-                  (format nil "~Dx~D" (vt:term-width term) (vt:term-height term))))
+                  (format nil "~Dx~D" (term:term-width term) (term:term-height term))))
    (atty/ui:label (clock-says))
    (atty/ui:label " ")))
 

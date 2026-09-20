@@ -5,8 +5,8 @@
 
 (defun put (screen x y char &optional face)
   (let ((row (tty:screen-row screen y)))
-    (setf (vt:row-char row x) char
-          (vt:row-face row x) face)
+    (setf (term:row-char row x) char
+          (term:row-face row x) face)
     screen))
 
 (test two-screens-the-same-differ-nowhere
@@ -67,9 +67,9 @@
     (blit screen term)
     (dotimes (y 2)
       (dotimes (x 8)
-        (let ((row (vt:term-grid-row term y)))
-          (is (char= (char-at screen x y) (vt:row-char row x)))
-          (is (vt:face-equal (face-on screen x y) (vt:row-face row x))))))))
+        (let ((row (term:term-grid-row term y)))
+          (is (char= (char-at screen x y) (term:row-char row x)))
+          (is (term:face-equal (face-on screen x y) (term:row-face row x))))))))
 
 (test a-screen-does-not-share-its-cells-with-the-term-it-came-from
   (let ((term (a-term :width 8 :height 1))

@@ -4,7 +4,7 @@
 (in-suite input)
 
 (defun typed (term key)
-  (vt:key-event-to-escape-sequence term key))
+  (term:key-event-to-escape-sequence term key))
 
 (test a-character-is-itself
   (let ((term (a-term)))
@@ -70,8 +70,8 @@
 (test what-is-typed-is-what-the-program-reads
   (let* ((term (a-term :width 20 :height 2))
          (said nil))
-    (setf (vt:term-input-fn term)
+    (setf (term:term-input-fn term)
           (lambda (term string) (declare (ignore term)) (push string said)))
     (dolist (key (list #\h #\i '(:enter)))
-      (funcall (vt:term-input-fn term) term (typed term key)))
+      (funcall (term:term-input-fn term) term (typed term key)))
     (is (equal (list (string #\Return) "i" "h") said))))

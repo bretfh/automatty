@@ -9,7 +9,7 @@
 (def-suite all)
 
 (defun run-them ()
-  "Everything: the emulator's own suite, which vt runs on its own, and then
+  "Everything: the emulator's own suite, which libatty runs on its own, and then
 everything built on it."
   (let ((results (append (run 'libatty/test::emulator) (run 'all))))
     (explain! results)
@@ -36,18 +36,18 @@ everything built on it."
         :finally (return n)))
 
 (defun shown (screen y)
-  (string-right-trim " " (subseq (vt:row-chars (tty:screen-row screen y))
+  (string-right-trim " " (subseq (term:row-chars (tty:screen-row screen y))
                                  0 (tty:screen-width screen))))
 
 (defun char-at (screen x y)
-  (vt:row-char (tty:screen-row screen y) x))
+  (term:row-char (tty:screen-row screen y) x))
 
 (defun face-on (screen x y)
-  (vt:row-face (tty:screen-row screen y) x))
+  (term:row-face (tty:screen-row screen y) x))
 
 (defun laid-out (runs)
   (mapcar (lambda (r) (list (tty:run-row r) (tty:run-start r) (tty:run-end r)))
           runs))
 
 (defun at-screen (screen x y)
-  (vt:row-char (tty:screen-row screen y) x))
+  (term:row-char (tty:screen-row screen y) x))

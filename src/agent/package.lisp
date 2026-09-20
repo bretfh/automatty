@@ -2,7 +2,7 @@
 
 (defpackage #:atty/agent
   (:use #:cl)
-  (:local-nicknames (#:vt #:libatty))
+  (:local-nicknames (#:term #:libatty))
   (:export
    #:agent
    #:make-agent

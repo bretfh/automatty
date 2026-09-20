@@ -1,5 +1,5 @@
 (load (merge-pathnames "corpus.lisp" *load-truename*))
-(in-package #:vt/bench)
+(in-package #:term/bench)
 
 ;; Both multiplexers doing the whole job: a program writing hard, a grid kept,
 ;; a frame worked out and escapes put on a terminal somebody is reading. The
@@ -104,8 +104,8 @@ harness rather than what it was pointed at."
   (ignore-errors (delete-file (go-path)))
   (multiple-value-bind (fd pid) (pty:spawn-pty-process command :rows +rows+
                                                                :cols +cols+)
-    (let ((term (vt:make-term :width +cols+ :height +rows+))
-          (decoder (vt:make-decoder))
+    (let ((term (term:make-term :width +cols+ :height +rows+))
+          (decoder (term:make-decoder))
           (deadline (+ (nanos) (* seconds 1000000000)))
           (look 0)
           (weigh 0)
@@ -120,10 +120,10 @@ harness rather than what it was pointed at."
                  (let ((said (pty:pty-read-string fd 262144)))
                    (unless said (return))
                    (incf bytes (length said))
-                   (vt:term-process-output term (vt:decode-utf-8 decoder said))))
+                   (term:term-process-output term (term:decode-utf-8 decoder said))))
                (when (> now look)
                  (setf look (+ now +look+))
-                 (let ((screen (vt:term-dump-to-string term)))
+                 (let ((screen (term:term-dump-to-string term)))
                    (cond
                      ;; the pane waits until the terminal it is drawing on is
                      ;; actually up: a client that takes seconds to start would

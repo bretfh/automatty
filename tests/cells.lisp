@@ -101,9 +101,9 @@
 (test a-face-from-the-theme-becomes-a-face-on-the-grid
   (let* ((screen (drawn (atty/ui:label "coloured" :face :accent)))
          (face (face-on screen 0 0)))
-    (is (consp (vt:face-fg face)) "the theme colour did not reach the cell")
-    (is (= 3 (length (vt:face-fg face))) "a colour is three numbers")
-    (is (every (lambda (n) (<= 0 n 255)) (vt:face-fg face)))))
+    (is (consp (term:face-fg face)) "the theme colour did not reach the cell")
+    (is (= 3 (length (term:face-fg face))) "a colour is three numbers")
+    (is (every (lambda (n) (<= 0 n 255)) (term:face-fg face)))))
 
 (test a-wide-character-in-a-label-takes-the-columns-it-draws
   (let ((screen (drawn (atty/ui:row :spacing 1
@@ -120,11 +120,11 @@
   (unwind-protect
        (let* ((screen (drawn (atty/ui:label "marked" :face :a-test-face)))
               (face (face-on screen 0 0)))
-         (is-true (vt:face-bold face))
-         (is-true (vt:face-italic face))
-         (is (eq :curly (vt:face-underline face))
-             "the underline style was flattened: ~S" (vt:face-underline face))
-         (is-true (vt:face-crossed face) "crossed never reached the cell"))
+         (is-true (term:face-bold face))
+         (is-true (term:face-italic face))
+         (is (eq :curly (term:face-underline face))
+             "the underline style was flattened: ~S" (term:face-underline face))
+         (is-true (term:face-crossed face) "crossed never reached the cell"))
     (atty/ui:set-face :a-test-face nil)))
 
 (test the-warning-face-is-one-the-theme-has

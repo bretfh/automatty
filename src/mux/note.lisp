@@ -41,7 +41,7 @@
                               (atty/ui:measure tree m cols rows))))
          (top (max 0 (- rows high))))
     (atty/cells:fill-rect m 0 top cols (- rows top)
-                        (vt:make-face :bg (bar-face :bg-dim)))
+                        (term:make-face :bg (bar-face :bg-dim)))
     (atty/cells:draw tree (tty:screen-grid screen) cols rows :top top)
     (setf (tty:screen-cursor-visible screen) nil)))
 

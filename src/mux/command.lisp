@@ -57,7 +57,7 @@ out would take the screen with it."
 
 (setf atty/mode:*run* (lambda (does) (tried does (or (atty/mode:pending) "that key"))))
 
-;;; What vt calls a key, and what a mode calls one.
+;;; What libatty calls a key, and what a mode calls one.
 
 (defparameter +key-names+
   '((:up . "Up") (:down . "Down") (:left . "Left") (:right . "Right")

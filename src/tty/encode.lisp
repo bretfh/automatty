@@ -33,15 +33,15 @@ past the old SGR set are each either advertised or assumed absent."
 (defun flattened (colour)
   "An rgb triple as the nearest of the 256, and anything else as it was."
   (if (and (consp colour) (= 3 (length colour)))
-      (vt:rgb-to-color-index (first colour) (second colour) (third colour))
+      (term:rgb-to-color-index (first colour) (second colour) (third colour))
       colour))
 
 (defun as-taken (face takes)
   "FACE as a face this terminal can wear.
 
-vt writes a face whole and has no opinion about terminals. Which of it this one
+libatty writes a face whole and has no opinion about terminals. Which of it this one
 will accept is this side's business, so what it cannot take comes down to what
-it can before the face ever reaches VT:WRITE-SGR. A terminal that takes
+it can before the face ever reaches TERM:WRITE-SGR. A terminal that takes
 everything gets the face it was given and nothing is copied."
   (if (or (null face) (eq takes t))
       face
@@ -51,26 +51,26 @@ everything gets the face it was given and nothing is copied."
             (blink (taken :blink takes)))
         (if (and rgb style under blink)
             face
-            (let ((out (vt:copy-face face)))
+            (let ((out (term:copy-face face)))
               (unless rgb
-                (setf (vt:face-fg out) (flattened (vt:face-fg out))
-                      (vt:face-bg out) (flattened (vt:face-bg out))
-                      (vt:face-underline-color out)
-                      (flattened (vt:face-underline-color out))))
+                (setf (term:face-fg out) (flattened (term:face-fg out))
+                      (term:face-bg out) (flattened (term:face-bg out))
+                      (term:face-underline-color out)
+                      (flattened (term:face-underline-color out))))
               (unless style
-                (when (vt:face-underline out)
-                  (setf (vt:face-underline out) :single)))
-              (unless under (setf (vt:face-underline-color out) nil))
-              (unless blink (setf (vt:face-blink out) nil))
+                (when (term:face-underline out)
+                  (setf (term:face-underline out) :single)))
+              (unless under (setf (term:face-underline-color out) nil))
+              (unless blink (setf (term:face-blink out) nil))
               out)))))
 
 (defun write-cup (y x s)
   (declare (type fixnum y x))
   (write-char #\Escape s)
   (write-char #\[ s)
-  (vt:write-number (1+ y) s)
+  (term:write-number (1+ y) s)
   (write-char #\; s)
-  (vt:write-number (1+ x) s)
+  (term:write-number (1+ x) s)
   (write-char #\H s))
 
 (defun blank-tail (row from to)
@@ -80,8 +80,8 @@ rest of the way to TO, or nil when it never is."
   (let ((at to))
     (declare (type fixnum at))
     (loop while (> at from)
-          while (and (char= #\Space (vt:row-char row (1- at)))
-                     (vt:face-default-p (vt:row-face row (1- at))))
+          while (and (char= #\Space (term:row-char row (1- at)))
+                     (term:face-default-p (term:row-face row (1- at))))
           do (decf at))
     (when (< at to) at)))
 
@@ -103,20 +103,20 @@ carry on from it."
         (declare (type fixnum x stop))
         (write-cup y (run-start run) s)
         (loop while (< x stop)
-              do (let ((ch (vt:row-char row x))
-                       (now (vt:row-face row x)))
+              do (let ((ch (term:row-char row x))
+                       (now (term:row-face row x)))
                    (unless (and (not (eq face :none))
-                                (vt:face-equal face now))
-                     (vt:write-sgr (as-taken now takes) s)
+                                (term:face-equal face now))
+                     (term:write-sgr (as-taken now takes) s)
                      (setf face now))
                    (write-char (if (graphic-char-p ch) ch #\Space) s)
-                   (incf x (if (and (= 2 (vt:char-display-width ch))
+                   (incf x (if (and (= 2 (term:char-display-width ch))
                                     (< (1+ x) stop))
                                2
                              1))))
         (when (< stop end)
-          (unless (and (not (eq face :none)) (vt:face-default-p face))
-            (vt:write-sgr nil s)
+          (unless (and (not (eq face :none)) (term:face-default-p face))
+            (term:write-sgr nil s)
             (setf face nil))
           (write-char #\Escape s) (write-char #\[ s) (write-char #\K s))))))
 
@@ -130,7 +130,7 @@ carry on from it."
   (let ((n (cdr (assoc style +cursor-shapes+))))
     (when n
       (write-char #\Escape s) (write-char #\[ s)
-      (vt:write-number n s)
+      (term:write-number n s)
       (write-char #\Space s) (write-char #\q s))))
 
 (defun encode-cursor (screen s)
@@ -142,5 +142,5 @@ carry on from it."
 
 (defun encode-frame (screen runs s &key (takes t))
   (encode-runs screen runs s :takes takes)
-  (vt:write-sgr nil s)
+  (term:write-sgr nil s)
   (encode-cursor screen s))

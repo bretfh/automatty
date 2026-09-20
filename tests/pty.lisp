@@ -18,23 +18,23 @@ until the first quiet moment: a program that is asleep has not finished."
           :do (when (pty:pty-wait fd 100)
                 (let ((said (pty:pty-read-string fd 8192)))
                   (if said
-                      (vt:term-process-output term said)
+                      (term:term-process-output term said)
                       (return)))))
     term))
 
 (defun until-said (term fd wanted &key (seconds 5))
   (let ((deadline (+ (get-internal-real-time)
                      (* seconds internal-time-units-per-second))))
-    (loop :until (search wanted (vt:term-dump-to-string term))
+    (loop :until (search wanted (term:term-dump-to-string term))
           :do (when (> (get-internal-real-time) deadline) (return nil))
              (when (pty:pty-wait fd 100)
                (let ((said (pty:pty-read-string fd 8192)))
                  (if said
-                     (vt:term-process-output term said)
-                     (return (search wanted (vt:term-dump-to-string term))))))
+                     (term:term-process-output term said)
+                     (return (search wanted (term:term-dump-to-string term))))))
           :finally (return t))))
 
-(defun screen (term) (vt:term-dump-to-string term))
+(defun screen (term) (term:term-dump-to-string term))
 
 (test a-program-on-a-pty-says-what-it-printed
   (let ((term (a-term :width 40 :height 10)))
@@ -47,10 +47,10 @@ until the first quiet moment: a program that is asleep has not finished."
   (let ((term (a-term :width 40 :height 10)))
     (with-pty (fd pid "printf '\\033[31mred\\033[0m\\n'" :rows 10 :cols 40)
       (until-said term fd "red")
-      (let ((x (search "red" (vt:term-dump-row-string term 0))))
+      (let ((x (search "red" (term:term-dump-row-string term 0))))
         (is-true x)
         (when x
-          (is (eql 1 (vt:face-fg (face-at term x 0)))))))))
+          (is (eql 1 (term:face-fg (face-at term x 0)))))))))
 
 (test a-program-is-told-how-big-its-terminal-is
   (let ((term (a-term :width 77 :height 11)))
@@ -80,7 +80,7 @@ until the first quiet moment: a program that is asleep has not finished."
       (soak term fd :seconds 3)
       (let ((said (screen term)))
         (is (search "pts" said) "the child is on a pty: ~S" said)
-        (let* ((line (string-trim " " (vt:term-dump-row-string term 1)))
+        (let* ((line (string-trim " " (term:term-dump-row-string term 1)))
                (numbers (with-input-from-string (s line)
                           (list (read s nil) (read s nil)))))
           (is (eql (first numbers) (second numbers))
@@ -100,7 +100,7 @@ until the first quiet moment: a program that is asleep has not finished."
                    :rows 24 :cols 80)
       (sleep 0.3)
       (pty:pty-set-size fd 40 100)
-      (vt:term-resize term 100 40)
+      (term:term-resize term 100 40)
       (soak term fd :seconds 4)
       (is (search "GOT-WINCH" (screen term)))
       (is (search "40 100" (screen term))))))
@@ -136,7 +136,7 @@ until the first quiet moment: a program that is asleep has not finished."
     (with-pty (fd pid "printf '\342\224\234\342\224\200\342\224\200 tree\n'")
       (until-said term fd "tree")
       (with-pty (again other "cat")
-        (let ((said (vt:term-dump-row-string term 0)))
+        (let ((said (term:term-dump-row-string term 0)))
           (pty:pty-write-string again (string-right-trim " " said))
           (pty:pty-write-string again (string #\Return))
           (let ((back (a-term :width 40 :height 4)))

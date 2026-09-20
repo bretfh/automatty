@@ -1,6 +1,6 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(in-package #:vt)
+(in-package #:term)
 
 (declaim (optimize (speed 3) (safety 1)))
 
@@ -23,7 +23,7 @@ SGR change looks its face up in a cache by comparing it against what is there, s
 the attributes that differ most often go first and the ones almost nothing sets
 go last, where the comparison usually never reaches them.")
 
-  (defun face-reader (name) (intern (format nil "FACE-~A" name) '#:vt))
+  (defun face-reader (name) (intern (format nil "FACE-~A" name) '#:term))
 
   (defun face-initarg (name) (intern (symbol-name name) '#:keyword)))
 
@@ -337,7 +337,7 @@ overlap; REPLACE answers as though the source were taken first."
 
 ;;; What a program said, as something to do about it. Each is a generic
 ;;; function and each sequence is one method: (defstruct (my-term (:include
-;;; vt:term))) and a method of your own adds one, or changes what one already
+;;; term:term))) and a method of your own adds one, or changes what one already
 ;;; means, without touching this library.
 ;;;
 ;;; A method of your own on a term of your own beats the one here, because its

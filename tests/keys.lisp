@@ -4,11 +4,11 @@
 (in-suite keys)
 
 ;;; What a terminal sent, read back as the key somebody pressed. The other
-;;; direction is vt's and is tested in tests/term/input.lisp; a round trip
+;;; direction is libatty's and is tested in tests/term/input.lisp; a round trip
 ;;; needs both, so it lives on this side.
 
 (defun a-key-again (term event)
-  (let ((said (vt:key-event-to-escape-sequence term event)))
+  (let ((said (term:key-event-to-escape-sequence term event)))
     (when said
       (multiple-value-bind (back took)
           (tty:escape-sequence-to-key-event said 0 (length said) nil)
@@ -49,7 +49,7 @@
   (let ((term (a-term)))
     (dolist (event '((:tab :ctrl) (:enter :shift) (:escape :meta)
                      (:backspace :shift)))
-      (let ((said (vt:key-event-to-escape-sequence term event)))
+      (let ((said (term:key-event-to-escape-sequence term event)))
         (is (eql 1 (length said))
             "~S was written as ~S, which has room for a modifier" event said)
         (is (same-key-p (list (first event))

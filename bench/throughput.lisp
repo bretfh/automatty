@@ -1,5 +1,5 @@
 (load (merge-pathnames "corpus.lisp" *load-truename*))
-(in-package #:vt/bench)
+(in-package #:term/bench)
 
 (defparameter +rounds+ 7)
 (defparameter +chunk+ 8192)
@@ -15,7 +15,7 @@
       (let* ((end (min len (+ i +chunk+)))
              (n (- end i)))
         (replace buffer said :start2 i :end2 end)
-        (vt:term-process-output term (if (= n +chunk+)
+        (term:term-process-output term (if (= n +chunk+)
                                          buffer
                                          (subseq buffer 0 n)))))))
 
@@ -26,7 +26,7 @@
 (defparameter +buffer+ (make-string +chunk+))
 
 (defun parser-round (said)
-  (let ((term (vt:make-term :width 80 :height 24))
+  (let ((term (term:make-term :width 80 :height 24))
         (then (get-internal-real-time))
         (consed (sb-ext:get-bytes-consed)))
     (feed term said +buffer+)
@@ -36,14 +36,14 @@
   (multiple-value-bind (fd pid)
       (pty:spawn-pty-process (format nil "cat ~A" (namestring path))
                              :rows 24 :cols 80)
-    (let ((term (vt:make-term :width 80 :height 24))
+    (let ((term (term:make-term :width 80 :height 24))
           (then (get-internal-real-time))
           (read 0))
       (loop :while (pty:pty-wait fd 2000)
             :for said := (pty:pty-read-string fd 65536)
             :while said
             :do (incf read (length said))
-                (vt:term-process-output term said))
+                (term:term-process-output term said))
       (pty:pty-close fd)
       (pty:pty-reap pid)
       (values (seconds-since then) read))))

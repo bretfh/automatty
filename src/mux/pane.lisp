@@ -15,7 +15,7 @@
   (named nil)
   (command nil)
   (agent nil)
-  (decoder (vt:make-decoder)))
+  (decoder (term:make-decoder)))
 
 (defun make-pane (command &key (rows 24) (cols 80))
   "A pane with a terminal that size and no program in it yet.
@@ -26,7 +26,7 @@ room the layout gave it rather than a guess it is corrected out of afterwards."
   (let ((pane (%make-pane :id (incf *panes-made*) :command command
                           :agent (agent:make-agent nil command))))
     (setf (pane-term pane)
-          (vt:make-term :width cols :height rows
+          (term:make-term :width cols :height rows
                         :bell-fn (lambda (term)
                                    (declare (ignore term))
                                    (setf (pane-rang pane) t))
@@ -47,8 +47,8 @@ room the layout gave it rather than a guess it is corrected out of afterwards."
     (let ((term (pane-term pane)))
       (multiple-value-bind (fd pid)
           (pty:spawn-pty-process (pane-command pane)
-                                 :rows (vt:term-height term)
-                                 :cols (vt:term-width term)
+                                 :rows (term:term-height term)
+                                 :cols (term:term-width term)
                                  :environment environment)
         (setf (pane-fd pane) fd
               (pane-pid pane) pid))))
@@ -67,9 +67,9 @@ comes straight back, so one pane writing without pause cannot starve the rest."
       (cond
         ((null said) (setf (pane-running pane) nil) (return nil))
         ((zerop (length said)) (return t))
-        (t (vt:term-process-output
+        (t (term:term-process-output
             (pane-term pane)
-            (vt:decode-utf-8 (pane-decoder pane) said))
+            (term:decode-utf-8 (pane-decoder pane) said))
            (setf (pane-dirty pane) t))))))
 
 (declaim (ftype function pane-say))
@@ -79,7 +79,7 @@ comes straight back, so one pane writing without pause cannot starve the rest."
     (ignore-errors (pty:pty-write-string (pane-fd pane) said))))
 
 (defun pane-resize (pane rows cols)
-  (vt:term-resize (pane-term pane) cols rows)
+  (term:term-resize (pane-term pane) cols rows)
   (ignore-errors (pty:pty-set-size (pane-fd pane) rows cols))
   (setf (pane-dirty pane) t)
   pane)

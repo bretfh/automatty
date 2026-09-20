@@ -32,7 +32,7 @@
 (defun columns-of (text)
   "How many columns TEXT takes, which is not how many characters it has."
   (let ((n 0))
-    (map nil (lambda (ch) (incf n (vt:char-display-width ch))) text)
+    (map nil (lambda (ch) (incf n (term:char-display-width ch))) text)
     n))
 
 (defmethod ui:text-size ((m cells) text font &optional bold family)
@@ -53,7 +53,7 @@ saying there is none, which means whatever it is being drawn onto."
                        (let* ((style (ui:style-of widget))
                               (fill (or (ui:background-color widget)
                                         (getf style :background-color))))
-                         (vt:make-face
+                         (term:make-face
                           :fg (or (getf style :color) (list fr fg fb))
                           :bg (cond ((consp fill) (subseq fill 0 3))
                                     ((minusp br) *under*)
@@ -72,9 +72,9 @@ saying there is none, which means whatever it is being drawn onto."
         (map nil
              (lambda (ch)
                (when (and (<= 0 x) (< x (cells-cols m)))
-                 (setf (vt:row-char row x) ch
-                       (vt:row-face row x) face))
-               (incf x (max 1 (vt:char-display-width ch))))
+                 (setf (term:row-char row x) ch
+                       (term:row-face row x) face))
+               (incf x (max 1 (term:char-display-width ch))))
              text)
         x))))
 
@@ -85,8 +85,8 @@ saying there is none, which means whatever it is being drawn onto."
                     (from (max 0 col))
                     (to (min (cells-cols m) (+ col width))))
                 (when (< from to)
-                  (fill (vt:row-chars row) char :start from :end to)
-                  (fill (vt:row-faces row) face :start from :end to))))))
+                  (fill (term:row-chars row) char :start from :end to)
+                  (fill (term:row-faces row) face :start from :end to))))))
 
 (defun blit (m term col line width height)
   "Copy what TERM holds into the grid at COL LINE, clipped to WIDTH by HEIGHT
@@ -98,19 +98,19 @@ already sent and repaint nothing ever again."
   (declare (type fixnum col line width height)
            (optimize (speed 3) (safety 1)))
   (let ((grid (the simple-vector (cells-grid m)))
-        (rows (min (vt:term-height term) height (- (cells-rows m) line)))
-        (cols (min (vt:term-width term) width (- (cells-cols m) col))))
+        (rows (min (term:term-height term) height (- (cells-rows m) line)))
+        (cols (min (term:term-width term) width (- (cells-cols m) col))))
     (declare (type fixnum rows cols))
     (loop :for y :of-type fixnum :from (max 0 (- line)) :below rows
-          :do (let* ((from (vt:term-grid-row term y))
+          :do (let* ((from (term:term-grid-row term y))
                      (into (svref grid (+ line y)))
                      (at (max 0 (- col)))
                      (n (- cols at)))
                 (declare (type fixnum at n))
                 (when (plusp n)
-                  (replace (vt:row-chars into) (vt:row-chars from)
+                  (replace (term:row-chars into) (term:row-chars from)
                            :start1 (+ col at) :start2 at :end2 cols)
-                  (replace (vt:row-faces into) (vt:row-faces from)
+                  (replace (term:row-faces into) (term:row-faces from)
                            :start1 (+ col at) :start2 at :end2 cols))))
     m))
 
@@ -121,7 +121,7 @@ already sent and repaint nothing ever again."
                  (let ((*under* (subseq fill 0 3)))
                    (when (and (plusp (ui:width w)) (plusp (ui:height w)))
                      (fill-rect m (ui:left w) (ui:top w) (ui:width w) (ui:height w)
-                                (vt:make-face :bg *under*)))
+                                (term:make-face :bg *under*)))
                    (call-next-method))
                (call-next-method))))
 

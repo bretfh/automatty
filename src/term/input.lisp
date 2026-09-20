@@ -1,6 +1,6 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(in-package #:vt)
+(in-package #:term)
 
 (defvar *function-key-table*
   (map 'vector (lambda (tail) (format nil "~C~A" #\Escape tail))

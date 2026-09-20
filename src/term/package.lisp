@@ -1,7 +1,7 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
 (defpackage #:libatty
-  (:nicknames #:vt)
+  (:nicknames #:term)
   (:use #:cl)
   (:export
    #:row

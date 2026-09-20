@@ -1,6 +1,6 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(in-package #:vt)
+(in-package #:term)
 
 (defvar *color-palette* (make-array 256 :initial-element nil))
 

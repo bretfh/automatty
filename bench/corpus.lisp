@@ -1,12 +1,12 @@
 (require :asdf)
 (asdf:load-system :atty/all)
 
-(defpackage #:vt/bench
+(defpackage #:term/bench
   (:use #:cl)
   (:local-nicknames (#:pty #:atty/pty) (#:tty #:atty/tty) (#:mux #:atty)
                     (#:cells #:atty/cells))
   (:export #:corpus-dir #:make-corpora #:corpora))
-(in-package #:vt/bench)
+(in-package #:term/bench)
 
 (defun corpus-dir ()
   (let ((said (or (uiop:getenv "BENCH_DIR") "/tmp/atty-bench")))

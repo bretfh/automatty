@@ -8,9 +8,9 @@
        (sb-ext:string-to-octets string :external-format :utf-8)))
 
 (defun decoded (&rest reads)
-  (let ((d (vt:make-decoder)))
+  (let ((d (term:make-decoder)))
     (apply #'concatenate 'string
-           (mapcar (lambda (said) (vt:decode-utf-8 d said)) reads))))
+           (mapcar (lambda (said) (term:decode-utf-8 d said)) reads))))
 
 (test what-was-written-in-utf-8-is-read-back-as-what-it-says
       (dolist (said '("plain ascii" "héllo" "├── tree" "漢字" "a→b" "🭰 and 😀"))
@@ -46,7 +46,7 @@
 
 (test a-box-drawing-character-is-one-cell-not-three
       (let ((term (a-term :width 10 :height 1))
-            (d (vt:make-decoder)))
-        (say term (vt:decode-utf-8 d (bytes-of "├── a")))
+            (d (term:make-decoder)))
+        (say term (term:decode-utf-8 d (bytes-of "├── a")))
         (is (equal "├── a" (row term 0)))
         (is (equal '(5 0) (cursor term)) "it took more columns than it draws")))
