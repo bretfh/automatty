@@ -13,6 +13,18 @@ manage several sessions at a time, each maintaining a tree of windows and
 panes from a server, so a client can attach, switch, or detach, and come
 back later with its layout and state intact.
 
+The server also knows what the program in each pane is doing. It holds every
+pane as a grid of cells, not a stream of bytes, so it can tell a coding agent's
+prompt box from its permission dialog from its spinner, and it says so on the
+bar and over the socket. =vtx agent list= names every pane and whether it is
+idle, working or blocked. =wait= blocks until one is. =read= answers what is on
+its screen, as text. =prompt= gives it new work, =say= answers what it is
+asking, and =explain= names the rule that decided. A program inside a pane can
+say its own state with =vtx agent signal=. There is nothing to install and no
+protocol to speak: an agent that can run a shell command can watch another
+pane, wait until it is stuck, read why, and answer it, through the terminal it
+already has.
+
 ** Building
 
 For working on this repo:

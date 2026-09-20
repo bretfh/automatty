@@ -148,7 +148,7 @@ layout rather than a list, so the whole family follows from the one rule."
           (error "ptsname: ~A" (sb-int:strerror (sb-alien:get-errno))))
         (values master slave)))))
 
-(defun spawn-pty-process (command &key (rows 24) (cols 80) (shell "/bin/sh"))
+(defun spawn-pty-process (command &key (rows 24) (cols 80) (shell "/bin/sh") environment)
   "Run COMMAND under a shell on a pseudo-terminal of its own. Answers
  (values master-fd pid).
 
@@ -165,8 +165,9 @@ cannot do and the reason this used to want a helper program written in C."
       (let ((actions-sap (sb-alien:alien-sap actions))
             (attr-sap (sb-alien:alien-sap attr))
             (arguments (list (file-namestring shell) "-c" command))
-            (environment (list* "TERM=xterm-256color" "COLORTERM=truecolor"
-                                (sb-ext:posix-environ))))
+            (environment (append environment
+                                (list* "TERM=xterm-256color" "COLORTERM=truecolor"
+                                       (sb-ext:posix-environ)))))
         (check (%actions-init actions-sap) "posix_spawn_file_actions_init")
         (check (%attr-init attr-sap) "posix_spawnattr_init")
         (unwind-protect

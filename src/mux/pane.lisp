@@ -2,7 +2,10 @@
 
 (in-package #:vtx)
 
+(defvar *panes-made* 0)
+
 (defstruct (pane (:constructor %make-pane))
+  (id 0 :type fixnum)
   (term nil)
   (fd -1 :type fixnum)
   (pid -1 :type fixnum)
@@ -11,6 +14,7 @@
   (rang nil :type boolean)
   (named nil)
   (command nil)
+  (agent nil)
   (decoder (vt:make-decoder)))
 
 (defun make-pane (command &key (rows 24) (cols 80))
@@ -19,7 +23,8 @@
 Starting it is a second step because the size it is started at is the size it is
 told, once: a shell that asks stty for it on its first line must be told the
 room the layout gave it rather than a guess it is corrected out of afterwards."
-  (let ((pane (%make-pane :command command)))
+  (let ((pane (%make-pane :id (incf *panes-made*) :command command
+                          :agent (agent:make-agent nil command))))
     (setf (pane-term pane)
           (vt:make-term :width cols :height rows
                         :bell-fn (lambda (term)
@@ -27,7 +32,8 @@ room the layout gave it rather than a guess it is corrected out of afterwards."
                                    (setf (pane-rang pane) t))
                         :title-fn (lambda (term title)
                                     (declare (ignore term))
-                                    (setf (pane-named pane) title))
+                                    (setf (pane-named pane) title)
+                                    (agent:agent-become (pane-agent pane) title command))
                         :input-fn (lambda (term said)
                                     (declare (ignore term))
                                     (pane-say pane said))))
@@ -35,14 +41,15 @@ room the layout gave it rather than a guess it is corrected out of afterwards."
 
 (defun pane-started (pane) (>= (pane-fd pane) 0))
 
-(defun pane-start (pane)
+(defun pane-start (pane &key environment)
   "Run the pane's program on a terminal of its own, the size the pane is now."
   (unless (pane-started pane)
     (let ((term (pane-term pane)))
       (multiple-value-bind (fd pid)
           (pty:spawn-pty-process (pane-command pane)
                                  :rows (vt:term-height term)
-                                 :cols (vt:term-width term))
+                                 :cols (vt:term-width term)
+                                 :environment environment)
         (setf (pane-fd pane) fd
               (pane-pid pane) pid))))
   pane)

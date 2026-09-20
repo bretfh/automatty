@@ -2,7 +2,7 @@
 
 (defpackage #:vtx
   (:use #:cl)
-  (:local-nicknames (#:pty #:vtx/pty) (#:tty #:vtx/tty))
+  (:local-nicknames (#:pty #:vtx/pty) (#:tty #:vtx/tty) (#:agent #:vtx/agent))
   (:export
    #:wire
    #:make-wire
@@ -33,6 +33,8 @@
    #:pane-say
    #:pane-resize
    #:pane-command
+   #:pane-agent
+   #:pane-id
    #:pane-close
 
    #:*interval*
@@ -54,6 +56,9 @@
    #:session-layout
    #:session-focus
    #:session-panes
+   #:session-observe
+   #:session-socket
+   #:agent-rows
    #:split
    #:make-split
    #:split-way
@@ -135,5 +140,7 @@
    #:socket-path
    #:sessions-here
    #:stop-a-server
+   #:asked
+   #:agents-here
    #:run
    #:main))

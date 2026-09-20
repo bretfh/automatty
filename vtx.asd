@@ -44,12 +44,22 @@
                 :pathname "src/cells/"
                 :components ((:file "cells")))
 
+(asdf:defsystem #:vtx/agent
+                :description "What the program in a pane is doing"
+                :depends-on (#:libvtx)
+                :serial t
+                :pathname "src/agent/"
+                :components ((:file "package")
+                             (:file "agent")
+                             (:file "claude-code")))
+
 (asdf:defsystem #:vtx
                 :description "A terminal emulator and multiplexer"
                 :author "Bret Horne"
                 :license "GPL-3.0-or-later"
                 :version "0.0.1"
                 :depends-on (#:libvtx #:vtx/pty #:vtx/tty #:vtx/mode #:vtx/ui #:vtx/cells
+                                  #:vtx/agent
                                   (:require #:sb-posix)
                                   (:require #:sb-bsd-sockets))
                 :serial t
@@ -71,7 +81,7 @@
 (asdf:defsystem #:vtx/all
                 :description "Everything here"
                 :depends-on (#:libvtx #:vtx/pty #:vtx/tty #:vtx/mode #:vtx/ui #:vtx/cells
-                                  #:vtx))
+                                  #:vtx/agent #:vtx))
 
 (asdf:defsystem #:vtx/test
                 :description "Vtx's test suite"
@@ -81,6 +91,7 @@
                 :components ((:file "suite")
                              (:file "keys")
                              (:file "pty")
+                             (:file "agent")
                              (:file "host")
                              (:file "screen")
                              (:file "encode")

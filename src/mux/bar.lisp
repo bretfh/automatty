@@ -33,6 +33,12 @@ reads to the end, and its name is the last thing in it."
       (shortened (pane-command pane))
       ""))
 
+(defun agent-says (pane)
+  (let ((agent (pane-agent pane)))
+    (if (eq 'agent:agent (type-of agent))
+        ""
+        (string-downcase (agent:agent-state agent)))))
+
 ;;; A button on the bar is a widget like any other, except a click on it does
 ;;; not run anything itself: the bar is composed once and shared by everyone
 ;;; watching, so what a click on it means is the server's to say, and RUNS
@@ -80,6 +86,11 @@ another tree, and it is another bar."
    (vtx/ui:label " λ " :face :brand)
    (vtx/ui:label (format nil " ~A " (session-name session)) :face :accent)
    (vtx/ui:label (pane-says (session-focus session)))
+   (vtx/ui:label (agent-says (session-focus session))
+                 :face (if (eq :blocked (agent:agent-state
+                                         (pane-agent (session-focus session))))
+                           :warning
+                           :accent))
    (vtx/ui:gap)
    (search-segment session)
    (vtx/ui:gap)

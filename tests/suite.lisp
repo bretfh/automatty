@@ -1,7 +1,7 @@
 (defpackage #:vtx/test
   (:use #:cl #:fiveam #:libvtx/test)
   (:local-nicknames (#:pty #:vtx/pty) (#:tty #:vtx/tty) (#:mux #:vtx)
-                    (#:cells #:vtx/cells))
+                    (#:cells #:vtx/cells) (#:agent #:vtx/agent))
   (:shadow #:run-them)
   (:export #:run-them #:all))
 (in-package #:vtx/test)
