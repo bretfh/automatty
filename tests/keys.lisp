@@ -83,6 +83,43 @@
     (is (null (tty:escape-sequence-to-key-event said 0 1 t)))
     (is (equal '(:escape) (tty:escape-sequence-to-key-event said 0 1 nil)))))
 
+(test a-click-decodes-with-the-cell-it-landed-on
+  (let ((said (format nil "~C[<0;10;5M" #\Escape)))
+    (multiple-value-bind (event took)
+        (tty:escape-sequence-to-key-event said 0 (length said) nil)
+      (is (eql (length said) took))
+      (is (equal '(:mouse :x 9 :y 4 :button :left :wheel nil :drag nil
+                   :release nil :shift nil :meta nil :ctrl nil)
+                 event)))))
+
+(test a-release-says-so-and-a-drag-is-not-a-click
+  (let ((up (format nil "~C[<0;10;5m" #\Escape))
+        (drag (format nil "~C[<32;1;1M" #\Escape)))
+    (is (getf (rest (tty:escape-sequence-to-key-event up)) :release))
+    (is (getf (rest (tty:escape-sequence-to-key-event drag)) :drag))))
+
+(test a-wheel-is-told-apart-from-a-button-and-keeps-its-direction
+  (let ((wup (format nil "~C[<64;1;1M" #\Escape))
+        (wdown (format nil "~C[<65;1;1M" #\Escape)))
+    (is (eq :up (getf (rest (tty:escape-sequence-to-key-event wup)) :wheel)))
+    (is (eq :down (getf (rest (tty:escape-sequence-to-key-event wdown)) :wheel)))
+    (is (null (getf (rest (tty:escape-sequence-to-key-event wup)) :button)))))
+
+(test the-legacy-x10-report-decodes-too
+  (let ((said (format nil "~C[M~C~C~C" #\Escape (code-char (+ 32 0))
+                      (code-char (+ 32 6)) (code-char (+ 32 3)))))
+    (multiple-value-bind (event took)
+        (tty:escape-sequence-to-key-event said 0 (length said) nil)
+      (is (eql 6 took))
+      (is (eq :left (getf (rest event) :button)))
+      (is (eql 5 (getf (rest event) :x)))
+      (is (eql 2 (getf (rest event) :y))))))
+
+(test a-clicks-modifiers-come-back-the-way-a-keys-do
+  (let ((shifted (format nil "~C[<4;1;1M" #\Escape)))
+    (is (getf (rest (tty:escape-sequence-to-key-event shifted)) :shift))
+    (is (not (getf (rest (tty:escape-sequence-to-key-event shifted)) :ctrl)))))
+
 (test one-read-of-many-keys-is-many-keys
   (let ((said (format nil "hi~C[A~C[3~~~C" #\Escape #\Escape #\Return))
         (keys nil)

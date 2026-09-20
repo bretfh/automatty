@@ -10,6 +10,7 @@
   (multiple-value-bind (fd pid) (pty:spawn-pty-process command
                                                        :rows height :cols width)
                        (let ((term (vt:make-term :width width :height height))
+                             (decoder (vt:make-decoder))
                              (deadline (+ (get-internal-real-time)
                                           (* seconds internal-time-units-per-second))))
                          (unwind-protect
@@ -17,7 +18,8 @@
                                    :do (if (pty:pty-wait fd 100)
                                            (let ((said (pty:pty-read-string fd 8192)))
                                              (if said
-                                                 (vt:term-process-output term said)
+                                                 (vt:term-process-output
+                                                  term (vt:decode-utf-8 decoder said))
                                                (return)))
                                          (return)))
                            (pty:pty-close fd)

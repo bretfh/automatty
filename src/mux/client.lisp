@@ -164,10 +164,12 @@ looks like, not why it happened."
                           (format nil "~A  ~Dx~D  ~D pane~:P  ~D watching"
                                   name cols rows panes watching)))
                       (second form))
+              :kind #\@
               :chose (lambda (said c)
                        (wire-send (client-wire c)
                                   (list :go (subseq said 0 (position #\Space said)))))))
         (:bell (host-say client (string (code-char 7))))
+        (:do (run-command (second form) client))
         (:bye (done-with client (second form)))
         (t nil)))
 
@@ -242,7 +244,10 @@ The bytes are not decoded into keys and encoded again: a terminal sends more
 than any table of keys knows, such as mouse reports, pasted text and whatever
 encoding it was built with, and what the pane reads should be what the terminal
 sent. Once a chord has started they are read as keys, because that is what a
-mode is written in, and the pane does not see them at all."
+mode is written in, and the pane does not see them at all.
+
+A mouse report this build has no name for is forwarded the same way. One it
+does have a name for goes to the mode instead and is not passed on."
   (when (client-over client)
     (return-from client-typed (client-pressed client said)))
   (let* ((said (client-holding client said))
@@ -263,10 +268,25 @@ mode is written in, and the pane does not see them at all."
                       (when event (client-chord client (key-of event)))
                       (when (client-over client) (return)))
                     (let ((ch (char said at)))
-                      (incf at)
-                      (if (char= ch +prefix+)
-                          (progn (send) (client-chord client (key-of ch)))
-                          (vector-push ch out)))))
+                      (cond
+                        ((char= ch +prefix+)
+                         (incf at)
+                         (send) (client-chord client (key-of ch)))
+                        ((char= ch #\Escape)
+                         (multiple-value-bind (event took)
+                             (tty:escape-sequence-to-key-event said at n nil)
+                           (let ((key (and (plusp took) (consp event)
+                                           (eq (first event) :mouse)
+                                           (mouse-key-of event))))
+                             (if key
+                                 (progn
+                                   (send)
+                                   (let ((*mouse-at* (cons (getf (rest event) :x)
+                                                            (getf (rest event) :y))))
+                                     (client-chord client key))
+                                   (incf at took))
+                                 (progn (vector-push ch out) (incf at))))))
+                        (t (incf at) (vector-push ch out))))))
       (send))))
 
 (defun client-resized (client)

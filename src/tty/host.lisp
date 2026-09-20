@@ -91,14 +91,17 @@ then every cell that is genuinely blank matches what we think is there and is
 never drawn over.")
 
 (defparameter +took-over+
-  (format nil "~C[?1049h~C[?7l~C[?25l~A" #\Escape #\Escape #\Escape +blanked+)
-  "Alternate screen, no autowrap, no cursor, and a clean one to draw on.
+  (format nil "~C[?1049h~C[?7l~C[?25l~C[?1000h~C[?1006h~A"
+          #\Escape #\Escape #\Escape #\Escape #\Escape +blanked+)
+  "Alternate screen, no autowrap, no cursor, mouse reports on, and a clean one
+to draw on.
 
 Autowrap stays off for the whole session: writing the bottom right cell of a
 terminal that has it on scrolls the screen out from under everything.")
 
 (defparameter +gave-back+
-  (format nil "~C[0m~C[?25h~C[?7h~C[?1049l" #\Escape #\Escape #\Escape #\Escape))
+  (format nil "~C[0m~C[?25h~C[?7h~C[?1006l~C[?1000l~C[?1049l"
+          #\Escape #\Escape #\Escape #\Escape #\Escape #\Escape))
 
 (defvar *asked-to-stop* nil)
 

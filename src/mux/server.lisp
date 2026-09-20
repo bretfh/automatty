@@ -10,13 +10,14 @@ answered the moment a byte arrives, and only a client already being fed faster
 than this waits. A tick would add half its length to every keystroke, which is
 more than the terminal it is sitting inside costs in the first place.")
 
-(declaim (ftype function session-bar session-compose greet))
+(declaim (ftype function session-bar session-compose greet tell))
+(declaim (special +prompt-toggles+))
 
 (defparameter +biggest-pane+ 1000)
 
 (defparameter +understood+
   '(:want :attach :go :new :sessions :knock :detach :stop
-    :keys :resize :bar :split :focus :close :only)
+    :keys :resize :bar :split :focus :close :only :mouse-at)
   "Every message this server knows what to do with.
 
 It goes out with the greeting. A server outlives the builds that reach it: it
@@ -43,7 +44,9 @@ cannot do, rather than sending one and leaving a key that looks broken.")
   (layout nil)
   (focus nil)
   (screen nil)
+  (geometry nil)
   (barp t)
+  (search-kind 0 :type fixnum)
   (watchers nil)
   (clocked 0 :type integer)
   (rows 24 :type fixnum)
@@ -164,6 +167,24 @@ on it are the whole of who may."
     (close-the-pane session other))
   (session-panes session))
 
+(defun mouse-at (session watcher x y)
+  "Whatever was at (X, Y) the last time this session was drawn is told about
+the click: the toggle on the search bar cycles which prompt it opens, another
+bar button tells WATCHER, the one who clicked, to run what it is for, and a
+pane becomes the focus. A geometry from before the first draw, or a click that
+landed on a rule, does nothing."
+  (let ((hit (and (session-geometry session)
+                  (vtx/ui:under (session-geometry session) y x))))
+    (cond
+      ((and (typep hit 'bar-button) (eq (bar-button-runs hit) :cycle-search-kind))
+       (setf (session-search-kind session)
+             (mod (1+ (session-search-kind session)) (length +prompt-toggles+)))
+       (dolist (w (session-watchers session)) (setf (watcher-behind w) t)))
+      ((typep hit 'bar-button) (tell watcher (list :do (bar-button-runs hit))))
+      ((and (typep hit 'pane-view) (not (eq (view-pane hit) (session-focus session))))
+       (setf (session-focus session) (view-pane hit))
+       (dolist (w (session-watchers session)) (setf (watcher-behind w) t))))))
+
 (defun focus-the-next (session)
   (let* ((panes (session-panes session))
          (at (position (session-focus session) panes)))
@@ -228,11 +249,11 @@ whether it did."
     t))
 
 (defun session-tree (session)
-  "What the session looks like: the panes, and the bar under them."
+  "What the session looks like: the bar, and the panes under it."
   (vtx/ui:column
    :align :stretch
-   (layout-tree (session-layout session))
-   (session-bar session)))
+   (session-bar session)
+   (layout-tree (session-layout session) (session-focus session))))
 
 (defun fit-panes (tree)
   "Give each pane the room the layout gave its view."
@@ -272,6 +293,7 @@ is drawn is what they have just been told they are."
       (vtx/ui:restyle tree)
       (vtx/ui:measure tree m cols rows)
       (vtx/ui:lay tree m 0 0 cols rows)
+      (setf (session-geometry session) tree)
       (fit-panes tree)
       (vtx/ui:paint tree m))
     (put-the-cursor session tree)
@@ -401,6 +423,9 @@ that is about a session is passed on only once it has joined one."
     (:focus (focus-the-next session) t)
     (:close (close-the-pane session (session-focus session)) t)
     (:only (only-the-pane session (session-focus session)) t)
+    (:mouse-at
+     (destructuring-bind (x y) (rest form) (mouse-at session watcher x y))
+     t)
     (t nil)))
 
 (defun take-in (server watcher)

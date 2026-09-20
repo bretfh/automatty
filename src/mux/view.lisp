@@ -24,6 +24,20 @@ one and told what it is, so what it asks for is the room left over."
                  (vtx/ui:left w) (vtx/ui:top w)
                  (vtx/ui:width w) (vtx/ui:height w)))
 
+(defmethod vtx/ui:under ((w pane-view) line col)
+  "A pane-view covers whatever it was laid out to, same test the click-through
+widgets already use, just answering with itself rather than an action to run."
+  (when (and (<= (vtx/ui:top w) line) (< line (vtx/ui:bottom w))
+             (<= (vtx/ui:left w) col) (< col (vtx/ui:right w)))
+    w))
+
+;;; A pane sits inside a frame of its own, all four sides, lit one colour when
+;;; it has the focus and another when it does not.
+
+(defun pane-frame (pane focusp)
+  (vtx/ui:framed (pane-view pane)
+                 :face (if focusp :border-active :border-inactive)))
+
 (defun views-in (tree)
   "Every pane-view in TREE, in the order they were put there."
   (let ((out nil))
@@ -73,15 +87,15 @@ one part is that part: nobody wants a border around a single pane."
                  (t (setf (split-parts it) kept) it))))
         (t it)))
 
-(defun layout-tree (it)
-  "IT as widgets: a pane is a view, a split is a row or a column of what it
-holds with a rule between each."
+(defun layout-tree (it &optional focus)
+  "IT as widgets: a pane alone is a view with nothing around it, since there is
+nothing for a border to tell it apart from. A split is a row or a column of
+panes each in a frame of its own, the one with the focus lit."
+  (if (split-p it) (framed-tree it focus) (pane-view it)))
+
+(defun framed-tree (it focus)
   (if (split-p it)
-      (let ((across (eq (split-way it) :across)))
-        (apply (if across #'vtx/ui:row #'vtx/ui:column)
-               :align :stretch :spacing 0 :expand 1
-               (rest (loop :for part :in (split-parts it)
-                           :append (list (vtx/ui:rule :upright across
-                                                     :face :border-inactive)
-                                         (layout-tree part))))))
-      (pane-view it)))
+      (apply (if (eq (split-way it) :across) #'vtx/ui:row #'vtx/ui:column)
+             :align :stretch :spacing 0 :expand 1
+             (mapcar (lambda (part) (framed-tree part focus)) (split-parts it)))
+      (pane-frame it (eql it focus))))

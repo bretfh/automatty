@@ -89,4 +89,25 @@ out would take the screen with it."
                          :meta (and (member :meta mods) t)
                          :shift (and (member :shift mods) t))))))
 
+(defvar *mouse-at* nil
+  "Where the click a command is running for landed, as (X . Y). Read the way
+*CLIENT* is, rather than passed: a mouse binding takes no arguments either.")
+
+(defun mouse-key-of (event)
+  "A decoded mouse EVENT as a key a mode can bind, or nil for a gesture nothing
+is named for yet (a drag). Unlike KEY-OF, EVENT's tail is a plist, not a list
+of the modifiers that are down, so it is read with GETF rather than MEMBER."
+  (let* ((e (rest event))
+         (wheel (getf e :wheel))
+         (sym (cond
+                (wheel (if (eq wheel :up) "wheel-up" "wheel-down"))
+                ((getf e :drag) nil)
+                (t (case (getf e :button)
+                     (:left (if (getf e :release) "mouse-1-up" "mouse-1"))
+                     (:middle (if (getf e :release) "mouse-2-up" "mouse-2"))
+                     (:right (if (getf e :release) "mouse-3-up" "mouse-3")))))))
+    (when sym
+      (vtx/mode:make-key sym :ctrl (getf e :ctrl) :meta (getf e :meta)
+                             :shift (getf e :shift)))))
+
 (vtx/mode:define-mode pane-mode ())

@@ -4,6 +4,7 @@
 
    #:widget #:parts #:label #:rule #:gap #:picture #:calendar #:slider #:ring
    #:column #:row #:stack #:box #:center #:centerbox #:scroll #:action #:choice
+   #:framed
    #:icon #:button #:image #:rows #:glyph
    #:on-click #:on-change #:set-on-click #:set-on-change
    #:text #:value #:css-class-name #:hint #:hoveredp #:chosen #:expand
@@ -97,6 +98,8 @@ for itself."))
    (align :initarg :align :accessor align :initform :left)))
 
 (defclass center (widget) ())
+
+(defclass framed (widget) ())
 
 (defclass centerbox (widget)
   ((start   :initarg :start   :accessor start   :initform nil)
@@ -240,6 +243,18 @@ for itself."))
 (defun center (&rest args)
   (multiple-value-bind (props parts) (%split args)
     (apply #'make-instance 'center :parts (%one parts) props)))
+
+(defun framed (child &rest props)
+  "CHILD, boxed in on all four sides with the glyphs a border is drawn from,
+each lit however PROPS' :FACE says."
+  (let ((face (getf props :face)))
+    (apply #'make-instance 'framed :expand 1
+           :parts (list child
+                        (rule :face face) (rule :face face)
+                        (rule :upright t :face face) (rule :upright t :face face)
+                        (label "┌" :face face) (label "┐" :face face)
+                        (label "└" :face face) (label "┘" :face face))
+           props)))
 
 (defun centerbox (&key class hint expand start center end)
   (make-instance 'centerbox :class class :hint hint :expand (or expand 0)

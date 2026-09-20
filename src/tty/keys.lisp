@@ -48,7 +48,35 @@ final character and where it was, or nil when there is not yet an end to it."
              (return (values (nreverse params) ch i)))))
       (incf i))))
 
+(defun mouse-event (cb x y release)
+  (list :mouse :x x :y y
+        :button (unless (logbitp 6 cb) (case (logand cb 3) (0 :left) (1 :middle) (2 :right)))
+        :wheel (when (logbitp 6 cb) (if (logbitp 0 cb) :down :up))
+        :drag (logbitp 5 cb)
+        :release release
+        :shift (logbitp 2 cb) :meta (logbitp 3 cb) :ctrl (logbitp 4 cb)))
+
+(defun sgr-mouse-event (params final took)
+  (if (= (length params) 3)
+      (destructuring-bind (cb cx cy) params
+        (values (mouse-event (or cb 0) (1- (or cx 1)) (1- (or cy 1)) (char= final #\m))
+                took))
+      (values nil took)))
+
+(defun x10-mouse-event (said start end)
+  "ESC [ M Cb Cx Cy, the older report a terminal that never learned SGR still
+sends: three raw bytes, each the real value plus 32, right after the M."
+  (if (< (+ start 3) end)
+      (let ((cb (- (char-code (char said (1+ start))) 32))
+            (cx (- (char-code (char said (+ start 2))) 32))
+            (cy (- (char-code (char said (+ start 3))) 32)))
+        (values (mouse-event cb (1- cx) (1- cy) (= 3 (logand cb 3)))
+                6))
+      (values nil 0)))
+
 (defun csi-key (said start end)
+  (when (and (< start end) (char= (char said start) #\M))
+    (return-from csi-key (x10-mouse-event said start end)))
   (multiple-value-bind (params final at) (read-csi-params said start end)
     (unless final (return-from csi-key (values nil 0)))
     (let* ((took (- (1+ at) (- start 2)))
@@ -65,6 +93,7 @@ final character and where it was, or nil when there is not yet an end to it."
            (if key
                (values (list* key (modifier-mods (second params))) took)
                (values nil took))))
+        ((find final "Mm") (sgr-mouse-event params final took))
         (t (values nil took))))))
 
 (defun ss3-key (said start end)

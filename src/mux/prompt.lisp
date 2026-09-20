@@ -14,11 +14,12 @@
   (index 0 :type fixnum)
   (most 8 :type fixnum)
   (chose nil)
-  (dropped nil))
+  (dropped nil)
+  (kind nil))
 
-(defun make-prompt (title items &key (text #'identity) chose dropped (most 8))
+(defun make-prompt (title items &key (text #'identity) chose dropped (most 8) kind)
   (%make-prompt :title title :items items :text text
-                :chose chose :dropped dropped :most most))
+                :chose chose :dropped dropped :most most :kind kind))
 
 (defun prompt-showing (p)
   (matches (prompt-query p) (prompt-items p) (prompt-text p)))
@@ -38,17 +39,20 @@
                                :face (if (= i (prompt-index p)) :accent :default)
                                (vtx/ui:label (princ-to-string
                                              (funcall (prompt-text p) item)))))))
-    (vtx/ui:column
-     :background-color (bar-face :bg-dim)
-     :min-width cols
-     (vtx/ui:row :background-color (bar-face :bg-alt)
-                (vtx/ui:label (format nil " ~A " (prompt-title p)) :face :accent)
-                (vtx/ui:label (prompt-query p))
-                (vtx/ui:label "_")
-                (vtx/ui:gap))
-     (if rows
-         (apply #'vtx/ui:column rows)
-         (vtx/ui:label " nothing matches that")))))
+    (vtx/ui:framed
+     (vtx/ui:column
+      :align :stretch
+      :background-color (bar-face :bg-dim)
+      :min-width (max 0 (- cols 2))
+      (vtx/ui:row :background-color (bar-face :blue)
+                 (vtx/ui:label (format nil " ~A " (prompt-title p)) :face :accent)
+                 (vtx/ui:label (prompt-query p))
+                 (vtx/ui:label "_")
+                 (vtx/ui:gap))
+      (if rows
+          (apply #'vtx/ui:column rows)
+          (vtx/ui:label " nothing matches that")))
+     :face :border-active)))
 
 (defmethod draw-over ((p prompt) screen)
   (let* ((cols (tty:screen-width screen))
@@ -58,13 +62,12 @@
          (high (nth-value 1 (vtx/ui:with-pass
                               (vtx/ui:restyle tree)
                               (vtx/ui:measure tree m cols rows))))
-         (top (max 0 (- rows high))))
-    (vtx/cells:fill-rect m 0 top cols (- rows top)
-                        (vt:make-face :bg (bar-face :bg-dim)))
-    (vtx/cells:draw tree (tty:screen-grid screen) cols rows :top top)
-    (setf (tty:screen-cursor-y screen) top
+         (top (min 1 (max 0 (1- rows))))
+         (bottom (min rows (+ top high))))
+    (vtx/cells:draw tree (tty:screen-grid screen) cols bottom :top top)
+    (setf (tty:screen-cursor-y screen) (min (1- rows) (1+ top))
           (tty:screen-cursor-x screen) (min (1- cols)
-                                        (+ 2 (length (prompt-title p))
+                                        (+ 3 (length (prompt-title p))
                                            (length (prompt-query p))))
           (tty:screen-cursor-visible screen) t)))
 
@@ -85,14 +88,26 @@ screen it was drawn over, and the diff puts it back."
   (let ((most (max 0 (1- (length (prompt-showing p))))))
     (setf (prompt-index p) (max 0 (min most to)))))
 
+(defparameter +prompt-toggles+
+  '((#\: . "run a command") (#\@ . "choose a session"))
+  "The prefix that opens each kind of prompt, and the command that opens it.
+Typing one as the first character of an empty query, in a prompt of a
+different kind, switches to it instead of being searched for.")
+
 (defmethod unbound ((p prompt) chord client)
   "A key nothing is bound to, if it is one that stands for a character, is what
-was typed."
+was typed -- unless it is another prompt's prefix, typed at the very start,
+which switches to that prompt instead."
   (let ((said (vtx/mode:self-inserting chord)))
     (when said
-      (setf (prompt-query p) (concatenate 'string (prompt-query p) said)
-            (prompt-index p) 0
-            (client-dirty client) t)
+      (let ((runs (and (= 1 (length said)) (zerop (length (prompt-query p)))
+                       (not (eql (char said 0) (prompt-kind p)))
+                       (cdr (assoc (char said 0) +prompt-toggles+)))))
+        (if runs
+            (progn (prompt-close p client) (run-command runs client))
+            (setf (prompt-query p) (concatenate 'string (prompt-query p) said)
+                  (prompt-index p) 0
+                  (client-dirty client) t)))
       t)))
 
 (defcommand (prompt-next :unlisted)
@@ -154,12 +169,13 @@ was typed."
 (vtx/mode:define-key 'prompt-mode "Escape"   #'prompt-cancel)
 (vtx/mode:define-key 'prompt-mode "C-g"      #'prompt-cancel)
 
-(defun ask (client title items &key (text #'identity) chose dropped)
+(defun ask (client title items &key (text #'identity) chose dropped kind)
   "Put a prompt over whatever CLIENT is showing."
   (client-over-put client (make-prompt title items :text text
                                                    :chose chose
-                                                   :dropped dropped)))
+                                                   :dropped dropped
+                                                   :kind kind)))
 
 (defun ask-a-command (client)
-  (ask client "run" (command-names)
+  (ask client "run" (command-names) :kind #\:
        :chose (lambda (name client) (run-command name client))))

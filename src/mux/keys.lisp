@@ -63,6 +63,11 @@ instead."
 (defcommand send-the-prefix
   (tell-the-server (list :keys (string +prefix+))))
 
+(defcommand (mouse-clicked :unlisted)
+  (tell-the-server (list :mouse-at (car *mouse-at*) (cdr *mouse-at*))))
+
+(defcommand (mouse-noticed :unlisted) nil)
+
 (defcommand what-the-keys-do
   (show-note *client* "keys"
              (format nil "~{~A~%~}"
@@ -93,3 +98,16 @@ instead."
 
 (vtx/mode:define-key 'pane-mode "C-b c" #'new-session)
 (vtx/mode:define-key 'pane-mode "C-b b" #'choose-a-session)
+
+;;; A click is looked up the same as any other key, unprefixed: a mouse's
+;;; buttons are always the multiplexer's, the way a keyboard's letters are
+;;; always the pane's until C-b says otherwise.
+
+(vtx/mode:define-key 'pane-mode "mouse-1" #'mouse-clicked)
+(vtx/mode:define-key 'pane-mode "mouse-1-up" #'mouse-noticed)
+(vtx/mode:define-key 'pane-mode "mouse-2" #'mouse-noticed)
+(vtx/mode:define-key 'pane-mode "mouse-2-up" #'mouse-noticed)
+(vtx/mode:define-key 'pane-mode "mouse-3" #'mouse-noticed)
+(vtx/mode:define-key 'pane-mode "mouse-3-up" #'mouse-noticed)
+(vtx/mode:define-key 'pane-mode "wheel-up" #'mouse-noticed)
+(vtx/mode:define-key 'pane-mode "wheel-down" #'mouse-noticed)

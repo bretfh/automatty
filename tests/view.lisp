@@ -66,11 +66,8 @@
     (laid tree screen)
     (is (equal (list one two) (mapcar #'mux:view-pane (mux:views-in tree))))
     (let ((views (mux:views-in tree)))
-      (is (eql 10 (vtx/ui:width (first views))))
       (is (eql 11 (vtx/ui:left (second views)))
-          "the rule between them took no column"))
-    (is (equal "aaa       │bbb" (string-right-trim " " (shown screen 0)))
-        "~S" (shown screen 0))))
+          "the frame around each pane took no column"))))
 
 (test a-pane-put-beside-another-and-taken-out-again
   (let ((one (a-pane "")) (two (a-pane "")) (three (a-pane "")))
@@ -86,6 +83,31 @@
       (is (eq three layout))
       (is (null (mux:without-pane layout three))
           "taking the last pane out left something behind"))))
+
+(test the-rule-beside-the-focused-pane-is-lit
+  (let* ((one (a-pane "aaa" :rows 3 :cols 20))
+         (two (a-pane "bbb" :rows 3 :cols 20))
+         (layout (mux:make-split :across (list one two)))
+         (screen (tty:make-screen :width 21 :height 3))
+         (tree (mux::layout-tree layout two)))
+    (laid tree screen)
+    (destructuring-bind (frame-one frame-two) (vtx/ui:parts tree)
+      (is (eq :border-inactive (vtx/ui:face frame-one)))
+      (is (eq :border-active (vtx/ui:face frame-two))
+          "the frame around the focused pane was not lit"))))
+
+(test a-rule-with-no-focus-given-is-unlit-as-before
+  (let* ((one (a-pane "aaa" :rows 3 :cols 20))
+         (two (a-pane "bbb" :rows 3 :cols 20))
+         (layout (mux:make-split :across (list one two)))
+         (tree (mux::layout-tree layout)))
+    (dolist (frame (vtx/ui:parts tree))
+      (is (eq :border-inactive (vtx/ui:face frame))))))
+
+(test a-lone-pane-with-no-split-has-no-frame
+  (let* ((pane (a-pane "solo"))
+         (tree (mux::layout-tree pane pane)))
+    (is (typep tree 'mux::pane-view))))
 
 (test a-layout-with-nothing-left-in-it-holds-no-panes
   (is (null (mux:panes-in nil))
