@@ -1,4 +1,4 @@
-(asdf:defsystem #:vtx/pty
+(asdf:defsystem #:atty/pty
                 :description "A pseudo terminal. SBCL only"
                 :depends-on ()
                 :serial t
@@ -7,9 +7,9 @@
                              (:file "pty" :if-feature :sbcl)
                              (:file "elsewhere" :if-feature (:not :sbcl))))
 
-(asdf:defsystem #:vtx/tty
+(asdf:defsystem #:atty/tty
                 :description "Controlling the host terminal"
-                :depends-on (#:libvtx #:vtx/pty (:require #:sb-posix))
+                :depends-on (#:libatty #:atty/pty (:require #:sb-posix))
                 :serial t
                 :pathname "src/tty/"
                 :components ((:file "package")
@@ -19,7 +19,7 @@
                              (:file "screen")
                              (:file "encode")))
 
-(asdf:defsystem #:vtx/mode
+(asdf:defsystem #:atty/mode
                 :description "Hierarchal keymaps that bind input to behavior"
                 :depends-on ()
                 :serial t
@@ -27,7 +27,7 @@
                 :components ((:file "key")
                              (:file "mode")))
 
-(asdf:defsystem #:vtx/ui
+(asdf:defsystem #:atty/ui
                 :description "Widgets, and their styling and layout"
                 :depends-on ()
                 :serial t
@@ -37,29 +37,29 @@
                              (:file "style")
                              (:file "layout")))
 
-(asdf:defsystem #:vtx/cells
+(asdf:defsystem #:atty/cells
                 :description "A terminal as something widgets are drawn on"
-                :depends-on (#:libvtx #:vtx/ui)
+                :depends-on (#:libatty #:atty/ui)
                 :serial t
                 :pathname "src/cells/"
                 :components ((:file "cells")))
 
-(asdf:defsystem #:vtx/agent
+(asdf:defsystem #:atty/agent
                 :description "What the program in a pane is doing"
-                :depends-on (#:libvtx)
+                :depends-on (#:libatty)
                 :serial t
                 :pathname "src/agent/"
                 :components ((:file "package")
                              (:file "agent")
                              (:file "claude-code")))
 
-(asdf:defsystem #:vtx
+(asdf:defsystem #:atty
                 :description "A terminal emulator and multiplexer"
                 :author "Bret Horne"
                 :license "GPL-3.0-or-later"
                 :version "0.0.1"
-                :depends-on (#:libvtx #:vtx/pty #:vtx/tty #:vtx/mode #:vtx/ui #:vtx/cells
-                                  #:vtx/agent
+                :depends-on (#:libatty #:atty/pty #:atty/tty #:atty/mode #:atty/ui #:atty/cells
+                                  #:atty/agent
                                   (:require #:sb-posix)
                                   (:require #:sb-bsd-sockets))
                 :serial t
@@ -78,14 +78,14 @@
                              (:file "keys")
                              (:file "main")))
 
-(asdf:defsystem #:vtx/all
+(asdf:defsystem #:atty/all
                 :description "Everything here"
-                :depends-on (#:libvtx #:vtx/pty #:vtx/tty #:vtx/mode #:vtx/ui #:vtx/cells
-                                  #:vtx/agent #:vtx))
+                :depends-on (#:libatty #:atty/pty #:atty/tty #:atty/mode #:atty/ui #:atty/cells
+                                  #:atty/agent #:atty))
 
-(asdf:defsystem #:vtx/test
-                :description "Vtx's test suite"
-                :depends-on (#:vtx/all #:libvtx/test #:fiveam)
+(asdf:defsystem #:atty/test
+                :description "Atty's test suite"
+                :depends-on (#:atty/all #:libatty/test #:fiveam)
                 :serial t
                 :pathname "tests/"
                 :components ((:file "suite")
@@ -101,4 +101,4 @@
                              (:file "view")
                              (:file "prompt"))
                 :perform (asdf:test-op (o c)
-                                       (uiop:symbol-call :vtx/test :run-them)))
+                                       (uiop:symbol-call :atty/test :run-them)))

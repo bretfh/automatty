@@ -1,4 +1,4 @@
-(in-package #:vtx/test)
+(in-package #:atty/test)
 
 (def-suite prompt :in all)
 (in-suite prompt)
@@ -27,9 +27,9 @@
     (mux:client-over-put client p)
     (dolist (chord chords p)
       (let ((mux:*client* client)
-            (vtx/mode:*pending* nil)
-            (vtx/mode:*unbound* (lambda (c) (mux:unbound p c client))))
-        (vtx/mode:press chord (vtx/mode:mode-named (mux:client-mode client)))))))
+            (atty/mode:*pending* nil)
+            (atty/mode:*unbound* (lambda (c) (mux:unbound p c client))))
+        (atty/mode:press chord (atty/mode:mode-named (mux:client-mode client)))))))
 
 (test moving-through-what-is-offered-stops-at-the-ends
   (let ((p (mux:make-prompt "run" '("one" "two" "three"))))
@@ -106,13 +106,13 @@
     (is (eq 'mux:pane-mode (mux:client-mode client)))))
 
 (test a-pane-chord-does-not-fire-while-a-prompt-is-up
-  (let ((pane (vtx/mode:mode-named 'mux:pane-mode))
-        (prompt (vtx/mode:mode-named 'mux::prompt-mode)))
-    (is (vtx/mode:lookup-key "C-b d" pane))
-    (is (null (vtx/mode:lookup-key "C-b d" prompt))
+  (let ((pane (atty/mode:mode-named 'mux:pane-mode))
+        (prompt (atty/mode:mode-named 'mux::prompt-mode)))
+    (is (atty/mode:lookup-key "C-b d" pane))
+    (is (null (atty/mode:lookup-key "C-b d" prompt))
         "the prompt can still detach, so a pane binding is reaching it")
-    (is (vtx/mode:lookup-key "RET" prompt))
-    (is (null (vtx/mode:lookup-key "RET" pane))
+    (is (atty/mode:lookup-key "RET" prompt))
+    (is (null (atty/mode:lookup-key "RET" pane))
         "return is bound in the pane, where it should reach the program")))
 
 (test a-key-nobody-bound-is-what-was-typed

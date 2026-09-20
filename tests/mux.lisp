@@ -1,4 +1,4 @@
-(in-package #:vtx/test)
+(in-package #:atty/test)
 
 (def-suite mux :in all)
 (in-suite mux)
@@ -6,7 +6,7 @@
 (defvar *paths* 0)
 
 (defun a-socket-path ()
-  (format nil "~Acl-vt-~D-~D" (uiop:temporary-directory)
+  (format nil "~Aatty-~D-~D" (uiop:temporary-directory)
           (sb-posix:getpid) (incf *paths*)))
 
 (defun until (seconds fn)
@@ -208,7 +208,7 @@ already failing."
                               (is-true (pump seer :want "working") "the bar never said working: ~S" (seen seer)))))
 
 (test a-program-is-told-which-pane-it-is-in-and-where-its-server-is
-      (with-server (path :command "printf 'pane=%s socket=%s\\n' \"$VTX_PANE\" \"$VTX_SOCKET\"; sleep 30"
+      (with-server (path :command "printf 'pane=%s socket=%s\\n' \"$ATTY_PANE\" \"$ATTY_SOCKET\"; sleep 30"
                          :rows 10 :cols 120)
                    (with-seer (seer path :rows 10 :cols 120)
                               (is-true (pump seer :want "pane=0:") "~S" (seen seer))

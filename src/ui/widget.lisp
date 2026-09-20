@@ -1,4 +1,4 @@
-(defpackage #:vtx/ui
+(defpackage #:atty/ui
   (:use #:cl)
   (:export
 
@@ -30,7 +30,7 @@
    #:active #:color #:metric #:unhex #:hex
    #:style #:styles #:put-rules #:selector #:rules #:resolve
    #:property #:properties #:classes #:glass #:mono #:radius #:hovered))
-(in-package #:vtx/ui)
+(in-package #:atty/ui)
 
 (defun split-string (s &key separator)
   "S in pieces, cut wherever a character of SEPARATOR stands. The pieces between

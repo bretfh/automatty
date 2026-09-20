@@ -1,8 +1,8 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(defpackage #:vtx/cells
+(defpackage #:atty/cells
             (:use #:cl)
-            (:local-nicknames (#:ui #:vtx/ui))
+            (:local-nicknames (#:ui #:atty/ui))
             (:export
              #:cells
              #:make-cells
@@ -15,7 +15,7 @@
              #:blit
              #:face-of
              #:draw))
-(in-package #:vtx/cells)
+(in-package #:atty/cells)
 
 ;;; A rule carries the glyph it is made of, a choice carries the two characters
 ;;; that mark it, and what is under the pointer is asked for by line and column.

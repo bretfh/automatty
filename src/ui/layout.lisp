@@ -1,4 +1,4 @@
-(in-package #:vtx/ui)
+(in-package #:atty/ui)
 
 (defvar *styles* nil)
 (defvar *sizes* nil)

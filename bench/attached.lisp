@@ -206,9 +206,9 @@ and swallows whatever is said next."
 printf '~A\\n'~%cat ~A~%printf '\\n~A\\n'~%sleep 3~%"
                   +ready+ (go-path) +began+ (slice corpus) +ended+)))
 
-(defparameter +vtx-bin+
-  (or (uiop:getenv "VTX_BIN")
-      (namestring (make-pathname :name "vtx" :type nil
+(defparameter +atty-bin+
+  (or (uiop:getenv "ATTY_BIN")
+      (namestring (make-pathname :name "atty" :type nil
                                  :directory (butlast (pathname-directory *load-truename*))
                                  :defaults *load-truename*)))
   "What a user actually runs is the saved executable, not an SBCL loading ASDF
@@ -216,14 +216,14 @@ fresh every time: the two pay entirely different costs to get to the same
 running program, and only one of them is what this is measuring against tmux.")
 
 (defun ours (corpus)
-  (unless (probe-file +vtx-bin+)
-    (error "no vtx binary at ~A: run make vtx first" +vtx-bin+))
+  (unless (probe-file +atty-bin+)
+    (error "no atty binary at ~A: run make atty first" +atty-bin+))
   (let* ((pane (pane-script corpus))
          (name (format nil "bench-~D" (sb-posix:getpid)))
          (run (script "ours"
-                      (format nil "exec ~A run ~A 'sh ~A'~%" +vtx-bin+ name pane))))
+                      (format nil "exec ~A run ~A 'sh ~A'~%" +atty-bin+ name pane))))
     (multiple-value-prog1 (watch-one (format nil "sh ~A" run))
-      (ignore-errors (delete-file (format nil "~A/cl-vt/~A"
+      (ignore-errors (delete-file (format nil "~A/atty/~A"
                                           (sb-ext:posix-getenv "XDG_RUNTIME_DIR")
                                           name))))))
 
@@ -248,7 +248,7 @@ running program, and only one of them is what this is measuring against tmux.")
 
 (defun theirs (corpus)
   (let* ((pane (pane-script corpus))
-         (socket (format nil "cl-vt-bench-~D" (sb-posix:getpid)))
+         (socket (format nil "atty-bench-~D" (sb-posix:getpid)))
          (found nil)
          (run (script "theirs"
                       (format nil "exec tmux -f /dev/null -L ~A new-session -x ~D -y ~D 'sh ~A'~%"
@@ -307,7 +307,7 @@ wanders."
                                corpus what mid low high out cpu rss
                                (and (plusp lost) lost))
                        (format t "~&  ~7A ~7A ~A~%" corpus what "no round finished")))))
-          (row "cl-vt" #'ours)
+          (row "atty" #'ours)
           (if tmux
               (row "tmux" #'theirs)
               (format t "~&  ~7A ~7A ~A~%" corpus "tmux" "not here")))))

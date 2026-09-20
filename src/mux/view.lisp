@@ -1,41 +1,41 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(in-package #:vtx)
+(in-package #:atty)
 
 ;;; A pane is a widget like any other. What that buys is the layout pass: a
 ;;; split is a row or a column of these, the bar is the last child of the
 ;;; column they sit in, and the arithmetic that hands each of them its rows and
 ;;; columns is the one src/ui/layout.lisp already does for everything else.
 
-(defclass pane-view (vtx/ui:widget)
+(defclass pane-view (atty/ui:widget)
   ((pane :initarg :pane :reader view-pane)))
 
 (defun pane-view (pane &rest props)
   (apply #'make-instance 'pane-view :pane pane :expand 1 props))
 
-(defmethod vtx/ui:measure ((w pane-view) m aw ah)
+(defmethod atty/ui:measure ((w pane-view) m aw ah)
   "Nothing of its own, and it grows. A program has no size it wants: it is given
 one and told what it is, so what it asks for is the room left over."
   (declare (ignore m aw ah))
   (values 0 0))
 
-(defmethod vtx/ui:paint ((w pane-view) (m vtx/cells:cells))
-  (vtx/cells:blit m (pane-term (view-pane w))
-                 (vtx/ui:left w) (vtx/ui:top w)
-                 (vtx/ui:width w) (vtx/ui:height w)))
+(defmethod atty/ui:paint ((w pane-view) (m atty/cells:cells))
+  (atty/cells:blit m (pane-term (view-pane w))
+                 (atty/ui:left w) (atty/ui:top w)
+                 (atty/ui:width w) (atty/ui:height w)))
 
-(defmethod vtx/ui:under ((w pane-view) line col)
+(defmethod atty/ui:under ((w pane-view) line col)
   "A pane-view covers whatever it was laid out to, same test the click-through
 widgets already use, just answering with itself rather than an action to run."
-  (when (and (<= (vtx/ui:top w) line) (< line (vtx/ui:bottom w))
-             (<= (vtx/ui:left w) col) (< col (vtx/ui:right w)))
+  (when (and (<= (atty/ui:top w) line) (< line (atty/ui:bottom w))
+             (<= (atty/ui:left w) col) (< col (atty/ui:right w)))
     w))
 
 ;;; A pane sits inside a frame of its own, all four sides, lit one colour when
 ;;; it has the focus and another when it does not.
 
 (defun pane-frame (pane focusp)
-  (vtx/ui:framed (pane-view pane)
+  (atty/ui:framed (pane-view pane)
                  :face (if focusp :border-active :border-inactive)))
 
 (defun views-in (tree)
@@ -43,7 +43,7 @@ widgets already use, just answering with itself rather than an action to run."
   (let ((out nil))
     (labels ((walk (w)
                (when (typep w 'pane-view) (push w out))
-               (dolist (part (vtx/ui:parts w)) (walk part))))
+               (dolist (part (atty/ui:parts w)) (walk part))))
       (walk tree))
     (nreverse out)))
 
@@ -95,7 +95,7 @@ panes each in a frame of its own, the one with the focus lit."
 
 (defun framed-tree (it focus)
   (if (split-p it)
-      (apply (if (eq (split-way it) :across) #'vtx/ui:row #'vtx/ui:column)
+      (apply (if (eq (split-way it) :across) #'atty/ui:row #'atty/ui:column)
              :align :stretch :spacing 0 :expand 1
              (mapcar (lambda (part) (framed-tree part focus)) (split-parts it)))
       (pane-frame it (eql it focus))))

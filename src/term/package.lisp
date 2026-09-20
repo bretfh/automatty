@@ -1,6 +1,6 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(defpackage #:libvtx
+(defpackage #:libatty
   (:nicknames #:vt)
   (:use #:cl)
   (:export

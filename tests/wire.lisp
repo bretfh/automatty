@@ -1,4 +1,4 @@
-(in-package #:vtx/test)
+(in-package #:atty/test)
 
 (def-suite wire :in all)
 (in-suite wire)
@@ -14,7 +14,7 @@
 
 (defun message-bytes (form)
   (let* ((text (with-standard-io-syntax
-                 (let ((*package* (find-package '#:vtx)))
+                 (let ((*package* (find-package '#:atty)))
                    (prin1-to-string form))))
          (bytes (sb-ext:string-to-octets text :external-format :utf-8)))
     (concatenate 'string (format nil "~D~C" (length bytes) #\Newline)
@@ -82,7 +82,7 @@
     (multiple-value-bind (said faces)
         (mux:runs-said screen (tty:screen-diff was screen))
       (let ((form (with-standard-io-syntax
-                    (let ((*package* (find-package '#:vtx)))
+                    (let ((*package* (find-package '#:atty)))
                       (read-from-string (prin1-to-string (list said faces)))))))
         (mux:said-into-screen there (first form) (second form))))
     (dotimes (y 3)
@@ -113,7 +113,7 @@
                     (*package* (mux::reading-package)))
                 (read-from-string "(:keys a-name-nobody-here-uses nil t)"))))
     (is (eq :keys (first form)))
-    (is (null (find-symbol "A-NAME-NOBODY-HERE-USES" '#:vtx))
+    (is (null (find-symbol "A-NAME-NOBODY-HERE-USES" '#:atty))
         "a name off the wire was interned where the program's own names live")
     (is (null (third form)) "nil off the wire did not read as nil")
     (is (eq t (fourth form)) "t off the wire did not read as t")))

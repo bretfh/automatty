@@ -1,6 +1,6 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(in-package #:vtx/agent)
+(in-package #:atty/agent)
 
 (defparameter +hold+ 700)
 (defparameter +trace-length+ 4000)

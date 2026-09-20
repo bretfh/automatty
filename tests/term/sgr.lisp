@@ -1,4 +1,4 @@
-(in-package #:libvtx/test)
+(in-package #:libatty/test)
 
 (def-suite sgr :in emulator)
 (in-suite sgr)

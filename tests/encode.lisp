@@ -1,4 +1,4 @@
-(in-package #:vtx/test)
+(in-package #:atty/test)
 
 (def-suite encode :in all)
 (in-suite encode)

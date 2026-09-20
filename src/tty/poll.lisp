@@ -1,6 +1,6 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(in-package #:vtx/tty)
+(in-package #:atty/tty)
 
 (defstruct (waiting (:constructor %make-waiting))
   (fds nil)

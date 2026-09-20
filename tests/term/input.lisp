@@ -1,4 +1,4 @@
-(in-package #:libvtx/test)
+(in-package #:libatty/test)
 
 (def-suite input :in emulator)
 (in-suite input)

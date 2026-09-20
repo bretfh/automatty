@@ -1,4 +1,4 @@
-(in-package #:vtx/ui)
+(in-package #:atty/ui)
 
 (defvar *in-force* nil)
 (defvar *themes* (make-hash-table :test 'eq))

@@ -1,4 +1,4 @@
-(in-package #:vtx/ui)
+(in-package #:atty/ui)
 
 (declaim (ftype function rules))
 

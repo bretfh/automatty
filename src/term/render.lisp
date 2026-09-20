@@ -91,7 +91,7 @@
   "N as digits on S, without consing a string to do it.
 
 Public because anybody writing escape sequences needs it and FORMAT on this
-path costs more than the sequence does: vtx/tty writes a cursor address for
+path costs more than the sequence does: atty/tty writes a cursor address for
 every run of a frame."
   (declare (type (integer 0 #.most-positive-fixnum) n))
   (when (>= n 10) (write-number (floor n 10) s))

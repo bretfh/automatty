@@ -80,7 +80,7 @@
 
 (defun run-it ()
   (make-corpora)
-  (format t "~&~%cl-vt frame cost: blit, diff and encode, ~D frames each~%~%"
+  (format t "~&~%atty frame cost: blit, diff and encode, ~D frames each~%~%"
           +frames+)
   (format t "~&  ~7A ~8A ~4A ~8A ~8A ~8A ~9A ~9A ~8A ~8A ~9A~%"
           "corpus" "size" "gap" "blit us" "diff us" "enc us" "p99 us" "max us"
@@ -104,7 +104,7 @@
 (defparameter +intervals+ '(0 4 8 16 33))
 
 (defun a-path ()
-  (format nil "~Acl-vt-bench-~D-~D" (uiop:temporary-directory)
+  (format nil "~Aatty-bench-~D-~D" (uiop:temporary-directory)
           (sb-posix:getpid) (random 100000)))
 
 (defstruct rig path thread client host in-write to-read)

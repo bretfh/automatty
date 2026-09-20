@@ -1,8 +1,8 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(defpackage #:vtx
+(defpackage #:atty
   (:use #:cl)
-  (:local-nicknames (#:pty #:vtx/pty) (#:tty #:vtx/tty) (#:agent #:vtx/agent))
+  (:local-nicknames (#:pty #:atty/pty) (#:tty #:atty/tty) (#:agent #:atty/agent))
   (:export
    #:wire
    #:make-wire

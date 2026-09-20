@@ -1,6 +1,6 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(in-package #:vtx)
+(in-package #:atty)
 
 ;;; What can be done and what asks for it. A command is a function with a name
 ;;; you can type; which keys reach it is a mode's business, and a mode inherits
@@ -55,7 +55,7 @@ out would take the screen with it."
         (*client* client))
     (when does (tried does name))))
 
-(setf vtx/mode:*run* (lambda (does) (tried does (or (vtx/mode:pending) "that key"))))
+(setf atty/mode:*run* (lambda (does) (tried does (or (atty/mode:pending) "that key"))))
 
 ;;; What vt calls a key, and what a mode calls one.
 
@@ -74,17 +74,17 @@ out would take the screen with it."
   (etypecase event
     (character
      (let ((code (char-code event)))
-       (cond ((= code 27) (vtx/mode:make-key "Escape"))
-             ((= code 13) (vtx/mode:make-key "RET"))
-             ((= code 9) (vtx/mode:make-key "TAB"))
-             ((= code 127) (vtx/mode:make-key "DEL"))
-             ((= code 32) (vtx/mode:make-key "SPC"))
-             ((< code 32) (vtx/mode:make-key (string (code-char (+ 96 code)))
+       (cond ((= code 27) (atty/mode:make-key "Escape"))
+             ((= code 13) (atty/mode:make-key "RET"))
+             ((= code 9) (atty/mode:make-key "TAB"))
+             ((= code 127) (atty/mode:make-key "DEL"))
+             ((= code 32) (atty/mode:make-key "SPC"))
+             ((< code 32) (atty/mode:make-key (string (code-char (+ 96 code)))
                                             :ctrl t))
-             (t (vtx/mode:make-key (string event))))))
+             (t (atty/mode:make-key (string event))))))
     (cons
      (let ((mods (rest event)))
-       (vtx/mode:make-key (key-named (first event))
+       (atty/mode:make-key (key-named (first event))
                          :ctrl (and (member :ctrl mods) t)
                          :meta (and (member :meta mods) t)
                          :shift (and (member :shift mods) t))))))
@@ -107,7 +107,7 @@ of the modifiers that are down, so it is read with GETF rather than MEMBER."
                      (:middle (if (getf e :release) "mouse-2-up" "mouse-2"))
                      (:right (if (getf e :release) "mouse-3-up" "mouse-3")))))))
     (when sym
-      (vtx/mode:make-key sym :ctrl (getf e :ctrl) :meta (getf e :meta)
+      (atty/mode:make-key sym :ctrl (getf e :ctrl) :meta (getf e :meta)
                              :shift (getf e :shift)))))
 
-(vtx/mode:define-mode pane-mode ())
+(atty/mode:define-mode pane-mode ())

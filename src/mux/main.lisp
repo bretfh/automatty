@@ -1,6 +1,6 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(in-package #:vtx)
+(in-package #:atty)
 
 (defun mux-dir ()
   "Where the sockets live, made if it is not there and shut to everybody else.
@@ -11,8 +11,8 @@ carry no idea of who is asking."
   (let* ((run (sb-ext:posix-getenv "XDG_RUNTIME_DIR"))
          (dir (ensure-directories-exist
                (pathname (if (and run (plusp (length run)))
-                             (format nil "~A/cl-vt/" (string-right-trim "/" run))
-                             (format nil "/tmp/cl-vt-~D/" (sb-posix:getuid)))))))
+                             (format nil "~A/atty/" (string-right-trim "/" run))
+                             (format nil "/tmp/atty-~D/" (sb-posix:getuid)))))))
     (ignore-errors (sb-posix:chmod (namestring dir) #o700))
     dir))
 
@@ -99,7 +99,7 @@ living server would sit at a screen that never arrives. So it is knocked on."
 (defun pane-address (said)
   (let ((colon (position #\: said :from-end t)))
     (unless (and colon (parse-integer said :start (1+ colon) :junk-allowed t))
-      (error "~S is not a pane: a pane is <session>:<number>, as VTX_PANE says" said))
+      (error "~S is not a pane: a pane is <session>:<number>, as ATTY_PANE says" said))
     (values (subseq said 0 colon) (parse-integer said :start (1+ colon)))))
 
 (defun a-state (said)
@@ -115,7 +115,7 @@ living server would sit at a screen that never arrives. So it is knocked on."
                (and row (fourth row))))))
 
 (defun pane-found (address)
-  (unless address (error "which pane? <session>:<number>, as vtx agent list says"))
+  (unless address (error "which pane? <session>:<number>, as atty agent list says"))
   (multiple-value-bind (session id) (pane-address address)
     (let ((row (find-if (lambda (r) (and (string= session (second r)) (eql id (third r))))
                         (agents-here))))
@@ -174,13 +174,13 @@ living server would sit at a screen that never arrives. So it is knocked on."
                        (if (consp said) (format nil "~A:~A" (first said) (second said)) said)
                        state))))))
       ((string= what "say")
-       (unless (third args) (error "vtx agent say <session>:<pane> <keys>"))
+       (unless (third args) (error "atty agent say <session>:<pane> <keys>"))
        (multiple-value-bind (path session id) (pane-found (second args))
          (asked path (list (list :agent-keys session id (unescaped (third args))))
                 :patience 0)))
       ((string= what "prompt")
        (unless (third args)
-         (error "vtx agent prompt <session>:<pane> <text> [--until <state>...]"))
+         (error "atty agent prompt <session>:<pane> <text> [--until <state>...]"))
        (multiple-value-bind (path session id) (pane-found (second args))
          (let* ((wanted (mapcar #'a-state
                                 (rest (member "--until" (cdddr args) :test #'string=))))
@@ -196,8 +196,8 @@ living server would sit at a screen that never arrives. So it is knocked on."
            (cond
              ((eq answer :blocked)
               (format *error-output*
-                      "~&vtx: ~A is blocked: it wants an answer, not a prompt.~%~
-                       vtx agent read it, then vtx agent say what it is waiting for.~%"
+                      "~&atty: ~A is blocked: it wants an answer, not a prompt.~%~
+                       atty agent read it, then atty agent say what it is waiting for.~%"
                       (second args))
               (sb-ext:quit :unix-status 2))
              ((not (eq answer t)) (error "~A is gone" (second args)))
@@ -215,15 +215,15 @@ living server would sit at a screen that never arrives. So it is knocked on."
                  (format t "~&~A:~D  ~A  ~(~A~)~%" session id kind state)))
              (format t "~&nothing is running~%"))))
       ((string= what "signal")
-       (let ((socket (sb-ext:posix-getenv "VTX_SOCKET"))
-             (pane (sb-ext:posix-getenv "VTX_PANE")))
+       (let ((socket (sb-ext:posix-getenv "ATTY_SOCKET"))
+             (pane (sb-ext:posix-getenv "ATTY_PANE")))
          (unless (and (second args) socket pane (plusp (length socket)) (plusp (length pane)))
-           (error "vtx agent signal <working|blocked|idle> is said from inside a pane"))
+           (error "atty agent signal <working|blocked|idle> is said from inside a pane"))
          (multiple-value-bind (session id) (pane-address pane)
            (asked socket (list (list :agent-signal session id (a-state (second args))))
                   :patience 0))))
       ((string= what "wait")
-       (unless (second args) (error "vtx agent wait <session>:<pane> [<state>...]"))
+       (unless (second args) (error "atty agent wait <session>:<pane> [<state>...]"))
        (multiple-value-bind (session id) (pane-address (second args))
          (let* ((wanted (or (mapcar #'a-state (cddr args)) '(:blocked :idle)))
                 (row (find-if (lambda (r) (and (string= session (second r)) (eql id (third r))))
@@ -237,7 +237,7 @@ living server would sit at a screen that never arrives. So it is knocked on."
              (if (member state wanted)
                  (format t "~&~(~A~)~%" state)
                  (sb-ext:quit :unix-status 1))))))
-      (t (error "vtx agent list, wait, read, prompt, say, explain, trace or signal; not ~A" what)))))
+      (t (error "atty agent list, wait, read, prompt, say, explain, trace or signal; not ~A" what)))))
 
 (defun self ()
   "This program, when it is a program.
@@ -257,13 +257,13 @@ neither, and there is nothing to run."
          me
          (list "serve" name command (princ-to-string rows) (princ-to-string cols))
          :output (log-path name))
-        (let ((form (format nil "(vtx:serve ~S ~S :name ~S :rows ~D :cols ~D)"
+        (let ((form (format nil "(atty:serve ~S ~S :name ~S :rows ~D :cols ~D)"
                             (socket-path name) command name rows cols)))
           (pty:spawn-in-its-own-session
            (namestring sb-ext:*runtime-pathname*)
            (list "--no-userinit" "--disable-debugger"
                  "--eval" "(require :asdf)"
-                 "--eval" "(asdf:load-system :vtx)"
+                 "--eval" "(asdf:load-system :atty)"
                  "--eval" form
                  "--quit")
            :output (log-path name)))))
@@ -279,15 +279,15 @@ neither, and there is nothing to run."
     (:asked-to-stop nil)
     (:no-answer
      (format *error-output*
-             "~&vtx: the server for ~A took the connection and then said~%~
+             "~&atty: the server for ~A took the connection and then said~%~
               nothing. It is most likely older than this client: it has been~%~
               running since whenever, and what it made of what we sent it is in~%~
               ~A. The programs in it are still running.~%"
              name (log-path name)))
     (:no-such-session
-     (format *error-output* "~&vtx: there is no session called ~A there.~%" name))
+     (format *error-output* "~&atty: there is no session called ~A there.~%" name))
     (:server-gone
-     (format *error-output* "~&vtx: the server for ~A stopped. ~A says why.~%"
+     (format *error-output* "~&atty: the server for ~A stopped. ~A says why.~%"
              name (log-path name)))
     (t (when why (format t "~&~A~%" why))))
   why)
@@ -329,22 +329,22 @@ something anything else does on your behalf."
       (say-why name (attach path :name name)))))
 
 (defun usage (s)
-  (format s "~&vtx: many terminals inside one~%~%")
-  (format s "  vtx                 a shell in a session called 0, made if it is not there~%")
-  (format s "  vtx <name>          the same, under another name~%")
-  (format s "  vtx run <name> <command>~%")
-  (format s "  vtx attach <name>   join a session already running~%")
-  (format s "  vtx serve <name> <command>   the server itself, in the foreground~%")
-  (format s "  vtx list            what is running~%")
-  (format s "  vtx stop <name>     stop a session, and the programs in it~%")
-  (format s "  vtx agent list      what the program in each pane is doing~%")
-  (format s "  vtx agent wait <session>:<pane> [<state>...]   until it is blocked or idle~%")
-  (format s "  vtx agent read <session>:<pane> [<lines>]      what is on its screen~%")
-  (format s "  vtx agent prompt <session>:<pane> <text> [--until <state>...]   new work~%")
-  (format s "  vtx agent say <session>:<pane> <keys>   an answer: raw keys, \\r for enter~%")
-  (format s "  vtx agent explain <session>:<pane>      which rule says what it is doing~%")
-  (format s "  vtx agent trace <session>:<pane>        every look at it: ms, moved, said, state~%")
-  (format s "  vtx agent signal <state>   from inside a pane: what its program is doing~%~%")
+  (format s "~&atty: many terminals inside one~%~%")
+  (format s "  atty                 a shell in a session called 0, made if it is not there~%")
+  (format s "  atty <name>          the same, under another name~%")
+  (format s "  atty run <name> <command>~%")
+  (format s "  atty attach <name>   join a session already running~%")
+  (format s "  atty serve <name> <command>   the server itself, in the foreground~%")
+  (format s "  atty list            what is running~%")
+  (format s "  atty stop <name>     stop a session, and the programs in it~%")
+  (format s "  atty agent list      what the program in each pane is doing~%")
+  (format s "  atty agent wait <session>:<pane> [<state>...]   until it is blocked or idle~%")
+  (format s "  atty agent read <session>:<pane> [<lines>]      what is on its screen~%")
+  (format s "  atty agent prompt <session>:<pane> <text> [--until <state>...]   new work~%")
+  (format s "  atty agent say <session>:<pane> <keys>   an answer: raw keys, \\r for enter~%")
+  (format s "  atty agent explain <session>:<pane>      which rule says what it is doing~%")
+  (format s "  atty agent trace <session>:<pane>        every look at it: ms, moved, said, state~%")
+  (format s "  atty agent signal <state>   from inside a pane: what its program is doing~%~%")
   (format s "  ~C-b d detaches, ~C-b r redraws, ~C-b ~C-b types a ~C-b,~%"
           #\^ #\^ #\^ #\^ #\^)
   (format s "  ~C-b : runs a command by name and ~C-b ? says what every key does.~%"
@@ -370,7 +370,7 @@ something anything else does on your behalf."
            (let ((name (or (second args) "0")))
              (if (stop-a-server name)
                  (format t "~&stopped ~A~%" name)
-                 (format *error-output* "~&vtx: nothing called ~A is running~%"
+                 (format *error-output* "~&atty: nothing called ~A is running~%"
                          name))))
           ((string= what "attach")
            (let ((path (socket-path (or (second args) "0"))))
@@ -401,5 +401,5 @@ something anything else does on your behalf."
     (stream-error ()
       (sb-ext:quit :unix-status 0 :recklessly-p t))
     (error (e)
-      (format *error-output* "~&vtx: ~A~%" e)
+      (format *error-output* "~&atty: ~A~%" e)
       (sb-ext:quit :unix-status 1))))

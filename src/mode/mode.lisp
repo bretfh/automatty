@@ -1,4 +1,4 @@
-(in-package #:vtx/mode)
+(in-package #:atty/mode)
 
 (defclass mode ()
   ((keys   :initform (make-hash-table :test 'equal) :reader mode-keys)

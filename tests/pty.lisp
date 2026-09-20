@@ -1,4 +1,4 @@
-(in-package #:vtx/test)
+(in-package #:atty/test)
 
 (def-suite pty :in all)
 (in-suite pty)

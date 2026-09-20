@@ -1,4 +1,4 @@
-(in-package #:vtx/test)
+(in-package #:atty/test)
 
 (def-suite agent :in all)
 (in-suite agent)
@@ -40,7 +40,7 @@
 
 (test a-known-agent-is-unknown-until-its-screen-says-something
   (let ((a (agent:make-agent "" "bash"))
-        (term (claude-screen " ▐▛███▛█   Claude Code v2.1.258" "  ▝▝ ▝▝    ~/git/cl/cl-vt")))
+        (term (claude-screen " ▐▛███▛█   Claude Code v2.1.258" "  ▝▝ ▝▝    ~/git/cl/atty")))
     (agent:agent-look a term 0 t)
     (is (eq :working (agent:agent-state a)))
     (agent:agent-become a "✳ Claude Code" "bash")

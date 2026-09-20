@@ -1,8 +1,8 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(defpackage #:vtx/agent
+(defpackage #:atty/agent
   (:use #:cl)
-  (:local-nicknames (#:vt #:libvtx))
+  (:local-nicknames (#:vt #:libatty))
   (:export
    #:agent
    #:make-agent

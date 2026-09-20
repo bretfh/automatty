@@ -1,19 +1,19 @@
 #!/bin/sh
 # What the same bytes cost somebody else's terminal.
 #
-# tmux runs detached, with no client attached to it: it is then doing what cl-vt
+# tmux runs detached, with no client attached to it: it is then doing what atty
 # does and no more: read the pty, parse it, keep the grid and the scrollback,
 # draw nothing. alacritty runs in a nested headless sway of its own, so it never
 # touches the screen you are looking at, and it is drawing as well as parsing.
 #
-# Both are timed the same way cl-vt is: cat the corpus on a pty, and wait for
+# Both are timed the same way atty is: cat the corpus on a pty, and wait for
 # the terminal to have read all of it. An empty run of each is measured too and
 # taken off, because starting a terminal is not reading anything.
 
 set -e
-DIR=${BENCH_DIR:-/tmp/cl-vt-bench}
+DIR=${BENCH_DIR:-/tmp/atty-bench}
 ROUNDS=${ROUNDS:-5}
-SOCK=cl-vt-bench
+SOCK=atty-bench
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"; tmux -L $SOCK kill-server 2>/dev/null || true' EXIT
 

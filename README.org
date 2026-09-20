@@ -1,14 +1,14 @@
-#+TITLE: vtx
+#+TITLE: automatty
 
-This is both a library for terminal emulation and a terminal emulator and
-multiplexer built on top of it.
+automatty is both a library for terminal emulation and a terminal emulator and
+multiplexer built on top of it. The command is =atty=.
 
-*libvtx* is an implementation of the VT100 protocol plus a growing set of
+*libatty* is an implementation of the VT100 protocol plus a growing set of
 others to serve modern needs. It provides an abstract model that parses what
 a program writes to a pty and keeps a grid of cells and faces, and turns
 input into the bytes a terminal would send.
 
-*vtx* is a terminal emulator and multiplexer built on top of libvtx. It can
+*atty* is a terminal emulator and multiplexer built on top of libatty. It can
 manage several sessions at a time, each maintaining a tree of windows and
 panes from a server, so a client can attach, switch, or detach, and come
 back later with its layout and state intact.
@@ -16,11 +16,11 @@ back later with its layout and state intact.
 The server also knows what the program in each pane is doing. It holds every
 pane as a grid of cells, not a stream of bytes, so it can tell a coding agent's
 prompt box from its permission dialog from its spinner, and it says so on the
-bar and over the socket. =vtx agent list= names every pane and whether it is
+bar and over the socket. =atty agent list= names every pane and whether it is
 idle, working or blocked. =wait= blocks until one is. =read= answers what is on
 its screen, as text. =prompt= gives it new work, =say= answers what it is
 asking, and =explain= names the rule that decided. A program inside a pane can
-say its own state with =vtx agent signal=. There is nothing to install and no
+say its own state with =atty agent signal=. There is nothing to install and no
 protocol to speak: an agent that can run a shell command can watch another
 pane, wait until it is stuck, read why, and answer it, through the terminal it
 already has.
@@ -31,9 +31,9 @@ For working on this repo:
 
 #+begin_src sh
 make test                     # the whole suite
-make test-term                # libvtx alone, nothing else loaded
-make run CMD='top -b -n 1'    # run a command on a pty, print the screen libvtx drew
-make vtx                      # the binary, in this directory
+make test-term                # libatty alone, nothing else loaded
+make run CMD='top -b -n 1'    # run a command on a pty, print the screen libatty drew
+make atty                      # the binary, in this directory
 #+end_src
 
 This is developed on Guix. Without it, put =FOREIGN=1= in front of any
@@ -43,7 +43,7 @@ target and it uses whatever SBCL is already on the machine:
 make FOREIGN=1 test
 #+end_src
 
-** Installing vtx
+** Installing atty
 
 #+begin_src sh
 make FOREIGN=1 install                       # PREFIX=/usr/local
@@ -53,21 +53,21 @@ make FOREIGN=1 install PREFIX=$HOME/.local
 Or, if you use roswell, brew or guix:
 
 #+begin_src sh
-ros install bretfhorne/vtx
-brew install bretfhorne/vtx/vtx
-guix install vtx
+ros install bretfhorne/automatty
+brew install bretfhorne/automatty/atty
+guix install atty
 #+end_src
 
 A tagged release also carries a Linux AppImage and a macOS tarball.
 
-** Using vtx
+** Using atty
 
 #+begin_src sh
-vtx                    # a shell, in a session called 0, made if it isn't there
-vtx <name>             # the same, under another name
-vtx attach <name>      # join a session already running
-vtx list               # what is running
-vtx stop <name>        # stop a session, and the programs in it
+atty                    # a shell, in a session called 0, made if it isn't there
+atty <name>             # the same, under another name
+atty attach <name>      # join a session already running
+atty list               # what is running
+atty stop <name>        # stop a session, and the programs in it
 #+end_src
 
 =^-b= is the prefix for everything else: =^-b d= detaches, =^-b r= redraws,
@@ -75,10 +75,10 @@ vtx stop <name>        # stop a session, and the programs in it
 =^-b c= starts another session, =^-b b= chooses one, =^-b ?= says what every
 key does.
 
-** Depending on libvtx
+** Depending on libatty
 
 #+begin_src sh
-ocicl install libvtx
+ocicl install libatty
 #+end_src
 
 ** License

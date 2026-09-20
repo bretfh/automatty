@@ -1,6 +1,6 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(in-package #:vtx)
+(in-package #:atty)
 
 ;;; Which of a list of things somebody meant by what they have typed so far.
 ;;; A letter at the start of a word counts for more than one in the middle, a

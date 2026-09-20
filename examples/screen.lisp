@@ -1,9 +1,9 @@
 (require :asdf)
-(asdf:load-system :vtx/all)
+(asdf:load-system :atty/all)
 
 (defpackage #:vt/example
             (:use #:cl)
-            (:local-nicknames (#:pty #:vtx/pty)))
+            (:local-nicknames (#:pty #:atty/pty)))
 (in-package #:vt/example)
 
 (defun run (command &key (width 80) (height 24) (seconds 2))

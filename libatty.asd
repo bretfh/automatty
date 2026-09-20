@@ -1,4 +1,4 @@
-(asdf:defsystem #:libvtx
+(asdf:defsystem #:libatty
                 :description "An extended VT100 terminal emulator"
                 :author "Bret Horne"
                 :license "GPL-3.0-or-later"
@@ -23,11 +23,11 @@
                              (:file "seq/modes")
                              (:file "seq/report")
                              (:file "seq/osc"))
-                :in-order-to ((asdf:test-op (asdf:test-op #:libvtx/test))))
+                :in-order-to ((asdf:test-op (asdf:test-op #:libatty/test))))
 
-(asdf:defsystem #:libvtx/test
-                :description "Libvtx's test suite"
-                :depends-on (#:libvtx #:fiveam)
+(asdf:defsystem #:libatty/test
+                :description "Libatty's test suite"
+                :depends-on (#:libatty #:fiveam)
                 :serial t
                 :pathname "tests/term/"
                 :components ((:file "suite")
@@ -39,4 +39,4 @@
                              (:file "input")
                              (:file "decode"))
                 :perform (asdf:test-op (o c)
-                                       (uiop:symbol-call :libvtx/test :run-them)))
+                                       (uiop:symbol-call :libatty/test :run-them)))

@@ -1,6 +1,6 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(in-package #:vtx)
+(in-package #:atty)
 
 (defvar *panes-made* 0)
 

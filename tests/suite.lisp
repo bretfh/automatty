@@ -1,17 +1,17 @@
-(defpackage #:vtx/test
-  (:use #:cl #:fiveam #:libvtx/test)
-  (:local-nicknames (#:pty #:vtx/pty) (#:tty #:vtx/tty) (#:mux #:vtx)
-                    (#:cells #:vtx/cells) (#:agent #:vtx/agent))
+(defpackage #:atty/test
+  (:use #:cl #:fiveam #:libatty/test)
+  (:local-nicknames (#:pty #:atty/pty) (#:tty #:atty/tty) (#:mux #:atty)
+                    (#:cells #:atty/cells) (#:agent #:atty/agent))
   (:shadow #:run-them)
   (:export #:run-them #:all))
-(in-package #:vtx/test)
+(in-package #:atty/test)
 
 (def-suite all)
 
 (defun run-them ()
   "Everything: the emulator's own suite, which vt runs on its own, and then
 everything built on it."
-  (let ((results (append (run 'libvtx/test::emulator) (run 'all))))
+  (let ((results (append (run 'libatty/test::emulator) (run 'all))))
     (explain! results)
     (unless (results-status results)
       (uiop:quit 1))))

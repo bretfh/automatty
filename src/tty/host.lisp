@@ -1,6 +1,6 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(in-package #:vtx/tty)
+(in-package #:atty/tty)
 
 ;;; What a system calls a thing, in the shape src/pty/pty.lisp already uses:
 ;;; one table, frozen ABI, and a system nobody has checked stops at load rather
@@ -18,7 +18,7 @@
   #+linux #x5413
   #+(or darwin freebsd openbsd netbsd) (bsd-ioctl-read #\t 104 8)
   #-(or linux darwin freebsd openbsd netbsd)
-  (error "vtx has no TIOCGWINSZ for this system."))
+  (error "atty has no TIOCGWINSZ for this system."))
 
 (defconstant +stdin+ 0)
 (defconstant +stdout+ 1)

@@ -5,11 +5,11 @@ exec ros -Q -- $0 "$@"
 |#
 (progn (ros:ensure-asdf))
 
-(defpackage :ros.script.vtx
+(defpackage :ros.script.atty
   (:use :cl))
-(in-package :ros.script.vtx)
+(in-package :ros.script.atty)
 
-(asdf:load-system :vtx :verbose nil)
+(asdf:load-system :atty :verbose nil)
 
 (defun main (&rest argv)
-  (vtx:main argv))
+  (atty:main argv))

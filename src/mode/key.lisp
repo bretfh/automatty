@@ -1,4 +1,4 @@
-(defpackage #:vtx/mode
+(defpackage #:atty/mode
             (:use #:cl)
             (:export
              #:key #:make-key #:parse-key #:chord #:spelled #:keysym-name
@@ -9,7 +9,7 @@
              #:define-key #:undefine-key #:lookup-key #:keys-in-force #:as-handler
              #:press #:pending #:prefixp #:*unbound* #:*run* #:*pending*
              #:mode-value #:setq-mode #:setq-default))
-(in-package #:vtx/mode)
+(in-package #:atty/mode)
 
 (defun split-spec (spec)
   "SPEC cut at the spaces between one key and the next."

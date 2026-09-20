@@ -1,6 +1,6 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(in-package #:vtx)
+(in-package #:atty)
 
 ;;; One message is a decimal byte count, a newline, and that many bytes of one
 ;;; s-expression in utf-8. The count is there because a poll loop may not block:
@@ -123,7 +123,7 @@ first could not be picked up from a different terminal."
 
 (defun wire-send (wire form)
   (let* ((text (with-standard-io-syntax
-                 (let ((*package* (find-package '#:vtx)))
+                 (let ((*package* (find-package '#:atty)))
                    (prin1-to-string form))))
          (bytes (sb-ext:string-to-octets text :external-format :utf-8))
          (head (sb-ext:string-to-octets (format nil "~D~C" (length bytes) #\Newline)

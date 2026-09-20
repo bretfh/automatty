@@ -1,6 +1,6 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(in-package #:vtx)
+(in-package #:atty)
 
 (defvar *interval* 8
   "The least milliseconds between two frames to one client.
@@ -130,8 +130,8 @@ on it are the whole of who may."
   (setf (server-going server) nil))
 
 (defun pane-environment (session pane)
-  (list (format nil "VTX_PANE=~A:~D" (session-name session) (pane-id pane))
-        (format nil "VTX_SOCKET=~A" (or (session-socket session) ""))))
+  (list (format nil "ATTY_PANE=~A:~D" (session-name session) (pane-id pane))
+        (format nil "ATTY_SOCKET=~A" (or (session-socket session) ""))))
 
 (defun add-session (server command &key (name "0") (rows 24) (cols 80))
   (let* ((pane (make-pane command :rows rows :cols cols))
@@ -210,7 +210,7 @@ bar button tells WATCHER, the one who clicked, to run what it is for, and a
 pane becomes the focus. A geometry from before the first draw, or a click that
 landed on a rule, does nothing."
   (let ((hit (and (session-geometry session)
-                  (vtx/ui:under (session-geometry session) y x))))
+                  (atty/ui:under (session-geometry session) y x))))
     (cond
       ((and (typep hit 'bar-button) (eq (bar-button-runs hit) :cycle-search-kind))
        (setf (session-search-kind session)
@@ -286,7 +286,7 @@ whether it did."
 
 (defun session-tree (session)
   "What the session looks like: the bar, and the panes under it."
-  (vtx/ui:column
+  (atty/ui:column
    :align :stretch
    (session-bar session)
    (layout-tree (session-layout session) (session-focus session))))
@@ -295,8 +295,8 @@ whether it did."
   "Give each pane the room the layout gave its view."
   (dolist (v (views-in tree))
     (let ((pane (view-pane v))
-          (rows (max 1 (vtx/ui:height v)))
-          (cols (max 1 (vtx/ui:width v))))
+          (rows (max 1 (atty/ui:height v)))
+          (cols (max 1 (atty/ui:width v))))
       (unless (and (= rows (vt:term-height (pane-term pane)))
                    (= cols (vt:term-width (pane-term pane))))
         (pane-resize pane rows cols)))))
@@ -308,10 +308,10 @@ was put."
          (v (view-of tree (session-focus session)))
          (term (session-pane-term session)))
     (setf (tty:screen-cursor-x screen)
-          (min (+ (if v (vtx/ui:left v) 0) (vt:term-cursor-x term))
+          (min (+ (if v (atty/ui:left v) 0) (vt:term-cursor-x term))
                (1- (tty:screen-width screen)))
           (tty:screen-cursor-y screen)
-          (min (+ (if v (vtx/ui:top v) 0) (vt:term-cursor-y term))
+          (min (+ (if v (atty/ui:top v) 0) (vt:term-cursor-y term))
                (1- (tty:screen-height screen)))
           (tty:screen-cursor-visible screen) (vt:term-cursor-visible term)
           (tty:screen-cursor-style screen) (vt:term-cursor-style term))))
@@ -324,14 +324,14 @@ is drawn is what they have just been told they are."
          (cols (tty:screen-width screen))
          (rows (tty:screen-height screen))
          (tree (session-tree session))
-         (m (vtx/cells:make-cells (tty:screen-grid screen) cols rows)))
-    (vtx/ui:with-pass
-      (vtx/ui:restyle tree)
-      (vtx/ui:measure tree m cols rows)
-      (vtx/ui:lay tree m 0 0 cols rows)
+         (m (atty/cells:make-cells (tty:screen-grid screen) cols rows)))
+    (atty/ui:with-pass
+      (atty/ui:restyle tree)
+      (atty/ui:measure tree m cols rows)
+      (atty/ui:lay tree m 0 0 cols rows)
       (setf (session-geometry session) tree)
       (fit-panes tree)
-      (vtx/ui:paint tree m))
+      (atty/ui:paint tree m))
     (put-the-cursor session tree)
     screen))
 
@@ -524,11 +524,11 @@ looking at."
               while form
               do (handler-case
                      (unless (heard server watcher form)
-                       (format *error-output* "~&vtx: nothing here does ~S~%"
+                       (format *error-output* "~&atty: nothing here does ~S~%"
                                (and (consp form) (first form)))
                        (finish-output *error-output*))
                    (error (e)
-                     (format *error-output* "~&vtx: ~S: ~A~%"
+                     (format *error-output* "~&atty: ~S: ~A~%"
                              (and (consp form) (first form)) e)
                      (finish-output *error-output*)))
               while (wire-open wire)))))
@@ -677,7 +677,7 @@ sent one, or nothing when nobody is owed one."
 (defparameter +faults+ 10)
 
 (defun say-what-broke (e)
-  (format *error-output* "~&vtx: ~A~%" e)
+  (format *error-output* "~&atty: ~A~%" e)
   (ignore-errors
    (sb-debug:print-backtrace :stream *error-output* :count 30))
   (finish-output *error-output*))
@@ -705,7 +705,7 @@ that does end it."
                         (say-what-broke e)
                         (when (> (incf faults) +faults+)
                           (format *error-output*
-                                  "~&vtx: ~D faults with nothing between them; stopping.~%"
+                                  "~&atty: ~D faults with nothing between them; stopping.~%"
                                   faults)
                           (setf (server-going server) nil)))))
            server)

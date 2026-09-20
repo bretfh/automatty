@@ -1,8 +1,8 @@
-(defpackage #:libvtx/test
+(defpackage #:libatty/test
   (:use #:cl #:fiveam)
   (:export #:run-them #:emulator
            #:a-term #:say #:csi #:esc #:osc #:row #:rows #:at #:face-at #:cursor))
-(in-package #:libvtx/test)
+(in-package #:libatty/test)
 
 (def-suite emulator)
 

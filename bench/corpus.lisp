@@ -1,15 +1,15 @@
 (require :asdf)
-(asdf:load-system :vtx/all)
+(asdf:load-system :atty/all)
 
 (defpackage #:vt/bench
   (:use #:cl)
-  (:local-nicknames (#:pty #:vtx/pty) (#:tty #:vtx/tty) (#:mux #:vtx)
-                    (#:cells #:vtx/cells))
+  (:local-nicknames (#:pty #:atty/pty) (#:tty #:atty/tty) (#:mux #:atty)
+                    (#:cells #:atty/cells))
   (:export #:corpus-dir #:make-corpora #:corpora))
 (in-package #:vt/bench)
 
 (defun corpus-dir ()
-  (let ((said (or (uiop:getenv "BENCH_DIR") "/tmp/cl-vt-bench")))
+  (let ((said (or (uiop:getenv "BENCH_DIR") "/tmp/atty-bench")))
     (pathname (format nil "~A/" (string-right-trim "/" said)))))
 
 (defparameter +corpora+ '("plain" "color" "redraw"))

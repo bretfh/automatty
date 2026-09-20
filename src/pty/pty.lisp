@@ -1,6 +1,6 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(in-package #:vtx/pty)
+(in-package #:atty/pty)
 
 ;;; What a system calls a thing. These are the only per-system numbers here, and
 ;;; every one of them is frozen ABI. TIOCSWINSZ has not moved since the 1980s.
@@ -25,13 +25,13 @@
   #+darwin #x20000
   #+(or freebsd openbsd netbsd) #x8000
   #-(or linux darwin freebsd openbsd netbsd)
-  (error "vtx/pty has no O_NOCTTY for this system."))
+  (error "atty/pty has no O_NOCTTY for this system."))
 
 (defconstant +posix-spawn-setsid+
   #+linux #x80
   #+darwin #x400
   #-(or linux darwin)
-  (error "vtx/pty has no checked POSIX_SPAWN_SETSID for this system. It is in
+  (error "atty/pty has no checked POSIX_SPAWN_SETSID for this system. It is in
 spawn.h; the pty suite says whether the one you put here is right, because it
 asserts the child comes up with a controlling terminal."))
 
@@ -48,7 +48,7 @@ layout rather than a list, so the whole family follows from the one rule."
   #+linux #x5414
   #+(or darwin freebsd openbsd netbsd) (bsd-ioctl-write #\t 103 8)
   #-(or linux darwin freebsd openbsd netbsd)
-  (error "vtx/pty has no TIOCSWINSZ for this system."))
+  (error "atty/pty has no TIOCSWINSZ for this system."))
 
 ;;; libc. Nothing here is compiled; it is all already on the machine.
 

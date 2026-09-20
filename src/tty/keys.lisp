@@ -1,6 +1,6 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(in-package #:vtx/tty)
+(in-package #:atty/tty)
 
 ;;; What a terminal sent, as the key somebody pressed. This is the host's half:
 ;;; an abstract terminal never receives these bytes, it only ever produces them

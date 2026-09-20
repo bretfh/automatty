@@ -1,6 +1,6 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(in-package #:vtx)
+(in-package #:atty)
 
 ;;; What the keys do, and which keys do it.
 
@@ -71,43 +71,43 @@ instead."
 (defcommand what-the-keys-do
   (show-note *client* "keys"
              (format nil "~{~A~%~}"
-                     (loop :for (chord . nil) :in (vtx/mode:keys-in-force
-                                                   (vtx/mode:mode-named 'pane-mode))
+                     (loop :for (chord . nil) :in (atty/mode:keys-in-force
+                                                   (atty/mode:mode-named 'pane-mode))
                            :collect (format nil "  ~A" chord)))
              :face :accent))
 
 ;;; A mode holds these, so another mode may be defined on top of this one and
 ;;; change or add to what is here without touching any of it.
 
-(vtx/mode:define-key 'pane-mode "C-b d" #'detach)
-(vtx/mode:define-key 'pane-mode "C-b r" #'redraw)
-(vtx/mode:define-key 'pane-mode "C-b :" #'run-a-command)
-(vtx/mode:define-key 'pane-mode "C-b ?" #'what-the-keys-do)
-(vtx/mode:define-key 'pane-mode "C-b C-b" #'send-the-prefix)
-(vtx/mode:define-key 'pane-mode "C-b t" #'toggle-the-bar)
+(atty/mode:define-key 'pane-mode "C-b d" #'detach)
+(atty/mode:define-key 'pane-mode "C-b r" #'redraw)
+(atty/mode:define-key 'pane-mode "C-b :" #'run-a-command)
+(atty/mode:define-key 'pane-mode "C-b ?" #'what-the-keys-do)
+(atty/mode:define-key 'pane-mode "C-b C-b" #'send-the-prefix)
+(atty/mode:define-key 'pane-mode "C-b t" #'toggle-the-bar)
 
 ;;; Panes are windows and the keys for them are the ones an editor uses for
 ;;; windows: 2 splits below, 3 splits beside, 0 closes this one, 1 leaves only
 ;;; this one, o goes to the next.
 
-(vtx/mode:define-key 'pane-mode "C-b 2" #'split-below)
-(vtx/mode:define-key 'pane-mode "C-b 3" #'split-right)
-(vtx/mode:define-key 'pane-mode "C-b 0" #'close-pane)
-(vtx/mode:define-key 'pane-mode "C-b 1" #'only-this-pane)
-(vtx/mode:define-key 'pane-mode "C-b o" #'next-pane)
+(atty/mode:define-key 'pane-mode "C-b 2" #'split-below)
+(atty/mode:define-key 'pane-mode "C-b 3" #'split-right)
+(atty/mode:define-key 'pane-mode "C-b 0" #'close-pane)
+(atty/mode:define-key 'pane-mode "C-b 1" #'only-this-pane)
+(atty/mode:define-key 'pane-mode "C-b o" #'next-pane)
 
-(vtx/mode:define-key 'pane-mode "C-b c" #'new-session)
-(vtx/mode:define-key 'pane-mode "C-b b" #'choose-a-session)
+(atty/mode:define-key 'pane-mode "C-b c" #'new-session)
+(atty/mode:define-key 'pane-mode "C-b b" #'choose-a-session)
 
 ;;; A click is looked up the same as any other key, unprefixed: a mouse's
 ;;; buttons are always the multiplexer's, the way a keyboard's letters are
 ;;; always the pane's until C-b says otherwise.
 
-(vtx/mode:define-key 'pane-mode "mouse-1" #'mouse-clicked)
-(vtx/mode:define-key 'pane-mode "mouse-1-up" #'mouse-noticed)
-(vtx/mode:define-key 'pane-mode "mouse-2" #'mouse-noticed)
-(vtx/mode:define-key 'pane-mode "mouse-2-up" #'mouse-noticed)
-(vtx/mode:define-key 'pane-mode "mouse-3" #'mouse-noticed)
-(vtx/mode:define-key 'pane-mode "mouse-3-up" #'mouse-noticed)
-(vtx/mode:define-key 'pane-mode "wheel-up" #'mouse-noticed)
-(vtx/mode:define-key 'pane-mode "wheel-down" #'mouse-noticed)
+(atty/mode:define-key 'pane-mode "mouse-1" #'mouse-clicked)
+(atty/mode:define-key 'pane-mode "mouse-1-up" #'mouse-noticed)
+(atty/mode:define-key 'pane-mode "mouse-2" #'mouse-noticed)
+(atty/mode:define-key 'pane-mode "mouse-2-up" #'mouse-noticed)
+(atty/mode:define-key 'pane-mode "mouse-3" #'mouse-noticed)
+(atty/mode:define-key 'pane-mode "mouse-3-up" #'mouse-noticed)
+(atty/mode:define-key 'pane-mode "wheel-up" #'mouse-noticed)
+(atty/mode:define-key 'pane-mode "wheel-down" #'mouse-noticed)
