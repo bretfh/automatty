@@ -57,6 +57,16 @@ until the first quiet moment: a program that is asleep has not finished."
     (with-pty (fd pid "stty size" :rows 11 :cols 77)
       (is-true (until-said term fd "11 77")))))
 
+(test a-program-starts-in-the-directory-it-was-given
+  (let ((term (a-term :width 60 :height 10))
+        (dir (namestring (truename (uiop:temporary-directory)))))
+    (with-pty (fd pid "pwd -P" :rows 10 :cols 60 :directory dir)
+      (is-true (until-said term fd (string-right-trim "/" dir))
+               "it started somewhere else: ~S" (screen term)))))
+
+(test a-directory-with-a-quote-in-it-is-still-the-directory
+  (is (equal "'it'\\''s'" (pty::sh-quoted "it's"))))
+
 (test what-is-written-to-a-pty-the-program-reads
   (let ((term (a-term :width 40 :height 10)))
     (with-pty (fd pid "read line; printf 'heard %s\\n' \"$line\"")

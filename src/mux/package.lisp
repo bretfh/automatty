@@ -139,7 +139,13 @@
    #:mux-dir
    #:socket-path
    #:log-path
-   #:sessions-here
+   #:where-the-server-is
+   #:*server-name*
+   #:knocked
+   #:other-servers
+   #:the-sessions
+   #:stop-a-session
+   #:list-sessions
    #:stop-a-server
    #:asked
    #:agents-here

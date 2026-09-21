@@ -16,25 +16,48 @@ carry no idea of who is asking."
     (ignore-errors (sb-posix:chmod (namestring dir) #o700))
     dir))
 
-(defun socket-path (name)
-  "Where the socket for NAME is. NAME names one session, not a path: a name with
-a directory in it would put the socket somewhere nobody is looking for it and
-under permissions nobody set."
-  (let ((name (file-namestring (princ-to-string name))))
+(defvar *server-name* nil
+  "Which server, when -L said. One server holds every session, the way tmux's
+does; a second one is for somebody who asks for it by name.")
+
+(defun a-name (said what)
+  "SAID as a file name in the socket directory. A name with a directory in it
+would put the socket somewhere nobody is looking for it and under permissions
+nobody set."
+  (let ((name (file-namestring (princ-to-string said))))
     (when (zerop (length name))
-      (error "~S is not a name a session can have" name))
-    (namestring (merge-pathnames name (mux-dir)))))
+      (error "~S is not a name ~A can have" said what))
+    name))
 
-(defun log-path (name)
-  (namestring (merge-pathnames (format nil "~A.log" name) (mux-dir))))
+(defun server-name ()
+  (let ((env (sb-ext:posix-getenv "ATTY_SERVER")))
+    (or *server-name* (and env (plusp (length env)) env) "default")))
 
-(defun answering-p (path &optional (patience 3))
-  "Whether a server at PATH answers, which is not the same as whether something
-is listening there.
+(defun socket-path (&optional (name (server-name)))
+  "Where the socket for the server called NAME is."
+  (namestring (merge-pathnames (a-name name "a server") (mux-dir))))
 
-A server wedged on its way out still holds its socket, so a connection to it
-succeeds and then nothing ever comes back, and a client that took that for a
-living server would sit at a screen that never arrives. So it is knocked on."
+(defun where-the-server-is ()
+  "The server this invocation talks to: the one -L or ATTY_SERVER names, else
+the one the pane it is running in belongs to, else the user's own."
+  (let ((inside (sb-ext:posix-getenv "ATTY_SOCKET")))
+    (if (and (null *server-name*)
+             (null (sb-ext:posix-getenv "ATTY_SERVER"))
+             inside (plusp (length inside)))
+        inside
+        (socket-path))))
+
+(defun log-path (&optional (name (server-name)))
+  (namestring (merge-pathnames (format nil "~A.log" (a-name name "a server"))
+                               (mux-dir))))
+
+(defun knocked (path &optional (patience 3))
+  "What a server at PATH says when knocked on, or nil when nothing answers.
+
+Something listening is not the same as a server: one wedged on its way out
+still holds its socket, so a connection to it succeeds and then nothing ever
+comes back, and a client that took that for a living server would sit at a
+screen that never arrives."
   (and (probe-file path)
        (handler-case
            (let ((socket (make-instance 'sb-bsd-sockets:local-socket :type :stream)))
@@ -56,45 +79,71 @@ living server would sit at a screen that never arrives. So it is knocked on."
                                        while form
                                        do (when (and (consp form)
                                                      (eq :here (first form)))
-                                            (setf here t))))))
+                                            (setf here form))))))
                  (wire-close wire))
                here))
          (error () nil))))
 
-(defun sessions-here ()
-  (remove-if-not #'answering-p
-                 (mapcar #'namestring (directory (merge-pathnames "*" (mux-dir))))))
+(defun answering-p (path &optional (patience 3))
+  (and (knocked path patience) t))
+
+(defun other-servers ()
+  "Every other socket here that answers, as (name path legacyp). A legacy one is
+a server from before one server held every session: it holds the one session its
+name is, and says so by not saying it is the other kind."
+  (loop :for path :in (mapcar #'namestring (directory (merge-pathnames "*" (mux-dir))))
+        :for name := (file-namestring path)
+        ;; by name, not by path: the directory listing answers the path with
+        ;; every link resolved (/private/tmp on a mac), which is not how it
+        ;; was spelt when it was made
+        :for here := (and (not (search ".log" name))
+                          (string/= name (file-namestring (where-the-server-is)))
+                          (knocked path 1))
+        :when here
+          :collect (list name path (not (member :one-server here)))))
 
 (defun asked (path forms &key (patience 3) (done (constantly t)))
+  "Say FORMS to the server at PATH and gather what it says back until DONE
+likes a form or PATIENCE seconds pass. What was said is all sent before the
+patience starts: a long prompt is more than a socket takes in one write, and
+cutting it off halfway would leave the server holding half a message."
   (handler-case
       (let ((socket (make-instance 'sb-bsd-sockets:local-socket :type :stream)))
         (sb-bsd-sockets:socket-connect socket path)
         (let ((wire (make-wire (sb-bsd-sockets:socket-file-descriptor socket) socket))
-              (deadline (+ (get-internal-real-time)
-                           (* patience internal-time-units-per-second)))
               (heard nil))
           (unwind-protect
                (progn
                  (dolist (form forms) (wire-send wire form))
-                 (wire-flush wire)
-                 (loop
-                   (when (> (get-internal-real-time) deadline) (return))
-                   (when (pty:pty-wait (wire-fd wire) 100)
-                     (unless (wire-fill wire) (return))
-                     (loop for form = (wire-take wire)
-                           while form
-                           do (push form heard)
-                              (when (funcall done form) (return-from asked (nreverse heard)))))))
+                 (let ((sending (+ (get-internal-real-time)
+                                   (* 10 internal-time-units-per-second))))
+                   (loop :until (or (wire-flush wire)
+                                    (not (wire-open wire))
+                                    (> (get-internal-real-time) sending))
+                         :do (sb-unix:unix-simple-poll (wire-fd wire) :output 100)))
+                 (let ((deadline (+ (get-internal-real-time)
+                                    (* patience internal-time-units-per-second))))
+                   (loop
+                     (when (> (get-internal-real-time) deadline) (return))
+                     (when (pty:pty-wait (wire-fd wire) 100)
+                       (unless (wire-fill wire) (return))
+                       (loop for form = (wire-take wire)
+                             while form
+                             do (push form heard)
+                                (when (funcall done form)
+                                  (return-from asked (nreverse heard))))))))
             (wire-close wire))
           (nreverse heard)))
     (error () nil)))
 
 (defun agents-here ()
-  (loop :for path :in (sessions-here)
-        :append (let ((said (asked path '((:agents))
-                                   :done (lambda (form) (eq :agents (first form))))))
-                  (mapcar (lambda (row) (cons path row))
-                          (second (find :agents said :key #'first))))))
+  "Every pane in every session of this server, each row led by the server's
+path."
+  (let* ((path (where-the-server-is))
+         (said (asked path '((:agents))
+                      :done (lambda (form) (eq :agents (first form))))))
+    (mapcar (lambda (row) (cons path row))
+            (second (find :agents said :key #'first)))))
 
 (defun pane-address (said)
   (let ((colon (position #\: said :from-end t)))
@@ -250,15 +299,15 @@ neither, and there is nothing to run."
         (core (and sb-ext:*core-pathname* (namestring sb-ext:*core-pathname*))))
     (when (and runtime core (string= runtime core)) runtime)))
 
-(defun start-a-server (name command &key rows cols)
-  (let ((me (self)))
+(defun start-a-server ()
+  "Start this user's server, holding nothing yet: the client that started it
+opens the first session. Answers its path."
+  (let ((me (self))
+        (path (socket-path)))
     (if me
-        (pty:spawn-in-its-own-session
-         me
-         (list "serve" name command (princ-to-string rows) (princ-to-string cols))
-         :output (log-path name))
-        (let ((form (format nil "(atty:serve ~S ~S :name ~S :rows ~D :cols ~D)"
-                            (socket-path name) command name rows cols)))
+        (pty:spawn-in-its-own-session me (list "-L" (server-name) "serve")
+                                      :output (log-path))
+        (let ((form (format nil "(atty:serve ~S ~S :name nil)" path (a-shell))))
           (pty:spawn-in-its-own-session
            (namestring sb-ext:*runtime-pathname*)
            (list "--no-userinit" "--disable-debugger"
@@ -266,77 +315,117 @@ neither, and there is nothing to run."
                  "--eval" "(asdf:load-system :atty)"
                  "--eval" form
                  "--quit")
-           :output (log-path name)))))
-  (loop repeat 400
-        until (answering-p (socket-path name))
-        do (sleep 0.01))
-  (socket-path name))
+           :output (log-path))))
+    (loop repeat 400
+          until (answering-p path)
+          do (sleep 0.01))
+    path))
+
+(defun the-server ()
+  "This user's server, started when it is not running."
+  (let ((path (where-the-server-is)))
+    (unless (answering-p path)
+      (ignore-errors (delete-file path))
+      (start-a-server))
+    (unless (answering-p path)
+      (error "no server came up. ~A says why." (log-path)))
+    path))
 
 (defun say-why (name why)
   (case why
     (:detached (format t "~&detached from ~A~%" name))
     (:done nil)
     (:asked-to-stop nil)
+    (:stopped (format t "~&~A was stopped~%" name))
     (:no-answer
      (format *error-output*
-             "~&atty: the server for ~A took the connection and then said~%~
-              nothing. It is most likely older than this client: it has been~%~
-              running since whenever, and what it made of what we sent it is in~%~
+             "~&atty: the server took the connection and then said nothing.~%~
+              It is most likely older than this client: it has been running~%~
+              since whenever, and what it made of what we sent it is in~%~
               ~A. The programs in it are still running.~%"
-             name (log-path name)))
+             (log-path)))
     (:no-such-session
-     (format *error-output* "~&atty: there is no session called ~A there.~%" name))
+     (format *error-output* "~&atty: there is no session called ~A.~%" name))
     (:server-gone
-     (format *error-output* "~&atty: the server for ~A stopped. ~A says why.~%"
-             name (log-path name)))
+     (format *error-output* "~&atty: the server stopped. ~A says why.~%" (log-path)))
     (t (when why (format t "~&~A~%" why))))
   why)
 
 (defun a-shell ()
   (or (sb-ext:posix-getenv "SHELL") "/bin/sh"))
 
-(defun stop-a-server (name)
-  "Ask the server for NAME to go. Answers whether there was one to ask.
+(defun stop-a-server (path)
+  "Ask the server at PATH to go. Answers whether it went.
 
 The programs in it go with it, which is what stopping it means, so it is never
 something anything else does on your behalf."
-  (let ((path (socket-path name)))
+  (and (answering-p path)
+       (progn (asked path '((:stop)) :patience 0)
+              (loop repeat 300
+                    while (answering-p path 1)
+                    do (sleep 0.01))
+              (not (answering-p path 1)))))
+
+(defun stop-a-session (name)
+  "Stop the session called NAME and the programs in it. A server from before
+one server held them all is stopped whole, since that is all it holds."
+  (let* ((path (where-the-server-is))
+         (said (and (answering-p path)
+                    (asked path (list (list :kill-session name))
+                           :done (lambda (f) (eq :killed (first f))))))
+         (killed (third (find :killed said :key #'first))))
+    (or killed
+        (let ((legacy (find name (other-servers) :key #'first :test #'string=)))
+          (and legacy (third legacy) (stop-a-server (second legacy)))))))
+
+(defun the-sessions ()
+  "What this server holds, as (name rows cols panes attached blocked) rows."
+  (let ((path (where-the-server-is)))
     (and (answering-p path)
-         (handler-case
-             (let ((socket (make-instance 'sb-bsd-sockets:local-socket
-                                          :type :stream)))
-               (sb-bsd-sockets:socket-connect socket path)
-               (let ((wire (make-wire (sb-bsd-sockets:socket-file-descriptor socket)
-                                      socket)))
-                 (unwind-protect
-                      (progn (wire-send wire '(:stop)) (wire-flush wire))
-                   (wire-close wire)))
-               (loop repeat 300
-                     while (answering-p path 1)
-                     do (sleep 0.01))
-               (not (answering-p path 1)))
-           (error () nil)))))
+         (second (find :these (asked path '((:sessions))
+                                     :done (lambda (f) (eq :these (first f))))
+                       :key #'first)))))
+
+(defun list-sessions ()
+  (let ((rows (the-sessions))
+        (others (other-servers)))
+    (dolist (row rows)
+      (destructuring-bind (name rows cols panes attached &optional (blocked 0)) row
+        (declare (ignore rows cols))
+        (format t "~&~12A ~D pane~:P  ~D attached~A~%"
+                name panes attached
+                (if (plusp blocked)
+                    (format nil "  ▲ ~D need~A you" blocked (if (= blocked 1) "s" ""))
+                    ""))))
+    (dolist (other others)
+      (destructuring-bind (name path legacyp) other
+        (declare (ignore path))
+        (if legacyp
+            (format t "~&~12A a server from before one held them all; atty stop ~A~%"
+                    name name)
+            (format t "~&~12A another server; atty -L ~A list~%" name name))))
+    (unless (or rows others)
+      (format t "~&nothing is running~%"))))
+
+(defun cwd ()
+  (ignore-errors (sb-posix:getcwd)))
 
 (defun run (&key (name "0") (command (a-shell)))
-  (let ((path (socket-path name)))
-    (multiple-value-bind (rows cols)
-        (if (tty:a-terminal-p tty:+stdin+) (tty:host-size tty:+stdin+) (values 24 80))
-      (unless (answering-p path)
-        (ignore-errors (delete-file path))
-        (start-a-server name command :rows rows :cols cols))
-      (unless (answering-p path)
-        (error "no server came up. ~A says why." (log-path name)))
-      (say-why name (attach path :name name)))))
+  "Join NAME in this user's server, making the server and the session when
+they are not there."
+  (say-why name (attach (the-server) :name name :open (list command (cwd)))))
 
 (defun usage (s)
   (format s "~&atty: many terminals inside one~%~%")
   (format s "  atty                 a shell in a session called 0, made if it is not there~%")
   (format s "  atty <name>          the same, under another name~%")
-  (format s "  atty run <name> <command>~%")
-  (format s "  atty attach <name>   join a session already running~%")
-  (format s "  atty serve <name> <command>   the server itself, in the foreground~%")
-  (format s "  atty list            what is running~%")
+  (format s "  atty run <name> <command>   the same, running COMMAND~%")
+  (format s "  atty attach [<name>] join a session already running~%")
+  (format s "  atty list            the sessions, and how many need you~%")
   (format s "  atty stop <name>     stop a session, and the programs in it~%")
+  (format s "  atty kill-server     stop every session~%")
+  (format s "  atty serve           the server itself, in the foreground~%")
+  (format s "  atty -L <server> ... any of these, against another server than your own~%")
   (format s "  atty agent list      what the program in each pane is doing~%")
   (format s "  atty agent wait <session>:<pane> [<state>...]   until it is blocked or idle~%")
   (format s "  atty agent read <session>:<pane> [<lines>]      what is on its screen~%")
@@ -356,48 +445,55 @@ something anything else does on your behalf."
   (format s "  ~C-b c starts another session, ~C-b b chooses one, ~C-b t the bar.~%"
           #\^ #\^ #\^))
 
+(defun serve-here (args)
+  "atty serve [<name> [<command> [<rows> <cols>]]]: this user's server, in the
+foreground. With a name it holds that session from the start."
+  (let ((path (socket-path)))
+    (when (answering-p path 1)
+      (error "a server is already running at ~A; atty run <name> <command> adds ~
+              a session to it" path))
+    (multiple-value-bind (rows cols)
+        (terminal-size tty:+stdin+)
+      (let ((said-rows (and (third args) (parse-integer (third args) :junk-allowed t)))
+            (said-cols (and (fourth args) (parse-integer (fourth args) :junk-allowed t))))
+        (serve path (or (second args) (a-shell))
+               :name (first args)
+               :rows (or said-rows rows)
+               :cols (or said-cols cols))))))
+
 (defun main (&optional (args (rest sb-ext:*posix-argv*)))
   (handler-case
-      (let ((what (first args)))
-        (cond
-          ((null what) (run))
-          ((string= what "list")
-           (let ((running (sessions-here)))
-             (if running
-                 (dolist (path running) (format t "~&~A~%" (pathname-name path)))
-                 (format t "~&nothing is running~%"))))
-          ((string= what "stop")
-           (let ((name (or (second args) "0")))
-             (if (stop-a-server name)
-                 (format t "~&stopped ~A~%" name)
-                 (format *error-output* "~&atty: nothing called ~A is running~%"
-                         name))))
-          ((string= what "attach")
-           (let ((path (socket-path (or (second args) "0"))))
-             (unless (answering-p path)
-               (error "no session called ~A is running" (or (second args) "0")))
-             (say-why (or (second args) "0")
-                      (attach path :name (or (second args) "0")))))
-          ((string= what "serve")
-           (multiple-value-bind (rows cols)
-               (if (tty:a-terminal-p tty:+stdin+)
-                   (tty:host-size tty:+stdin+)
-                   (values 24 80))
-             (let ((said-rows (and (fourth args)
-                                   (parse-integer (fourth args) :junk-allowed t)))
-                   (said-cols (and (fifth args)
-                                   (parse-integer (fifth args) :junk-allowed t))))
-               (serve (socket-path (or (second args) "0"))
-                      (or (third args) (a-shell))
-                      :name (or (second args) "0")
-                      :rows (or said-rows rows)
-                      :cols (or said-cols cols)))))
-          ((string= what "run")
-           (run :name (or (second args) "0")
-                :command (or (third args) (a-shell))))
-          ((string= what "agent") (agent-verbs (rest args)))
-          ((or (string= what "-h") (string= what "--help")) (usage *standard-output*))
-          (t (run :name what))))
+      (let ((*server-name* *server-name*))
+        (loop :while (and (first args) (string= (first args) "-L"))
+              :do (unless (second args) (error "-L wants the name of a server"))
+                  (setf *server-name* (a-name (second args) "a server")
+                        args (cddr args)))
+        (let ((what (first args)))
+          (cond
+            ((null what) (run))
+            ((string= what "list") (list-sessions))
+            ((string= what "stop")
+             (let ((name (or (second args) (error "atty stop <name>: which session?"))))
+               (if (stop-a-session name)
+                   (format t "~&stopped ~A~%" name)
+                   (error "nothing called ~A is running" name))))
+            ((string= what "kill-server")
+             (if (stop-a-server (where-the-server-is))
+                 (format t "~&stopped every session~%")
+                 (error "no server is running")))
+            ((string= what "attach")
+             (let ((path (where-the-server-is)))
+               (unless (answering-p path)
+                 (error "nothing is running"))
+               (say-why (or (second args) "the first session")
+                        (attach path :name (second args)))))
+            ((string= what "serve") (serve-here (rest args)))
+            ((string= what "run")
+             (run :name (or (second args) "0")
+                  :command (or (third args) (a-shell))))
+            ((string= what "agent") (agent-verbs (rest args)))
+            ((or (string= what "-h") (string= what "--help")) (usage *standard-output*))
+            (t (run :name what)))))
     (stream-error ()
       (sb-ext:quit :unix-status 0 :recklessly-p t))
     (error (e)

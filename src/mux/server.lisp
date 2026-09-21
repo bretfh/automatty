@@ -16,7 +16,7 @@ more than the terminal it is sitting inside costs in the first place.")
 (defparameter +biggest-pane+ 1000)
 
 (defparameter +understood+
-  '(:want :attach :go :new :sessions :knock :detach :stop
+  '(:want :attach :open :go :new :sessions :kill-session :knock :detach :stop
     :keys :resize :bar :split :focus :close :only :mouse-at
     :agents :agent-signal :agent-read :agent-keys :agent-prompt :agent-explain
     :agent-trace)
@@ -72,7 +72,22 @@ anything actually moved.")
   (command nil)
   (waiting nil)
   (later nil)
+  (born 0 :type integer)
+  (had-sessions nil :type boolean)
   (going t :type boolean))
+
+(defparameter +first-session-patience+ 10000000000
+  "How long a server started with no session waits for somebody to ask for
+one, in nanoseconds. A server nobody reaches in that time was started by a
+client that has since gone, and holding the socket helps nobody.")
+
+(defun server-wanted-p (server now)
+  "Whether the server has a reason to go on: a session, or no session yet and
+a client that may still be on its way."
+  (and (server-going server)
+       (or (server-sessions server)
+           (and (not (server-had-sessions server))
+                (< (- now (server-born server)) +first-session-patience+)))))
 
 (defparameter +enter-after+ 300)
 
@@ -110,7 +125,7 @@ on it are the whole of who may."
       (sb-posix:fcntl fd sb-posix:f-setfl
                       (logior (sb-posix:fcntl fd sb-posix:f-getfl)
                               sb-posix:o-nonblock))
-      (%make-server :path path :socket socket :fd fd
+      (%make-server :path path :socket socket :fd fd :born (nanos)
                     :waiting (tty:make-waiting 16)))))
 
 (defun server-close (server)
@@ -119,6 +134,13 @@ on it are the whole of who may."
   ;; that is already leaving.
   (ignore-errors (sb-bsd-sockets:socket-close (server-socket server)))
   (ignore-errors (delete-file (server-path server)))
+  ;; what was already said is still sent: the last thing a server does is often
+  ;; answer whoever asked it to stop, and a reply thrown away with the socket
+  ;; reads to them as a server that never heard
+  (dolist (w (append (server-knocking server)
+                     (loop :for s :in (server-sessions server)
+                           :append (session-watchers s))))
+    (ignore-errors (wire-flush (watcher-wire w))))
   (dolist (w (server-knocking server)) (wire-close (watcher-wire w)))
   (dolist (session (server-sessions server))
     (dolist (w (session-watchers session))
@@ -133,8 +155,8 @@ on it are the whole of who may."
   (list (format nil "ATTY_PANE=~A:~D" (session-name session) (pane-id pane))
         (format nil "ATTY_SOCKET=~A" (or (session-socket session) ""))))
 
-(defun add-session (server command &key (name "0") (rows 24) (cols 80))
-  (let* ((pane (make-pane command :rows rows :cols cols))
+(defun add-session (server command &key (name "0") (rows 24) (cols 80) directory)
+  (let* ((pane (make-pane command :rows rows :cols cols :directory directory))
          (session (%make-session :name name :rows rows :cols cols
                                  :socket (server-path server)
                                  :layout pane :focus pane
@@ -142,7 +164,8 @@ on it are the whole of who may."
                                                           :height rows))))
     (session-compose session)
     (pane-start pane :environment (pane-environment session pane))
-    (setf (server-sessions server) (append (server-sessions server) (list session)))
+    (setf (server-sessions server) (append (server-sessions server) (list session))
+          (server-had-sessions server) t)
     session))
 
 (defun session-named (server name)
@@ -165,7 +188,8 @@ on it are the whole of who may."
          (term (pane-term focus))
          (new (make-pane (pane-command focus)
                          :rows (term:term-height term)
-                         :cols (term:term-width term))))
+                         :cols (term:term-width term)
+                         :directory (pane-directory focus))))
     (setf (session-layout session)
           (put-beside (session-layout session) focus way new)
           (session-focus session) new)
@@ -396,6 +420,12 @@ is drawn is what they have just been told they are."
     (greet watcher session))
   session)
 
+(defun watcher-sized (watcher rows cols takes)
+  (setf (watcher-rows watcher) (max 1 (min +biggest-pane+ rows))
+        (watcher-cols watcher) (max 1 (min +biggest-pane+ cols))
+        (watcher-takes watcher) takes
+        (watcher-here watcher) t))
+
 (defun heard (server watcher form)
   "What a client said. Which session it is on is the watcher's own; anything
 that is about a session is passed on only once it has joined one."
@@ -404,24 +434,38 @@ that is about a session is passed on only once it has joined one."
       (:want (setf (watcher-want watcher) (second form)))
       (:attach
        (destructuring-bind (rows cols takes) (rest form)
-         (setf (watcher-rows watcher) (max 1 (min +biggest-pane+ rows))
-               (watcher-cols watcher) (max 1 (min +biggest-pane+ cols))
-               (watcher-takes watcher) takes
-               (watcher-here watcher) t)
+         (watcher-sized watcher rows cols takes)
          (let ((want (session-named server (watcher-want watcher))))
            (if want
                (join-session server watcher want)
                (drop-watcher server watcher :no-such-session)))))
+      (:open
+       ;; join NAME, making it first when it is not there. One message, so the
+       ;; asking and the making are one step here: two clients opening the same
+       ;; new name get one session, not two, and not an error
+       (destructuring-bind (name command directory rows cols takes) (rest form)
+         (watcher-sized watcher rows cols takes)
+         (join-session server watcher
+                       (or (and name (session-named server name))
+                           (add-session server (or command (server-command server))
+                                        :name (or name (a-free-name server))
+                                        :rows (watcher-rows watcher)
+                                        :cols (watcher-cols watcher)
+                                        :directory directory)))))
       (:go
        (let ((want (session-named server (second form))))
          (when want (join-session server watcher want))))
       (:new
-       (destructuring-bind (&optional name command) (rest form)
+       (destructuring-bind (&optional name command directory) (rest form)
          (join-session server watcher
                        (add-session server (or command (server-command server))
                                     :name (or name (a-free-name server))
                                     :rows (watcher-rows watcher)
-                                    :cols (watcher-cols watcher)))))
+                                    :cols (watcher-cols watcher)
+                                    :directory (or directory
+                                                   (and session
+                                                        (pane-directory
+                                                         (session-focus session))))))))
       (:sessions
        (tell watcher
              (list :these
@@ -429,9 +473,18 @@ that is about a session is passed on only once it has joined one."
                              (list (session-name s) (session-rows s)
                                    (session-cols s)
                                    (length (session-panes s))
-                                   (length (session-watchers s))))
+                                   (count-if #'watcher-here (session-watchers s))
+                                   (count :blocked (session-panes s)
+                                          :key (lambda (p) (agent:agent-state
+                                                            (pane-agent p))))))
                            (server-sessions server)))))
-      (:knock (tell watcher (list :here (server-path server))))
+      (:kill-session
+       (let ((it (and (second form) (session-named server (second form)))))
+         (tell watcher (list :killed (second form) (and it t)))
+         (when it (end-the-session server it :stopped))))
+      ;; :one-server is how a client tells this server from one made before a
+      ;; server held every session, which held only the session it was named
+      (:knock (tell watcher (list :here (server-path server) :one-server)))
       (:agents (tell watcher (list :agents (agent-rows server session))))
       (:agent-signal
        (destructuring-bind (name id state) (rest form)
@@ -551,9 +604,15 @@ session's."
         watcher))))
 
 (defun end-the-session (server session why)
-  (dolist (watcher (copy-list (session-watchers session)))
-    (drop-watcher server watcher why))
+  "SESSION is over. Whoever was watching it goes to another session when there
+is one, the way a terminal left open on a closed tab shows the next; only when
+it was the last are they told WHY and let go."
   (setf (server-sessions server) (remove session (server-sessions server)))
+  (dolist (watcher (copy-list (session-watchers session)))
+    (let ((next (first (server-sessions server))))
+      (if next
+          (join-session server watcher next)
+          (drop-watcher server watcher why))))
   (mapc #'pane-close (session-panes session))
   (setf (session-layout session) nil
         (session-focus session) nil)
@@ -689,6 +748,9 @@ sent one, or nothing when nobody is owed one."
                                 (interval *interval*))
   "Hold the sessions and feed whoever is watching them, until there are none.
 
+With NAME nil it starts holding nothing, and the first client to open a session
+makes one; see +FIRST-SESSION-PATIENCE+.
+
 A fault in one wakeup is said and stepped over rather than taken as the end. The
 panes are somebody's shells: losing them to a bug in the emulator is worse than
 drawing one frame wrong, and the backtrace is in the log either way. Faults one
@@ -699,8 +761,9 @@ that does end it."
     (setf (server-command server) command)
     (unwind-protect
          (progn
-           (add-session server command :name name :rows rows :cols cols)
-           (loop while (and (server-going server) (server-sessions server))
+           (when name
+             (add-session server command :name name :rows rows :cols cols))
+           (loop while (server-wanted-p server (nanos))
                  do (handler-case
                         (progn (server-step server :interval interval)
                                (setf faults 0))

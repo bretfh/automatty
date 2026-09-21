@@ -275,8 +275,10 @@ running program, and only one of them is what this is measuring against tmux.")
     (error "no atty binary at ~A: run make atty first" +atty-bin+))
   (let* ((pane (pane-script corpus))
          (name (format nil "bench-~D-~D" (sb-posix:getpid) (incf *ours-run*)))
+         ;; a server of its own, as tmux -L gives tmux one: a run measured
+         ;; inside the user's own server would be measuring their sessions too
          (run (script "ours"
-                      (format nil "exec ~A run ~A 'sh ~A'~%" +atty-bin+ name pane))))
+                      (format nil "exec ~A -L ~A run bench 'sh ~A'~%" +atty-bin+ name pane))))
     (multiple-value-prog1 (watch-one (format nil "sh ~A" run))
       (ignore-errors (delete-file (mux:socket-path name)))
       (ignore-errors (delete-file (mux:log-path name))))))

@@ -14,6 +14,7 @@
   (rang nil :type boolean)
   (named nil)
   (command nil)
+  (directory nil)
   (agent nil)
   (group nil)
   (programs nil)
@@ -22,13 +23,14 @@
 
 (defparameter +programs-every+ 1000)
 
-(defun make-pane (command &key (rows 24) (cols 80))
+(defun make-pane (command &key (rows 24) (cols 80) directory)
   "A pane with a terminal that size and no program in it yet.
 
 Starting it is a second step because the size it is started at is the size it is
 told, once: a shell that asks stty for it on its first line must be told the
 room the layout gave it rather than a guess it is corrected out of afterwards."
   (let ((pane (%make-pane :id (incf *panes-made*) :command command
+                          :directory directory
                           :agent (agent:make-agent nil command))))
     (setf (pane-term pane)
           (term:make-term :width cols :height rows
@@ -67,7 +69,8 @@ room the layout gave it rather than a guess it is corrected out of afterwards."
           (pty:spawn-pty-process (pane-command pane)
                                  :rows (term:term-height term)
                                  :cols (term:term-width term)
-                                 :environment environment)
+                                 :environment environment
+                                 :directory (pane-directory pane))
         (setf (pane-fd pane) fd
               (pane-pid pane) pid))))
   pane)

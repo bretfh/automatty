@@ -148,9 +148,25 @@ layout rather than a list, so the whole family follows from the one rule."
           (error "ptsname: ~A" (sb-int:strerror (sb-alien:get-errno))))
         (values master slave)))))
 
-(defun spawn-pty-process (command &key (rows 24) (cols 80) (shell "/bin/sh") environment)
-  "Run COMMAND under a shell on a pseudo-terminal of its own. Answers
- (values master-fd pid).
+(defun can-change-directory-p ()
+  "Whether this libc can have posix_spawn change directory for the child. It
+is a late addition everywhere (macOS 10.15, glibc 2.29), so it is looked for
+rather than assumed."
+  (and (sb-sys:find-foreign-symbol-address "posix_spawn_file_actions_addchdir_np") t))
+
+(defun sh-quoted (said)
+  (with-output-to-string (out)
+    (write-char #\' out)
+    (loop :for c :across said
+          :do (if (char= c #\')
+                  (write-string "'\\''" out)
+                  (write-char c out)))
+    (write-char #\' out)))
+
+(defun spawn-pty-process (command &key (rows 24) (cols 80) (shell "/bin/sh") environment
+                                       directory)
+  "Run COMMAND under a shell on a pseudo-terminal of its own, in DIRECTORY when
+one is given. Answers (values master-fd pid).
 
 The child is made a session leader by the spawn itself, and then opens the
 slave by name rather than inheriting it already open: opening a terminal is how
@@ -164,7 +180,14 @@ cannot do and the reason this used to want a helper program written in C."
                           (pid sb-alien:int))
       (let ((actions-sap (sb-alien:alien-sap actions))
             (attr-sap (sb-alien:alien-sap attr))
-            (arguments (list (file-namestring shell) "-c" command))
+            (chdir (and directory (can-change-directory-p)))
+            (arguments (list (file-namestring shell) "-c"
+                             ;; without the spawn's own chdir, the shell does it:
+                             ;; a directory that is gone is said and nothing runs
+                             (if (and directory (not (can-change-directory-p)))
+                                 (format nil "cd ~A || exit 1~%~A"
+                                         (sh-quoted directory) command)
+                                 command)))
             (environment (append environment
                                 (list* "TERM=xterm-256color" "COLORTERM=truecolor"
                                        (sb-ext:posix-environ)))))
@@ -175,6 +198,14 @@ cannot do and the reason this used to want a helper program written in C."
                    (envp (c-strings environment)))
                (unwind-protect
                     (progn
+                      (when chdir
+                        (check (sb-alien:alien-funcall
+                                (sb-alien:extern-alien "posix_spawn_file_actions_addchdir_np"
+                                                       (function sb-alien:int
+                                                                 sb-alien:system-area-pointer
+                                                                 sb-alien:c-string))
+                                actions-sap directory)
+                               "addchdir of the directory"))
                       (check (%actions-addopen actions-sap 0 slave +o-rdwr+ 0)
                              "addopen of the slave")
                       (check (%actions-adddup2 actions-sap 0 1) "adddup2 to stdout")

@@ -43,10 +43,23 @@ silence.")
 
 (declaim (ftype function ask))
 
-(defun make-client (path &key name (fd tty:+stdin+) (to tty:+stdout+)
-                              (takes (tty:takes-of)))
+(defun terminal-size (fd)
+  "How big the terminal on FD is. One that says it has no rows or no columns,
+as a terminal made by a program that never set one does, is taken to be the
+size a terminal is when nobody said: a pane one column wide is no use to
+anybody."
   (multiple-value-bind (rows cols)
-                       (if (tty:a-terminal-p fd) (tty:host-size fd) (values 24 80))
+      (if (tty:a-terminal-p fd) (tty:host-size fd) (values 24 80))
+    (if (or (zerop rows) (zerop cols))
+        (values 24 80)
+        (values rows cols))))
+
+(defun make-client (path &key name open (fd tty:+stdin+) (to tty:+stdout+)
+                              (takes (tty:takes-of)))
+  "A client on the server at PATH, joined to the session called NAME, or the
+first one when NAME is nil. OPEN is (command directory): the session is made
+with them when it is not there."
+  (multiple-value-bind (rows cols) (terminal-size fd)
                        (multiple-value-bind (wire socket) (connect-to path)
                                             (let ((client (%make-client :wire wire :socket socket :fd fd :to to
                                                                         :takes takes :rows rows :cols cols
@@ -57,9 +70,14 @@ silence.")
                                               ;; about names passes it over and
                                               ;; the attach it does know is the
                                               ;; shape it has always been
-                                              (when name
-                                                (wire-send wire (list :want name)))
-                                              (wire-send wire (list :attach rows cols takes))
+                                              (if open
+                                                  (wire-send wire (list* :open name
+                                                                         (append open
+                                                                                 (list rows cols takes))))
+                                                  (progn
+                                                    (when name
+                                                      (wire-send wire (list :want name)))
+                                                    (wire-send wire (list :attach rows cols takes))))
                                               (wire-flush wire)
                                               client))))
 
@@ -160,9 +178,14 @@ looks like, not why it happened."
         (:these
          (ask client "session"
               (mapcar (lambda (row)
-                        (destructuring-bind (name rows cols panes watching) row
-                          (format nil "~A  ~Dx~D  ~D pane~:P  ~D watching"
-                                  name cols rows panes watching)))
+                        (destructuring-bind (name rows cols panes watching
+                                             &optional (blocked 0))
+                            row
+                          (format nil "~A  ~Dx~D  ~D pane~:P  ~D watching~A"
+                                  name cols rows panes watching
+                                  (if (plusp blocked)
+                                      (format nil "  ▲ ~D blocked" blocked)
+                                      ""))))
                       (second form))
               :kind #\@
               :chose (lambda (said c)
@@ -292,7 +315,7 @@ does have a name for goes to the mode instead and is not passed on."
 (defun client-resized (client)
   (setf tty:*resized* nil)
   (when (tty:a-terminal-p (client-fd client))
-    (multiple-value-bind (rows cols) (tty:host-size (client-fd client))
+    (multiple-value-bind (rows cols) (terminal-size (client-fd client))
                          (unless (and (= rows (client-rows client)) (= cols (client-cols client)))
                            (setf (client-rows client) rows
                                  (client-cols client) cols)
@@ -342,9 +365,9 @@ which end of it is wrong.")
          (* +patience+ internal-time-units-per-second))
       (progn (done-with client :no-answer) nil)))
 
-(defun attach (path &key name (fd tty:+stdin+) (to tty:+stdout+)
+(defun attach (path &key name open (fd tty:+stdin+) (to tty:+stdout+)
                          (takes (tty:takes-of)))
-  (let ((client (make-client path :name name :fd fd :to to :takes takes))
+  (let ((client (make-client path :name name :open open :fd fd :to to :takes takes))
         (since (get-internal-real-time)))
     (unwind-protect
         (tty:with-host (fd :to to)
