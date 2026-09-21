@@ -197,11 +197,20 @@
                                                                    (getf o :column)))
                                         options)))
              (hint (find-if (lambda (l) (not (or (blank-p l) (border-p l))))
-                            (nthcdr (1+ last-y) lines))))
+                            (nthcdr (1+ last-y) lines)))
+             (paragraphs (let ((out nil) (now nil))
+                           (loop :for y :from start :below first-y
+                                 :for line := (string-trim +blank+ (left-column (nth y lines)))
+                                 :do (if (zerop (length line))
+                                         (when now (push (nreverse now) out) (setf now nil))
+                                         (push line now)))
+                           (when now (push (nreverse now) out))
+                           (nreverse out))))
         (list :widget :choice
               :question question
               :subject (if question (subseq above 0 (position question above :from-end t)) above)
               :text (format nil "~{~A~^~%~}" above)
+              :paragraphs paragraphs
               :options (mapcar (lambda (o) (getf o :label)) options)
               :details (option-details lines options)
               :selected selected

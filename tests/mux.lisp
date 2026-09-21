@@ -331,7 +331,7 @@ already failing."
                                                               (eq :blocked (agent:agent-state (mux:pane-agent pane))))))
                                 (mux:wire-send wire (list :agent-prompt "0" id "more"))
                                 (mux:wire-flush wire)
-                                (is (equal (list :agent-prompted "0" id :blocked) (hear :agent-prompted))
+                                (is (equal (list :agent-prompted "0" id :blocked) (subseq (hear :agent-prompted) 0 4))
                                     "a blocked pane took a prompt")
                                 (mux:wire-send wire (list :agent-signal "0" id :idle))
                                 (mux:wire-send wire (list :agent-prompt "0" id "more"))

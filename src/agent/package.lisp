@@ -8,6 +8,7 @@
    #:make-agent
    #:agent-kind
    #:agent-asks
+   #:asks-of
    #:agent-doing
    #:agent-for
    #:agent-history

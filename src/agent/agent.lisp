@@ -222,18 +222,26 @@
 (defun agent-won (agent term)
   (and (agent-reader agent) (getf (observe (agent-reader agent) term) :screen)))
 
+(defun asks-of (seen)
+  (when (and (eq :choice (getf seen :widget)) (getf seen :question))
+    (let* ((question (getf seen :question))
+           (before (loop :for paragraph :in (getf seen :paragraphs)
+                         :until (member question paragraph :test #'string=)
+                         :append (loop :for line :in paragraph
+                                       :until (starts line "Tip:")
+                                       :collect line))))
+      (list :subject (or (first before) question)
+            :detail (rest before)
+            :question question
+            :options (loop :for option :in (getf seen :options)
+                           :for n :from 1
+                           :collect (list n option))
+            :chosen (and (getf seen :selected) (1+ (getf seen :selected)))))))
+
 (defun agent-asks (agent term)
   (declare (ignore term))
-  (let ((seen (agent-reason agent)))
-    (when (and (eq :blocked (agent-state agent)) (eq :choice (getf seen :widget)))
-      (let ((about (remove-if (lambda (line) (starts line "Tip:")) (getf seen :subject))))
-        (list :subject (or (first about) (getf seen :question))
-              :detail (rest about)
-              :question (getf seen :question)
-              :options (loop :for option :in (getf seen :options)
-                             :for n :from 1
-                             :collect (list n option))
-              :chosen (and (getf seen :selected) (1+ (getf seen :selected))))))))
+  (and (eq :blocked (agent-state agent))
+       (asks-of (agent-reason agent))))
 
 (defun agent-doing (agent term)
   (let* ((lines (screen-lines term))
