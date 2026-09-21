@@ -18,6 +18,8 @@ more than the terminal it is sitting inside costs in the first place.")
 (defparameter +understood+
   '(:want :attach :open :who :go :new :sessions :kill-session :knock :detach :stop
     :name-pane :naming
+    :panes :watch-panes :watch-screens :pane-screen :pane-history :pane-log
+    :answer :focus-pane
     :keys :resize :bar :split :focus :close :only :mouse-at
     :agents :agent-signal :agent-read :agent-keys :agent-prompt :agent-explain
     :agent-trace)
@@ -54,7 +56,11 @@ command line."
   (sent 0 :type fixnum)
   (here nil :type boolean)
   (id (incf *watchers-made*) :type fixnum)
-  (tty nil))
+  (tty nil)
+  (watch-panes nil)
+  (panes-told (make-hash-table :test 'equal))
+  (screen-rows nil)
+  (screens-told (make-hash-table :test 'equal)))
 
 (defstruct (session (:constructor %make-session))
   (name "0")
@@ -570,6 +576,43 @@ that is about a session is passed on only once it has joined one."
                  (tell watcher (list :agent-explained name id
                                      (agent:agent-state (pane-agent pane)) seen rows)))
                (tell watcher (list :agent-explained name id :gone nil nil))))))
+      (:panes (tell watcher (list :panes (pane-rows server (now-ms)))))
+      (:watch-panes
+       (setf (watcher-watch-panes watcher) (and (second form) t))
+       (clrhash (watcher-panes-told watcher))
+       (when (second form) (tell-the-panes server watcher (now-ms))))
+      (:watch-screens
+       (let ((n (second form)))
+         (setf (watcher-screen-rows watcher)
+               (and (integerp n) (plusp n) (min n +biggest-pane+)))
+         (clrhash (watcher-screens-told watcher))))
+      (:pane-screen
+       (destructuring-bind (name id n) (rest form)
+         (let ((pane (pane-called server name id)))
+           (tell watcher (list* :pane-screen name id
+                                (and pane (pane-screen-said
+                                           pane (max 1 (min n +biggest-pane+)))))))))
+      (:pane-history
+       (destructuring-bind (name id) (rest form)
+         (let ((pane (pane-called server name id)))
+           (tell watcher (list :pane-history name id
+                               (and pane (history-said (pane-agent pane) (now-ms))))))))
+      (:pane-log
+       (destructuring-bind (name id n) (rest form)
+         (let ((pane (pane-called server name id))
+               (now (now-ms)))
+           (tell watcher (list :pane-log name id
+                               (and pane
+                                    (mapcar (lambda (e) (input-said e now))
+                                            (subseq (pane-log pane)
+                                                    0 (min (max 0 n)
+                                                           (length (pane-log pane)))))))))))
+      (:answer
+       (destructuring-bind (name id n &optional caller) (rest form)
+         (answer-a-pane server watcher name id n caller)))
+      (:focus-pane
+       (destructuring-bind (name id) (rest form)
+         (focus-a-pane server watcher name id)))
       (:detach (drop-watcher server watcher))
       (:stop (setf (server-going server) nil))
       (t (and session (heard-about-a-session session watcher form))))
@@ -764,12 +807,14 @@ sent one, or nothing when nobody is owed one."
                   ;; the watcher stays on the session and its closed descriptor
                   ;; is put to poll every wakeup for as long as the server runs
                   (drop-watcher server watcher)))
-    (let ((done nil))
+    (let ((done nil)
+          (now (now-ms)))
       (loop :for (session pane n) :in ptys
             :do (when (and (member pane (session-panes session))
-                           (tty:readable-p (tty:waiting-back w n))
-                           (not (pane-drain pane)))
-                  (push (cons session pane) done)))
+                           (tty:readable-p (tty:waiting-back w n)))
+                  (setf (pane-moved-at pane) now)
+                  (unless (pane-drain pane)
+                    (push (cons session pane) done))))
       (loop :for (session . pane) :in done
             :do (close-the-pane session pane)))
     (dolist (session sessions)
@@ -777,6 +822,13 @@ sent one, or nothing when nobody is owed one."
           (progn (session-observe session (nanos))
                  (session-serve session gap))
           (end-the-session server session :done)))
+    (tell-the-watching server (now-ms))
+    ;; what that said to anybody not on a session is sent now rather than when
+    ;; the next wakeup finds their descriptor writable
+    (dolist (watcher (every-watcher server))
+      (when (and (wire-open (watcher-wire watcher))
+                 (plusp (wire-pending (watcher-wire watcher))))
+        (wire-flush (watcher-wire watcher))))
     server))
 
 (defparameter +faults+ 10)

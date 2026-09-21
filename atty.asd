@@ -70,6 +70,7 @@
                              (:file "view")
                              (:file "match")
                              (:file "server")
+                             (:file "panes")
                              (:file "bar")
                              (:file "command")
                              (:file "client")

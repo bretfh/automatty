@@ -166,7 +166,7 @@ Every board needs facts the server does not keep yet.
 
 * Phase 3: the wire
 
-** TODO Pane rows as plists
+** DONE Pane rows as plists
 - Add =(:panes)= answering one plist per pane across every session:
   =(:session :id :label :kind :state :since :asks :title :focus
   :last-input)=. =:last-input= is the newest log entry.
@@ -175,7 +175,7 @@ Every board needs facts the server does not keep yet.
 - Add =(:pane …)=, a plist pushed on every state change, to every client
   that has said =(:watch-panes t)=.
 
-** TODO Screens on request, with their faces
+** DONE Screens on request, with their faces
 - =(:pane-screen session id n)= answers the last N rows as runs and faces,
   in the same shape as =runs-said= (wire.lisp). Previews are then drawn in
   their real colours, and faint text such as Claude Code's suggestion
@@ -184,20 +184,20 @@ Every board needs facts the server does not keep yet.
   that moved, at most every 250ms per pane, while a client has the
   switchboard or the queue open.
 
-** TODO History and log on request
+** DONE History and log on request
 - =(:pane-history session id)= and =(:pane-log session id n)=.
 
-** TODO Answering, as its own verb
+** DONE Answering, as its own verb
 - =(:answer session id n)= types the digit N into the pane, which is how the
   field test answered every dialog, and logs it with verb =:answer=.
 - It is refused with =:not-blocked= when the pane is not blocked, so a
   stale click cannot type a stray digit into a prompt box.
 
-** TODO Focus a pane anywhere
+** DONE Focus a pane anywhere
 - =(:focus-pane session id)= moves this client to SESSION if it is not
   there already, then focuses the pane.
 
-** TODO Everything new goes in =+understood+=
+** DONE Everything new goes in =+understood+=
 - The client's =tell-the-server= already says "not here" for anything a
   server does not list.
 
