@@ -23,10 +23,10 @@ ends with the suite green and a note of what to try by hand.
   =C-b= keys in this plan are defaults in =pane-mode= and the overlays'
   modes. People rebind them and write their own commands on top, so each
   feature is written as a =defcommand= first and bound second.
-- *A frame's colour is the focus, as it always was.* State is said in a
-  pane's title and on its chip, never by recolouring its frame: a frame that
-  changed colour with every screenful drowned the focus out. The one
-  exception is an agent waiting on somebody, whose frame is lit.
+- *As the mockups have it: a frame's colour is its agent's state, and the
+  focus is the double line.* The old red for the focus and blue for the rest
+  is gone, not kept alongside. A pane that is not a known agent has a frame of
+  one colour that never changes.
 - *Only a known agent is said to be doing anything.* Known means recognised
   (it has rules to read its screen by) or it has said its own state with
   =atty agent signal=. For anything else working and idle only say whether

@@ -196,10 +196,8 @@ than the card has would push the cards beside it off the screen."
                       (card-doing row width)
                       (if state (strip row now) (atty/ui:label ""))
                       (if screen (screen-view screen) (atty/ui:gap :expand 1)))
-      ;; as a pane's frame: where the cursor is, or lit when it waits on you
-      :face (cond ((eq state :blocked) :state-blocked)
-                  (cursor :border-active)
-                  (t :border-inactive))
+      ;; as a pane's frame: what a known agent is doing, the cursor the double line
+      :face (state-face state)
       :line (if cursor :double :single)
       :titles (list :tl (atty/ui:row :spacing 0
                                      (if picked

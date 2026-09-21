@@ -46,14 +46,14 @@
   (agent:agent-known-p (pane-agent pane)))
 
 (defun frame-face (pane focusp)
-  "What colour PANE's frame is: where the focus is, as it always was, except
-that an agent waiting on somebody is lit so it is seen from across the screen.
-Whether an agent is working or idle is said in its title, not its frame: a
-frame that changed colour with every screenful would drown out the focus."
-  (cond ((and (known-p pane) (eq :blocked (agent:agent-state (pane-agent pane))))
-         :state-blocked)
-        (focusp :border-active)
-        (t :border-inactive)))
+  "What colour PANE's frame is: what a known agent is doing, and a colour that
+never changes for anything else, since for a program nobody knows how to read
+working and idle would only say whether its screen moved. Where the focus is
+is the double line, not a colour."
+  (declare (ignore focusp))
+  (if (known-p pane)
+      (state-face (agent:agent-state (pane-agent pane)))
+      :state-unknown))
 
 (defun key-for (command)
   "The chord COMMAND is bound to in the pane's mode, as a hint says it, or nil
@@ -156,7 +156,9 @@ the whole session, and which rule decided it was asking."
     (list
      :tl (atty/ui:row :spacing 0
                       (atty/ui:label (format nil " ~D " (pane-id pane))
-                                     :face (if focusp :number-focus :default))
+                                     :face (cond ((not focusp) :default)
+                                                 ((known-p pane) (number-face state))
+                                                 (t :number-unknown)))
                       (atty/ui:label (format nil " ~A " (pane-says pane)))
                       (atty/ui:label (format nil "~A " (pane-kind pane)) :face :quiet))
      :tr (cond (asks (asks-title asks))
