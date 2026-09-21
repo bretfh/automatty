@@ -20,7 +20,7 @@ more than the terminal it is sitting inside costs in the first place.")
     :name-pane :naming
     :panes :watch-panes :watch-screens :pane-screen :pane-history :pane-log
     :answer :focus-pane :go-to-blocked :zoom :pane-read :lately :prompt-when-idle
-    :close-pane :split-in :pane-about
+    :close-pane :split-in :pane-about :spawn :since-prompt
     :keys :resize :bar :split :focus :close :only :mouse-at
     :agents :agent-signal :agent-read :agent-keys :agent-prompt :agent-explain
     :agent-trace)
@@ -486,15 +486,33 @@ that is about a session is passed on only once it has joined one."
        ;; join NAME, making it first when it is not there. One message, so the
        ;; asking and the making are one step here: two clients opening the same
        ;; new name get one session, not two, and not an error
-       (destructuring-bind (name command directory rows cols takes) (rest form)
+       (destructuring-bind (name command directory rows cols takes &optional label) (rest form)
          (watcher-sized watcher rows cols takes)
          (join-session server watcher
                        (or (and name (session-named server name))
-                           (add-session server (or command (server-command server))
-                                        :name (or name (a-free-name server))
-                                        :rows (watcher-rows watcher)
-                                        :cols (watcher-cols watcher)
-                                        :directory directory)))))
+                           (let ((made (add-session server (or command (server-command server))
+                                                    :name (or name (a-free-name server))
+                                                    :rows (watcher-rows watcher)
+                                                    :cols (watcher-cols watcher)
+                                                    :directory directory)))
+                             (when label
+                               (setf (pane-label (session-focus made)) label))
+                             made)))))
+      (:spawn
+       (destructuring-bind (name command directory label) (rest form)
+         (let ((pane (spawn-a-pane server name command directory label)))
+           (tell watcher (list :spawned name (and pane (pane-id pane)))))))
+      (:since-prompt
+       (destructuring-bind (name id) (rest form)
+         (let ((pane (pane-called server name id))
+               (now (now-ms)))
+           (tell watcher
+                 (list :since-prompt name id
+                       (and pane
+                            (let ((prompted (find :prompt (pane-log pane) :key #'third)))
+                              (list (agent:agent-state (pane-agent pane))
+                                    (and prompted (- now (first prompted)))
+                                    (history-said (pane-agent pane) now)))))))))
       (:go
        (let ((want (session-named server (second form))))
          (when want (join-session server watcher want))))
@@ -555,10 +573,12 @@ that is about a session is passed on only once it has joined one."
            (tell watcher (list :name-it (session-name session) (pane-id pane)
                                (pane-label pane) (pane-named pane))))))
       (:agent-read
-       (destructuring-bind (name id n) (rest form)
+       (destructuring-bind (name id n &optional plain) (rest form)
          (let ((pane (pane-called server name id)))
            (tell watcher (list :agent-lines name id
-                               (and pane (agent:last-lines (pane-term pane) n)))))))
+                               (and pane (if plain
+                                             (plain-lines (pane-term pane) n)
+                                             (agent:last-lines (pane-term pane) n))))))))
       (:agent-keys
        (destructuring-bind (name id text &optional caller) (rest form)
          (let ((pane (pane-called server name id)))

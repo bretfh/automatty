@@ -1413,3 +1413,74 @@ Do you want to proceed?
       (type-at seer (format nil "~Ce" mux:+prefix+))
       (is-true (pump seer :until (lambda () (null (search "why is" (seen seer)))))
                "the key that opened it did not close it"))))
+
+;;; The command line does what the UI does.
+
+(test waiting-after-a-prompt-is-done-only-once-the-pane-took-it-up
+  ;; history is newest first, (age state); prompted is how long ago the prompt was
+  (is (null (mux::done-since-prompt-p '(:idle 5000 ((60000 :idle))) '(:idle)))
+      "an idle from before the prompt was taken for it being done")
+  (is (null (mux::done-since-prompt-p '(:idle 5000 ((4000 :idle) (60000 :working))) '(:idle)))
+      "the idle the paste itself made was taken for it being done")
+  (is-true (mux::done-since-prompt-p '(:idle 5000 ((1000 :idle) (4000 :working) (60000 :idle)))
+                                     '(:idle)))
+  (is-true (mux::done-since-prompt-p '(:blocked 5000 ((1000 :blocked) (60000 :idle)))
+                                     '(:blocked :idle))
+           "asking something after the prompt is a change it made")
+  (is (null (mux::done-since-prompt-p '(:idle nil ((1000 :idle))) '(:idle)))))
+
+(test the-command-line-reads-its-flags-and-words-apart
+  (let ((args '("work" "--name" "impl" "--cwd" "/tmp" "--json")))
+    (is (equal "impl" (mux::option args "--name")))
+    (is-true (mux::flag-p args "--json"))
+    (is (equal '("work") (mux::words args "--name" "--cwd")))))
+
+(test what-goes-out-as-json-is-json
+  (is (equal "[{\"address\":\"todo:2\",\"for_ms\":42000,\"state\":\"blocked\",\"asks\":null,\"ok\":true}]"
+             (with-output-to-string (s)
+               (mux::json (list (list :address "todo:2" :for-ms 42000 :state :blocked :asks nil :ok t))
+                          s))))
+  (is (equal "\"a \\\"q\\\"\\nb\"" (with-output-to-string (s) (mux::json (format nil "a \"q\"~%b") s)))))
+
+(test reading-plainly-leaves-out-what-is-drawn-faint
+  (let ((term (a-term :width 60 :height 3)))
+    (say term (format nil "❯ ~C[2madd clarification 8~C[0m~C~Ctyped" #\Escape #\Escape #\Return #\Newline))
+    (let ((lines (mux::plain-lines term 3)))
+      (is (equal "❯" (first lines)) "the faint suggestion was read as typed: ~S" lines)
+      (is (equal "typed" (second lines))))))
+
+(test a-pane-is-spawned-into-a-session-or-makes-the-session
+  (with-a-server-here (server path)
+    (let ((wire (a-wire-to path)))
+      (say-to wire (list :spawn "work" "cat" nil "impl"))
+      (let ((id (third (heard-from server wire :spawned))))
+        (is (integerp id))
+        (let ((session (mux:session-named server "work")))
+          (is-true session "spawning into no session did not make one")
+          (is (equal "impl" (mux::pane-label (mux:session-focus session))))))
+      (say-to wire (list :spawn "work" "cat" nil "test"))
+      (let* ((id (third (heard-from server wire :spawned)))
+             (session (mux:session-named server "work")))
+        (is (eql 2 (length (mux:session-panes session))))
+        (is (equal "test" (mux::pane-label (find id (mux:session-panes session)
+                                                 :key #'mux:pane-id))))
+        (is (equal "impl" (mux::pane-label (mux:session-focus session)))
+            "spawning moved the focus off the pane somebody was in"))
+      (mux:wire-close wire))))
+
+(test since-a-prompt-says-when-it-was-and-what-came-after
+  (with-a-server-here (server path)
+    (let* ((session (mux:add-session server "cat" :name "work" :rows 6 :cols 30))
+           (pane (mux:session-focus session))
+           (wire (a-wire-to path)))
+      (settled server pane)
+      (say-to wire (list :since-prompt "work" (mux:pane-id pane)))
+      (destructuring-bind (state prompted history) (fourth (heard-from server wire :since-prompt))
+        (is (eq :idle state))
+        (is (null prompted) "a pane never prompted said it was")
+        (is (consp history)))
+      (say-to wire (list :agent-prompt "work" (mux:pane-id pane) "go"))
+      (heard-from server wire :agent-prompted)
+      (say-to wire (list :since-prompt "work" (mux:pane-id pane)))
+      (is (integerp (second (fourth (heard-from server wire :since-prompt)))))
+      (mux:wire-close wire))))

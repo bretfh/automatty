@@ -275,6 +275,56 @@ to know was just done for them, or by whom."
     (let ((sorted (sort all #'< :key #'third)))
       (subseq sorted 0 (min n (length sorted))))))
 
+(defun spawn-a-pane (server name command directory label)
+  "A pane running COMMAND in the session called NAME, beside the one with the
+focus there, or the first pane of that session when there is no such session
+yet. Answers the pane."
+  (let* ((session (session-named server name))
+         (pane (if session
+                   ;; beside the focus, the way a split puts one, but running
+                   ;; what it was asked to; the focus stays where somebody put it
+                   (let* ((focus (session-focus session))
+                          (it (make-pane command
+                                         :rows (term:term-height (pane-term focus))
+                                         :cols (term:term-width (pane-term focus))
+                                         :directory (or directory (pane-directory focus)))))
+                     (setf (session-layout session)
+                           (put-beside (session-layout session) focus :across it))
+                     (session-compose session)
+                     (pane-start it :environment (pane-environment session it))
+                     it)
+                   (session-focus (add-session server command :name name
+                                                              :directory directory)))))
+    (when label (setf (pane-label pane) label))
+    (dolist (w (session-watchers (session-named server name))) (setf (watcher-behind w) t))
+    pane))
+
+(defun faint-p (face)
+  "Whether FACE is one a program draws what it is only suggesting in: faint, or
+the grey of the eight bright colours' black."
+  (and face (or (term:face-faint face) (eql 8 (term:face-fg face)) (eql 90 (term:face-fg face)))))
+
+(defun plain-row (row)
+  (string-right-trim " " (coerce (loop :for x :below (term:row-width row)
+                                       :collect (if (faint-p (term:row-face row x))
+                                                    #\Space
+                                                    (term:row-char row x)))
+                                 'string)))
+
+(defun plain-lines (term n)
+  "The last N lines of TERM with what is only suggested, drawn faint, left out:
+the greyed suggestion in a prompt box is not something anybody typed."
+  (let* ((screen (loop :for y :below (term:term-height term)
+                       :collect (plain-row (term:term-grid-row term y))))
+         (screen (subseq screen 0 (1+ (or (position-if (lambda (l) (plusp (length l)))
+                                                       screen :from-end t)
+                                          -1))))
+         (above (max 0 (- n (length screen))))
+         (size (term:term-scrollback-size term)))
+    (append (loop :for i :from (max 0 (- size above)) :below size
+                  :collect (plain-row (term:term-scrollback-row term i)))
+            (last screen (min n (length screen))))))
+
 (defun pane-about (pane)
   "What PANE is running and how it was started: what its kind was decided from."
   (list :kind (pane-kind pane)

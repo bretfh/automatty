@@ -94,8 +94,8 @@ anybody."
 (defun make-client (path &key name open (fd tty:+stdin+) (to tty:+stdout+)
                               (takes (tty:takes-of)))
   "A client on the server at PATH, joined to the session called NAME, or the
-first one when NAME is nil. OPEN is (command directory): the session is made
-with them when it is not there."
+first one when NAME is nil. OPEN is (command directory [label]): the session is
+made with them when it is not there, its first pane called LABEL."
   (multiple-value-bind (rows cols) (terminal-size fd)
                        (multiple-value-bind (wire socket) (connect-to path)
                                             (let ((client (%make-client :wire wire :socket socket :fd fd :to to
@@ -109,9 +109,10 @@ with them when it is not there."
                                               ;; shape it has always been
                                               (wire-send wire (list :who (tty-name fd)))
                                               (if open
-                                                  (wire-send wire (list* :open name
-                                                                         (append open
-                                                                                 (list rows cols takes))))
+                                                  (destructuring-bind (command directory &optional label)
+                                                      open
+                                                    (wire-send wire (list :open name command directory
+                                                                          rows cols takes label)))
                                                   (progn
                                                     (when name
                                                       (wire-send wire (list :want name)))

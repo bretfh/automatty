@@ -421,36 +421,36 @@ session chooser is its lighter form, not a separate thing.
 
 * Phase 9: the CLI does everything the UI does
 
-** TODO =atty agent list=
+** DONE =atty agent list=
 - Columns: address, label, kind, state, time in state, subject when
   blocked.
 - =--blocked=, =--session <name>=.
 - =--json= gives the plists as JSON, for scripts.
 
-** TODO =atty agent spawn <session> [--name n] [--cwd d] -- <command>=
+** DONE =atty agent spawn <session> [--name n] [--cwd d] -- <command>=
 - Adds a pane to a session, making the session if it is missing, and
   prints its address.
 - This is how the field-test setup is built in one command per worker,
   inside one session.
 
-** TODO =atty agent name=, =atty agent answer=, =atty agent log=
+** DONE =atty agent name=, =atty agent answer=, =atty agent log=
 - =name <pane> <label>=, or =name <label>= from inside a pane.
 - =answer <pane> <n>=: the =:answer= verb. It exits 3 when the pane is not
   blocked.
 - =log <pane> [n]=: who typed there.
 
-** TODO =atty agent read --plain=
+** DONE =atty agent read --plain=
 - Leaves out faint text, so a greyed suggestion in a prompt box is not read
   as typed input (field-test finding 4). The server sends faces with the
   rows, and the CLI drops the faint ones.
 
-** TODO =atty agent wait= after a prompt
+** DONE =atty agent wait= after a prompt
 - =prompt --until= already waits out =agent-prompted-at=.
 - =wait --after-prompt= returns only on a transition that happened after
   the last prompt was sent to that pane, so a script that prompts and waits
   in two commands gets the same guarantee.
 
-** TODO usage and README
+** DONE usage and README
 - =usage= in main.lisp and README.org: one server, the new keys (=C-b a n w
   e z ,=), and the new verbs.
 
