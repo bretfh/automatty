@@ -317,6 +317,24 @@
     (is (equal "Which index should be searched?" (getf mcp :question)))
     (is (equal "Accept" (second (first (getf mcp :options)))))))
 
+(test a-tip-above-the-command-is-not-what-is-asked-about
+  ;; as Claude Code 2.1 draws a bash dialog when auto mode is not on
+  (let ((asks (agent:asks-of-lines
+               '(" Bash command" ""
+                 "   Tip: auto mode handles these prompts for you — choose \"switch to auto mode\""
+                 "   below" ""
+                 "   python3 -c 'print(6*7)'"
+                 "   Run Python to print 6 times 7" ""
+                 " This command requires approval" ""
+                 " Do you want to proceed?"
+                 " ❯ 1. Yes"
+                 "   2. Yes, and don't ask again for: python3 *"
+                 "   3. Yes, and switch to auto mode"
+                 "   4. No"))))
+    (is (equal "python3 -c 'print(6*7)'" (first (getf asks :detail)))
+        "the tip was taken for the command: ~S" (getf asks :detail))
+    (is (eql 4 (length (getf asks :options))))))
+
 (test lines-with-no-question-ask-nothing
   (is (null (agent:asks-of-lines '("❯ " "  ? for shortcuts"))))
   (is (null (agent:asks-of-lines '(" 1. first step" " 2. second step"))))

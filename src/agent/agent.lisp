@@ -289,6 +289,16 @@ its screen says nothing a line could.")
             (string-trim " " (subseq said (1+ dot)))
             chosen))))
 
+(defun paragraphs (lines)
+  "LINES cut at the empty ones, the empty ones left out."
+  (let ((out nil) (now nil))
+    (dolist (line lines)
+      (if (zerop (length line))
+          (when now (push (nreverse now) out) (setf now nil))
+          (push line now)))
+    (when now (push (nreverse now) out))
+    (nreverse out)))
+
 (defun asks-of-lines (lines)
   "What LINES are asking, as a plist of :subject :detail :question :options and
 :chosen, or nil when they hold no numbered options with a question above them.
@@ -312,9 +322,13 @@ the options that ends in a question mark, and the detail what is between."
              (subject-at (position-if (lambda (l) (plusp (length (string-trim " " l))))
                                       lines :end question-at))
              (detail (and subject-at
-                          (remove "" (mapcar (lambda (l) (string-trim " " l))
-                                             (subseq lines (1+ subject-at) question-at))
-                                  :test #'string=))))
+                          (loop :for paragraph :in (paragraphs
+                                                    (mapcar (lambda (l) (string-trim " " l))
+                                                            (subseq lines (1+ subject-at) question-at)))
+                                ;; a program's advice about itself is not what
+                                ;; it is asking about
+                                :unless (starts (first paragraph) "Tip:")
+                                  :append paragraph))))
         (list :subject (string-trim " " (nth (or subject-at question-at) lines))
               :detail detail
               :question (string-trim " " (nth question-at lines))

@@ -338,7 +338,7 @@ already failing."
                                          "the prompt did not reach the pane")
                                 (mux:wire-close wire))))))
 
-(test a-prompt-is-pasted-and-entered-a-moment-later
+(test a-prompt-of-more-than-one-line-is-pasted-and-entered-a-moment-later
       (with-server (path :command "printf '\\033[?2004h'; stty -echo; cat -v" :rows 10 :cols 60)
                    (with-seer (seer path :rows 10 :cols 60)
                               (pump seer :seconds 1/2)
@@ -355,10 +355,10 @@ already failing."
                                            "the server never said what it holds")
                                   (mux:wire-send wire (list :agent-prompt "0"
                                                             (second (first (second (find :agents heard :key #'first))))
-                                                            "hello there"))
+                                                            (format nil "hello~%there")))
                                   (mux:wire-flush wire)
-                                  (is-true (pump seer :want "^[[200~hello there^[[201~")
-                                           "the text was not pasted as a paste, or enter never came: ~S" (seen seer))
+                                  (is-true (pump seer :want "there^[[201~")
+                                           "more than one line was not pasted as a paste: ~S" (seen seer))
                                   (is (>= (- (get-internal-real-time) then)
                                           (* 1/4 internal-time-units-per-second))
                                       "enter came in the same breath as the text")
@@ -1427,7 +1427,13 @@ Do you want to proceed?
   (is-true (mux::done-since-prompt-p '(:blocked 5000 ((1000 :blocked) (60000 :idle)))
                                      '(:blocked :idle))
            "asking something after the prompt is a change it made")
-  (is (null (mux::done-since-prompt-p '(:idle nil ((1000 :idle))) '(:idle)))))
+  (is (null (mux::done-since-prompt-p '(:idle nil ((1000 :idle))) '(:idle))))
+  ;; what the field test found: the server marks a prompted pane working at the
+  ;; very moment of the prompt, so that entry and the prompt are equally old
+  (is-true (mux::done-since-prompt-p
+            '(:idle 316791 ((310951 :idle) (316791 :working) (333441 :idle)))
+            '(:blocked :idle))
+           "working from the moment of the prompt was not taken for taking it up"))
 
 (test the-command-line-reads-its-flags-and-words-apart
   (let ((args '("work" "--name" "impl" "--cwd" "/tmp" "--json")))
@@ -1483,4 +1489,22 @@ Do you want to proceed?
       (heard-from server wire :agent-prompted)
       (say-to wire (list :since-prompt "work" (mux:pane-id pane)))
       (is (integerp (second (fourth (heard-from server wire :since-prompt)))))
+      (mux:wire-close wire))))
+
+(test a-prompt-of-one-line-is-typed-not-pasted
+  ;; the field test: Claude Code declined to act on a request that arrived as
+  ;; a bracketed paste, taking it for text pasted in rather than asked for
+  (with-a-server-here (server path)
+    (let* ((session (mux:add-session server
+                                     (format nil "printf '\\033[?2004h'; stty -echo; cat -v")
+                                     :name "work" :rows 6 :cols 60))
+           (pane (mux:session-focus session))
+           (wire (a-wire-to path)))
+      (step-until server (lambda () (term:term-bracketed-paste (mux:pane-term pane))))
+      (say-to wire (list :agent-prompt "work" (mux:pane-id pane) "hello there"))
+      (heard-from server wire :agent-prompted)
+      (is-true (step-until server (lambda () (search "hello there"
+                                                     (term:term-dump-to-string (mux:pane-term pane))))))
+      (is (null (search "200~" (term:term-dump-to-string (mux:pane-term pane))))
+          "one line was pasted: ~S" (term:term-dump-to-string (mux:pane-term pane)))
       (mux:wire-close wire))))

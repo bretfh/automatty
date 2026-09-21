@@ -238,7 +238,13 @@ something: a prompt then would be taken for the answer."
      :blocked)
     (t (pane-logged pane (now-ms) who :prompt (summarised text))
        (agent:agent-prompted (pane-agent pane) (now-ms))
-       (pane-say pane (if (term:term-bracketed-paste (pane-term pane))
+       ;; one line is typed, the way a person would give it. A coding agent
+       ;; can take what arrives as a paste for something pasted in rather than
+       ;; asked for, and decline to act on it: the field test saw exactly that.
+       ;; More than one line is pasted, since a newline typed would send the
+       ;; first line on its own.
+       (pane-say pane (if (and (term:term-bracketed-paste (pane-term pane))
+                               (find-if (lambda (c) (member c '(#\Newline #\Return))) text))
                           (concatenate 'string (string #\Escape) "[200~"
                                        text (string #\Escape) "[201~")
                           text))

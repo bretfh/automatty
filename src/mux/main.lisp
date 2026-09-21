@@ -262,6 +262,10 @@ it, and the pane that was acted on can say who by."
          (rows (let ((only (option args "--session")))
                  (if only (remove-if-not (lambda (r) (equal only (getf r :session))) rows) rows))))
     (cond
+      ((and (flag-p args "--json") (null rows))
+       ;; an empty array, not null: a script iterating it wants nothing to do,
+       ;; not something to check for first
+       (format t "[]~%"))
       ((flag-p args "--json")
        (json (mapcar (lambda (r)
                        (list :address (format nil "~A:~D" (getf r :session) (getf r :id))
@@ -380,7 +384,10 @@ paste itself makes before the program has started on it."
            (member state wanted)
            (< since prompted)
            (or (not (eq state :idle))
-               (some (lambda (h) (and (< (first h) prompted) (> (first h) since)
+               ;; at or after the prompt: the server holds a pane it has just
+               ;; prompted as working from that moment, so the idle the paste
+               ;; makes is never published, and that entry has the prompt's time
+               (some (lambda (h) (and (<= (first h) prompted) (> (first h) since)
                                       (member (second h) '(:working :blocked))))
                      history))))))
 

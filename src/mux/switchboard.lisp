@@ -157,14 +157,21 @@ waits for it, who drives it or what it drives, or who last typed into it."
                                 (duration (+ age (max 0 (- now (getf row :heard-at))))))
                         :face :quiet))))))
 
-(defun card-doing (row)
-  (let ((asks (getf row :asks)))
+(defun card-doing (row width)
+  "The line at the top of a card, cut to the card: a line that wants more room
+than the card has would push the cards beside it off the screen."
+  (let ((asks (getf row :asks))
+        (room (max 4 (- width 4))))
     (if asks
-        (atty/ui:row :spacing 0
-                     (atty/ui:label (format nil "▲ ~A  " (getf asks :subject)) :face :state-blocked)
-                     (atty/ui:label (or (first (getf asks :detail)) (getf asks :question) "")))
-        (atty/ui:label (let ((doing (getf row :doing)))
-                         (format nil "~A ~A" (state-glyph (getf row :state)) (or doing "")))
+        (let ((subject (format nil "▲ ~A  " (getf asks :subject))))
+          (atty/ui:row :spacing 0
+                       (atty/ui:label (shortened-to subject room) :face :state-blocked)
+                       (atty/ui:label (shortened-to (or (first (getf asks :detail))
+                                                        (getf asks :question) "")
+                                                    (max 1 (- room (length subject)))))))
+        (atty/ui:label (shortened-to (format nil "~A ~A" (state-glyph (getf row :state))
+                                             (or (getf row :doing) ""))
+                                     room)
                        :face (state-face (getf row :state))))))
 
 (defun card (b client row width)
@@ -178,7 +185,7 @@ waits for it, who drives it or what it drives, or who last typed into it."
      (list :card key)
      (atty/ui:framed
       (atty/ui:column :align :stretch :expand 1
-                      (card-doing row)
+                      (card-doing row width)
                       (strip row now)
                       (if screen (screen-view screen) (atty/ui:gap :expand 1)))
       :face (state-face state)
