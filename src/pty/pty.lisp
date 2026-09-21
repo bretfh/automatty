@@ -470,6 +470,6 @@ have it."
     nil))
 
 (defun group-command-lines (group)
-  (loop :for pid :in (group-members group)
+  (loop :for pid :in (and group (group-members group))
         :for words := (command-line pid)
         :when words :collect (format nil "~{~A~^ ~}" words)))

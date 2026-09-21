@@ -98,15 +98,15 @@
           (tty:free-waiting w))))
 
 (test a-set-grows-past-the-room-it-was-made-with
-      (let ((w (tty:make-waiting 1)))
+      (let ((w (tty:make-waiting 1))
+            (pipes (loop :repeat 40 :collect (multiple-value-list (sb-posix:pipe)))))
         (unwind-protect
-            (multiple-value-bind (in out) (sb-posix:pipe)
-                                 (unwind-protect
-                                     (progn
-                                       (dotimes (i 40) (tty:waiting-add w in))
-                                       (is (eql 40 (tty:waiting-count w)))
-                                       (pty:pty-write-string out "x")
-                                       (is (eql 40 (tty:wait-on w 50)))
-                                       (is (tty:readable-p (tty:waiting-back w 39))))
-                                   (sb-posix:close in) (sb-posix:close out)))
+            (progn
+              (loop :for (in nil) :in pipes :do (tty:waiting-add w in))
+              (is (eql 40 (tty:waiting-count w)))
+              (loop :for (nil out) :in pipes :do (pty:pty-write-string out "x"))
+              (is (eql 40 (tty:wait-on w 50)))
+              (is (loop :for i :below 40 :always (tty:readable-p (tty:waiting-back w i)))
+                  "an entry past the room it was made with came back empty"))
+          (loop :for (in out) :in pipes :do (sb-posix:close in) (sb-posix:close out))
           (tty:free-waiting w))))

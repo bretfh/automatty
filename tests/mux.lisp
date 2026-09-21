@@ -59,20 +59,41 @@
            (let ((said (get-output-stream-string ,broke)))
              (is (equal "" said) "the server said something broke:~%~A" said)))))))
 
-(defstruct seer client host master slave (decoder (term:make-decoder)))
+(defstruct seer client host master slave (decoder (term:make-decoder))
+  (heard nil) (lock (sb-thread:make-mutex :name "a seer")) (going t) (reader nil))
+
+(defun seer-listen (seer)
+  (loop :while (seer-going seer)
+        :do (when (pty:pty-wait (seer-master seer) 50)
+              (let ((said (ignore-errors (pty:pty-read-string (seer-master seer) 65536))))
+                (when (and said (plusp (length said)))
+                  (sb-thread:with-mutex ((seer-lock seer))
+                    (push said (seer-heard seer))))))))
+
+(defun seer-take (seer)
+  (sb-thread:with-mutex ((seer-lock seer))
+    (prog1 (reverse (seer-heard seer))
+      (setf (seer-heard seer) nil))))
 
 (defun a-seer (path &key (rows 10) (cols 40))
   (multiple-value-bind (master slave-path) (pty:open-pty)
                        (let ((slave (sb-posix:open slave-path sb-posix:o-rdwr)))
                          (pty:pty-set-size master rows cols)
                          (tty:host-raw slave)
-                         (make-seer :client (mux:make-client path :fd slave :to slave)
-                                    :host (a-term :width cols :height rows)
-                                    :master master
-                                    :slave slave))))
+                         (let ((seer (make-seer :client (mux:make-client path :fd slave :to slave)
+                                                :host (a-term :width cols :height rows)
+                                                :master master
+                                                :slave slave)))
+                           (setf (seer-reader seer)
+                                 (sb-thread:make-thread #'seer-listen :arguments (list seer)
+                                                                      :name "a seer reading"))
+                           seer))))
 
 (defun seer-close (seer)
   (ignore-errors (mux:client-close (seer-client seer)))
+  (setf (seer-going seer) nil)
+  (when (seer-reader seer)
+    (ignore-errors (sb-thread:join-thread (seer-reader seer) :timeout 2)))
   (ignore-errors (sb-posix:close (seer-slave seer)))
   (ignore-errors (pty:pty-close (seer-master seer))))
 
@@ -86,12 +107,10 @@ already failing."
                      (* seconds internal-time-units-per-second))))
     (loop
      (mux:client-step (seer-client seer) 5)
-     (when (pty:pty-wait (seer-master seer) 0)
-       (let ((said (pty:pty-read-string (seer-master seer) 65536)))
-         (when said
-           (term:term-process-output
-            (seer-host seer)
-            (term:decode-utf-8 (seer-decoder seer) said)))))
+     (dolist (said (seer-take seer))
+       (term:term-process-output
+        (seer-host seer)
+        (term:decode-utf-8 (seer-decoder seer) said)))
      (when (and want (search want (term:term-dump-to-string (seer-host seer))))
        (return t))
      (when (and until (funcall until))

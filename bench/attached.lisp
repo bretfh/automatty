@@ -19,6 +19,8 @@
 (defparameter +began+ "BENCH-IS-GOING")
 (defparameter +ended+ "BENCH-IS-DONE")
 
+#-darwin
+(progn
 (defun stat-fields (pid)
   (ignore-errors
    (with-open-file (in (format nil "/proc/~D/stat" pid) :if-does-not-exist nil)
@@ -60,7 +62,58 @@
   (loop for path in (directory "/proc/*/")
         for name = (car (last (pathname-directory path)))
         for pid = (and (stringp name) (parse-integer name :junk-allowed t))
-        when pid collect pid))
+        when pid collect pid)))
+
+#+darwin
+(progn
+  (sb-alien:define-alien-routine ("proc_listpids" %listpids) sb-alien:int
+    (type sb-alien:unsigned-int) (info sb-alien:unsigned-int)
+    (buffer sb-alien:system-area-pointer) (size sb-alien:int))
+
+  (sb-alien:define-alien-routine ("proc_pidinfo" %pidinfo) sb-alien:int
+    (pid sb-alien:int) (flavor sb-alien:int) (arg sb-alien:unsigned-long)
+    (buffer sb-alien:system-area-pointer) (size sb-alien:int))
+
+  (sb-alien:define-alien-routine ("mach_timebase_info" %timebase) sb-alien:int
+    (info sb-alien:system-area-pointer))
+
+  (defparameter +nanos-a-tick+
+    (let ((info (make-array 2 :element-type '(unsigned-byte 32))))
+      (sb-sys:with-pinned-objects (info)
+        (%timebase (sb-sys:vector-sap info)))
+      (/ (aref info 0) (aref info 1))))
+
+  (defun pid-info (pid flavor offset)
+    (let ((buf (make-array 256 :element-type '(unsigned-byte 8))))
+      (sb-sys:with-pinned-objects (buf)
+        (and (plusp (%pidinfo pid flavor 0 (sb-sys:vector-sap buf) (length buf)))
+             (sb-sys:sap-ref-64 (sb-sys:vector-sap buf) offset)))))
+
+  (defun ppid-of (pid)
+    (let ((buf (make-array 256 :element-type '(unsigned-byte 8))))
+      (sb-sys:with-pinned-objects (buf)
+        (and (plusp (%pidinfo pid 3 0 (sb-sys:vector-sap buf) (length buf)))
+             (sb-sys:sap-ref-32 (sb-sys:vector-sap buf) 16)))))
+
+  (defun cpu-of (pid)
+    (let ((user (pid-info pid 4 16))
+          (system (pid-info pid 4 24)))
+      (if (and user system)
+          (/ (* (+ user system) +nanos-a-tick+) 1d9)
+          0d0)))
+
+  (defun rss-of (pid)
+    (let ((bytes (pid-info pid 4 8)))
+      (if bytes (floor bytes 1024) 0)))
+
+  (defun every-pid ()
+    (let ((pids (make-array 16384 :element-type '(signed-byte 32))))
+      (sb-sys:with-pinned-objects (pids)
+        (let ((bytes (%listpids 1 0 (sb-sys:vector-sap pids) (* 4 (length pids)))))
+          (loop for i below (max 0 (floor bytes 4))
+                for pid = (aref pids i)
+                when (plusp pid) collect pid))))))
+
 
 (defun pids-under (root &optional also)
   "ROOT, everything descended from it, and whatever else ALSO names. A tmux server
@@ -215,17 +268,18 @@ printf '~A\\n'~%cat ~A~%printf '\\n~A\\n'~%sleep 3~%"
 fresh every time: the two pay entirely different costs to get to the same
 running program, and only one of them is what this is measuring against tmux.")
 
+(defvar *ours-run* 0)
+
 (defun ours (corpus)
   (unless (probe-file +atty-bin+)
     (error "no atty binary at ~A: run make atty first" +atty-bin+))
   (let* ((pane (pane-script corpus))
-         (name (format nil "bench-~D" (sb-posix:getpid)))
+         (name (format nil "bench-~D-~D" (sb-posix:getpid) (incf *ours-run*)))
          (run (script "ours"
                       (format nil "exec ~A run ~A 'sh ~A'~%" +atty-bin+ name pane))))
     (multiple-value-prog1 (watch-one (format nil "sh ~A" run))
-      (ignore-errors (delete-file (format nil "~A/atty/~A"
-                                          (sb-ext:posix-getenv "XDG_RUNTIME_DIR")
-                                          name))))))
+      (ignore-errors (delete-file (mux:socket-path name)))
+      (ignore-errors (delete-file (mux:log-path name))))))
 
 (defun tmux-there-p ()
   (ignore-errors

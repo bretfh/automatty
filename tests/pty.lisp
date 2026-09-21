@@ -76,16 +76,15 @@ until the first quiet moment: a program that is asleep has not finished."
 
 (test the-child-is-a-session-of-its-own-on-this-terminal
   (let ((term (a-term :width 80 :height 10)))
-    (with-pty (fd pid "ps -o pid,sid,tty= -p $$" :rows 10 :cols 80)
+    (with-pty (fd pid "ps -o pid=,pgid=,tpgid= -p $$" :rows 10 :cols 80)
       (soak term fd :seconds 3)
-      (let ((said (screen term)))
-        (is (search "pts" said) "the child is on a pty: ~S" said)
-        (let* ((line (string-trim " " (term:term-dump-row-string term 1)))
-               (numbers (with-input-from-string (s line)
-                          (list (read s nil) (read s nil)))))
-          (is (eql (first numbers) (second numbers))
-              "pid and session id are the same, so it leads its own session: ~S"
-              line))))))
+      (let* ((line (string-trim " " (term:term-dump-row-string term 0)))
+             (numbers (with-input-from-string (s line)
+                        (list (read s nil) (read s nil) (read s nil)))))
+        (is (integerp (first numbers)) "ps said: ~S" line)
+        (is (every (lambda (n) (eql n (first numbers))) numbers)
+            "pid, group and the terminal's foreground group are one, so it leads its own session on this terminal: ~S"
+            line)))))
 
 (test the-child-can-open-its-controlling-terminal
   (let ((term (a-term :width 40 :height 10)))

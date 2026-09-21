@@ -138,6 +138,7 @@
 
    #:mux-dir
    #:socket-path
+   #:log-path
    #:sessions-here
    #:stop-a-server
    #:asked
