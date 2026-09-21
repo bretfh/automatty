@@ -23,6 +23,7 @@
    #:agent-history
    #:+history-length+
    #:agent-asks
+   #:agent-won
    #:asks-of-lines
    #:option-of
    #:screen-blocked-p

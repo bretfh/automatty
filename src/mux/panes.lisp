@@ -146,10 +146,42 @@ pane ID in focus."
     (when pane
       (unless (eq session (watcher-session watcher))
         (join-session server watcher session))
-      (unless (eq pane (session-focus session))
-        (setf (session-focus session) pane)
-        (dolist (w (session-watchers session)) (setf (watcher-behind w) t))))
+      (focus-on session pane))
     (tell watcher (list :focused name id (and pane t)))))
+
+(defun longest-blocked (server)
+  "The pane that has been blocked longest in any session, with its session, or
+nil when nothing is."
+  (let ((now (now-ms))
+        (best nil) (best-for -1))
+    (dolist (it (every-pane server) (and best (values (cdr best) (car best))))
+      (let* ((agent (pane-agent (cdr it)))
+             (for (or (agent:agent-for agent now) 0)))
+        (when (and (eq :blocked (agent:agent-state agent)) (> for best-for))
+          (setf best it best-for for))))))
+
+(defun take-to-the-blocked (server watcher)
+  (multiple-value-bind (pane session) (longest-blocked server)
+    (if pane
+        (focus-a-pane server watcher (session-name session) (pane-id pane))
+        (tell watcher (list :say "nothing needs you")))))
+
+(defun zoom-a-pane (server watcher &optional name id)
+  "Give the pane NAME:ID, or the focused one, the whole of its session; or give
+it back when it already has it."
+  (when name (focus-a-pane server watcher name id))
+  (let* ((session (if name (session-named server name) (watcher-session watcher)))
+         (pane (and session (session-focus session))))
+    (when pane
+      (setf (session-zoomed session)
+            (if (eq pane (session-zoomed session)) nil pane))
+      (dolist (w (session-watchers session)) (setf (watcher-behind w) t)))))
+
+(defun read-a-pane (server watcher name id)
+  "What a pane holds, scrollback and all, for somebody to read in a note."
+  (let ((pane (pane-called server name id)))
+    (tell watcher (list :read-it name id
+                        (and pane (agent:last-lines (pane-term pane) 500))))))
 
 (defun history-said (agent now)
   (mapcar (lambda (it) (list (max 0 (- now (first it))) (second it)))

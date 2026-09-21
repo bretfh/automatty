@@ -84,25 +84,68 @@
       (is (null (mux:without-pane layout three))
           "taking the last pane out left something behind"))))
 
-(test the-rule-beside-the-focused-pane-is-lit
+(test the-focused-pane-is-framed-double-and-every-frame-is-coloured-by-state
   (let* ((one (a-pane "aaa" :rows 3 :cols 20))
          (two (a-pane "bbb" :rows 3 :cols 20))
          (layout (mux:make-split :across (list one two)))
-         (screen (tty:make-screen :width 21 :height 3))
+         (screen (tty:make-screen :width 44 :height 5))
          (tree (mux::layout-tree layout two)))
+    (agent:agent-hear (mux:pane-agent two) :blocked)
+    (agent:agent-look (mux:pane-agent two) (mux:pane-term two) 0 nil)
+    (setf tree (mux::layout-tree layout two))
     (laid tree screen)
     (destructuring-bind (frame-one frame-two) (atty/ui:parts tree)
-      (is (eq :border-inactive (atty/ui:face frame-one)))
-      (is (eq :border-active (atty/ui:face frame-two))
-          "the frame around the focused pane was not lit"))))
+      (is (eq :single (atty/ui:line frame-one)))
+      (is (eq :double (atty/ui:line frame-two)) "the focused pane was not framed double")
+      (is (eq :state-blocked (atty/ui:face frame-two))
+          "a blocked pane's frame was ~S" (atty/ui:face frame-two)))
+    (is (search "╔" (shown screen 0)) "~S" (shown screen 0))
+    (is (search "┌" (shown screen 0)))))
 
-(test a-rule-with-no-focus-given-is-unlit-as-before
+(test a-frame-with-no-session-given-has-no-titles
   (let* ((one (a-pane "aaa" :rows 3 :cols 20))
          (two (a-pane "bbb" :rows 3 :cols 20))
          (layout (mux:make-split :across (list one two)))
          (tree (mux::layout-tree layout)))
     (dolist (frame (atty/ui:parts tree))
-      (is (eq :border-inactive (atty/ui:face frame))))))
+      (is (null (atty/ui:titles frame)))
+      (is (eq :single (atty/ui:line frame))))))
+
+(test a-title-sits-in-the-border-and-is-cut-where-the-border-ends
+  (let* ((screen (tty:make-screen :width 16 :height 4))
+         (tree (atty/ui:framed (atty/ui:label "in")
+                               :titles (list :tl (atty/ui:label " a-long-name-for-it ")
+                                             :br (atty/ui:label " br ")))))
+    (laid tree screen)
+    (let ((top (shown screen 0)))
+      (is (equal "┌─ a-long-name─┐" top) "the top border came out as ~S" top))
+    (is (search " br ─┘" (shown screen 3)) "~S" (shown screen 3))))
+
+(test a-title-on-the-right-gives-way-to-the-one-on-the-left
+  (let* ((screen (tty:make-screen :width 20 :height 3))
+         (tree (atty/ui:framed (atty/ui:label "x")
+                               :titles (list :tl (atty/ui:label "LEFT-SIDE")
+                                             :tr (atty/ui:label "RIGHT-SIDE")))))
+    (laid tree screen)
+    (let ((top (shown screen 0)))
+      (is (search "LEFT-SIDE" top) "~S" top)
+      (is (char= #\┐ (char top 19)) "the right title ran over the corner: ~S" top))))
+
+(test the-answers-fit-by-shortening-the-longest-first
+  (let ((fitted (mux::options-fitted '((1 "Yes") (2 "Yes, and don't ask again for this in ~/git/x")
+                                       (3 "No"))
+                                     30)))
+    (is (equal "Yes" (first fitted)))
+    (is (equal "No" (third fitted)) "the short last option was cut: ~S" fitted)
+    (is (<= (+ (reduce #'+ fitted :key (lambda (s) (+ 4 (length s)))) 2) 30) "~S" fitted)
+    (is (search "…" (second fitted)))))
+
+(test a-time-is-said-the-way-a-person-says-it
+  (is (equal "0s" (mux::duration 0)))
+  (is (equal "41s" (mux::duration 41999)))
+  (is (equal "3m" (mux::duration (* 3 60000))))
+  (is (equal "2h" (mux::duration (* 2 3600000))))
+  (is (equal "" (mux::duration nil))))
 
 (test a-lone-pane-with-no-split-has-no-frame
   (let* ((pane (a-pane "solo"))

@@ -203,6 +203,14 @@ looks like, not why it happened."
                                   (list :go (subseq said 0 (position #\Space said)))))))
         (:bell (host-say client (string (code-char 7))))
         (:do (run-command (second form) client))
+        (:say (show-note client "atty" (second form) :face :accent))
+        (:read-it
+         (destructuring-bind (session id lines) (rest form)
+           (show-note client (format nil "~A:~D" session id)
+                      (format nil "~{~A~%~}"
+                              ;; the end of it, which is what is being asked
+                              (last lines (max 1 (- (client-rows client) 3))))
+                      :face :accent)))
         (:name-it
          (destructuring-bind (session id label title) (rest form)
            (ask-a-name client session id label title)))

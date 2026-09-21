@@ -203,7 +203,7 @@ Every board needs facts the server does not keep yet.
 
 * Phase 4: board 02, state in the frame and the bar
 
-** TODO Frames that can say things
+** DONE Frames that can say things
 - =framed= (src/ui/widget.lisp, layout in src/ui/layout.lisp) gets:
   - =:line :single | :double=, using =┌┐└┘─│= or =╔╗╚╝═║=;
   - =:titles=, a plist from =:tl :tr :bl :br= to widgets, laid over the
@@ -212,12 +212,12 @@ Every board needs facts the server does not keep yet.
 - tests/view.lisp: the glyphs of a double frame, titles laid at each
   corner, and truncation.
 
-** TODO State faces
+** DONE State faces
 - Add to theme.lisp: =:state-working= (blue), =:state-blocked= (yellow),
   =:state-idle= (green), =:state-unknown= (border).
 - Add =:chip-blocked=: dark on yellow, bold.
 
-** TODO Frames by state, focus by line
+** DONE Frames by state, focus by line
 - =pane-frame= (view.lisp) takes its face from the pane's state and its
   line from focus.
 - Titles:
@@ -227,7 +227,7 @@ Every board needs facts the server does not keep yet.
 - A session with one pane stays unframed, as it is now. The bar carries its
   state.
 
-** TODO The bar
+** DONE The bar
 - =default-bar= (bar.lisp): brand, session name, then a chip per pane in
   the session (number, label, glyph, state, time in state). The focused
   chip is lit. A blocked chip is filled.
@@ -239,20 +239,20 @@ Every board needs facts the server does not keep yet.
   - the clock.
 - The time labels already redraw every second: =+bar-gap+= is 1s.
 
-** TODO Clickable chips
+** DONE Clickable chips
 - A =bar-button='s =runs= may be a server form, such as
   =(:focus-pane "todo" 2)=. =mouse-at= (server.lisp) runs a form itself and
   tells the client a command name as it does now.
 - A session dot is =(:focus-pane <that session> <its worst pane>)=.
 
-** TODO Check by hand
+** DONE Check by hand
 - Four panes, one per state, with the right frames, chips, count and times.
 - Clicking a chip focuses that pane. Clicking another session's dot
   switches to it.
 
 * Phase 5: board 03, answer from the frame
 
-** TODO The strip, in the border
+** DONE The strip, in the border
 - When a framed pane is blocked and =asks= is non-nil:
   - the top-right title becomes =▲ asks <subject> <first detail line>=;
   - the bottom border carries the options as bar-buttons =[1 Yes] [2 …]
@@ -261,7 +261,7 @@ Every board needs facts the server does not keep yet.
   always show.
 - Each option button runs =(:answer session id n)=.
 
-** TODO Keys
+** DONE Keys
 - Typing a digit into a focused blocked pane already reaches the program
   unchanged. Nothing is needed for that path, and it must stay that way.
 - =C-b a=: focus the longest-blocked pane in any session, switching
@@ -271,12 +271,12 @@ Every board needs facts the server does not keep yet.
   split back. A zoomed pane is resized; that is the person's choice, not a
   side effect of blocking.
 
-** TODO The guard, shown in the log
+** DONE The guard, shown in the log
 - =:agent-prompt= already refuses a blocked pane (server.lisp, via
   =screen-blocked-p=). Log the refusal (Phase 2) so boards 05 and 06 can
   show it.
 
-** TODO Check by hand
+** DONE Check by hand
 - Put Claude Code on a bash permission dialog and click =[1 Yes]=: the
   command runs and the log says who answered.
 - Clicking again after the dialog has gone is refused and types nothing.

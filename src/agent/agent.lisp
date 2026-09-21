@@ -250,6 +250,11 @@ been anything."
                                 (subseq text 0 (min 240 (length text))))))
                       rows)))))
 
+(defun agent-won (agent term)
+  "The id of the rule that says what AGENT's screen is, or nil when none does."
+  (let ((won (judged (agent-rules agent) term)))
+    (and won (rule-id won))))
+
 (defun screen-blocked-p (term)
   (loop :for (class . nil) :in *agents*
         :thereis (let ((won (judged (agent-rules (make-instance class)) term)))

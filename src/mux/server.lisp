@@ -19,7 +19,7 @@ more than the terminal it is sitting inside costs in the first place.")
   '(:want :attach :open :who :go :new :sessions :kill-session :knock :detach :stop
     :name-pane :naming
     :panes :watch-panes :watch-screens :pane-screen :pane-history :pane-log
-    :answer :focus-pane
+    :answer :focus-pane :go-to-blocked :zoom :pane-read
     :keys :resize :bar :split :focus :close :only :mouse-at
     :agents :agent-signal :agent-read :agent-keys :agent-prompt :agent-explain
     :agent-trace)
@@ -74,7 +74,9 @@ command line."
   (watchers nil)
   (clocked 0 :type integer)
   (rows 24 :type fixnum)
-  (cols 80 :type fixnum))
+  (cols 80 :type fixnum)
+  (zoomed nil)
+  (server nil))
 
 (defparameter +bar-gap+ 1000000000
   "How long the bar may stand before the session is composed again.
@@ -180,7 +182,7 @@ on it are the whole of who may."
   (let* ((pane (make-pane command :rows rows :cols cols :directory directory))
          (session (%make-session :name name :rows rows :cols cols
                                  :socket (server-path server)
-                                 :layout pane :focus pane
+                                 :layout pane :focus pane :server server
                                  :screen (tty:make-screen :width cols
                                                           :height rows))))
     (session-compose session)
@@ -235,6 +237,8 @@ on it are the whole of who may."
 (defun close-the-pane (session pane)
   "Take PANE out of the session and let its program go."
   (setf (session-layout session) (without-pane (session-layout session) pane))
+  (when (eq pane (session-zoomed session))
+    (setf (session-zoomed session) nil))
   (pane-close pane)
   (let ((left (session-panes session)))
     (when (eq (session-focus session) pane)
@@ -261,18 +265,30 @@ landed on a rule, does nothing."
        (setf (session-search-kind session)
              (mod (1+ (session-search-kind session)) (length +prompt-toggles+)))
        (dolist (w (session-watchers session)) (setf (watcher-behind w) t)))
-      ((typep hit 'bar-button) (tell watcher (list :do (bar-button-runs hit))))
+      ((typep hit 'bar-button)
+       (let ((runs (bar-button-runs hit)))
+         ;; a form is the server's to do, as though the one who clicked had
+         ;; said it; a name is a command for them to run
+         (if (consp runs)
+             (heard (session-server session) watcher runs)
+             (tell watcher (list :do runs)))))
       ((and (typep hit 'pane-view) (not (eq (view-pane hit) (session-focus session))))
-       (setf (session-focus session) (view-pane hit))
-       (dolist (w (session-watchers session)) (setf (watcher-behind w) t))))))
+       (focus-on session (view-pane hit))))))
+
+(defun focus-on (session pane)
+  "PANE has the focus. A zoom was of the pane that had it, and goes with it, the
+way it does in every multiplexer: the one just chosen is to be seen in its place."
+  (unless (eq pane (session-focus session))
+    (setf (session-focus session) pane)
+    (unless (eq pane (session-zoomed session))
+      (setf (session-zoomed session) nil))
+    (dolist (w (session-watchers session)) (setf (watcher-behind w) t))))
 
 (defun focus-the-next (session)
   (let* ((panes (session-panes session))
          (at (position (session-focus session) panes)))
     (when panes
-      (setf (session-focus session)
-            (nth (mod (1+ (or at -1)) (length panes)) panes))
-      (dolist (w (session-watchers session)) (setf (watcher-behind w) t)))
+      (focus-on session (nth (mod (1+ (or at -1)) (length panes)) panes)))
     (session-focus session)))
 
 ;;; how big the pane is: the smallest any watcher can show, so nobody is shown a
@@ -334,7 +350,8 @@ whether it did."
   (atty/ui:column
    :align :stretch
    (session-bar session)
-   (layout-tree (session-layout session) (session-focus session))))
+   (layout-tree (session-layout session) (session-focus session)
+                session (session-zoomed session))))
 
 (defun fit-panes (tree)
   "Give each pane the room the layout gave its view."
@@ -613,6 +630,13 @@ that is about a session is passed on only once it has joined one."
       (:focus-pane
        (destructuring-bind (name id) (rest form)
          (focus-a-pane server watcher name id)))
+      (:go-to-blocked (take-to-the-blocked server watcher))
+      (:zoom
+       (destructuring-bind (&optional name id) (rest form)
+         (zoom-a-pane server watcher name id)))
+      (:pane-read
+       (destructuring-bind (name id) (rest form)
+         (read-a-pane server watcher name id)))
       (:detach (drop-watcher server watcher))
       (:stop (setf (server-going server) nil))
       (t (and session (heard-about-a-session session watcher form))))

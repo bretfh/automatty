@@ -72,6 +72,7 @@
                              (:file "server")
                              (:file "panes")
                              (:file "bar")
+                             (:file "frames")
                              (:file "command")
                              (:file "client")
                              (:file "note")

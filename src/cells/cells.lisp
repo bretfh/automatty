@@ -63,15 +63,23 @@ saying there is none, which means whatever it is being drawn onto."
                           :underline (ui:underline-of widget)
                           :crossed (and (logtest 8 attr) t)))))
 
+(defvar *right-edge* nil
+  "The column nothing is painted at or past, while something is being cut
+short; nil when only the grid's own edge counts.")
+
+(defun right-edge (m)
+  (if *right-edge* (min *right-edge* (cells-cols m)) (cells-cols m)))
+
 (defun say-at (m col line text face)
   "Write TEXT into the grid at COL LINE, stopping at the edge."
-  (let ((grid (cells-grid m)))
+  (let ((grid (cells-grid m))
+        (edge (right-edge m)))
     (when (and (<= 0 line) (< line (cells-rows m)))
       (let ((row (svref grid line))
             (x col))
         (map nil
              (lambda (ch)
-               (when (and (<= 0 x) (< x (cells-cols m)))
+               (when (and (<= 0 x) (< x edge))
                  (setf (term:row-char row x) ch
                        (term:row-face row x) face))
                (incf x (max 1 (term:char-display-width ch))))
@@ -83,7 +91,7 @@ saying there is none, which means whatever it is being drawn onto."
     (loop :for y :from (max 0 line) :below (min (cells-rows m) (+ line height))
           :do (let ((row (svref grid y))
                     (from (max 0 col))
-                    (to (min (cells-cols m) (+ col width))))
+                    (to (min (right-edge m) (+ col width))))
                 (when (< from to)
                   (fill (term:row-chars row) char :start from :end to)
                   (fill (term:row-faces row) face :start from :end to))))))
@@ -124,6 +132,11 @@ already sent and repaint nothing ever again."
                                 (term:make-face :bg *under*)))
                    (call-next-method))
                (call-next-method))))
+
+(defmethod ui:paint ((w ui:clip) (m cells))
+  (let ((*right-edge* (min (or *right-edge* most-positive-fixnum)
+                           (+ (ui:left w) (ui:width w)))))
+    (call-next-method)))
 
 (defmethod ui:paint ((w ui:label) (m cells))
            (say-at m (ui:left w) (ui:top w) (ui:text w) (face-of w)))

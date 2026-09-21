@@ -243,11 +243,45 @@ nothing. The bit only says whether; the face itself says which."
         (if child (measure child m (max 0 (- aw 2)) (max 0 (- ah 2))) (values 0 0))
       (values (+ cw 2) (+ ch 2)))))
 
+(defun %lay-titles (w m x y width height)
+  "Set W's titles into its border: the left one of each side one cell in from
+its corner and given what it wants, the right one given what is left after a
+cell between them. Whatever does not fit is cut, never moved."
+  (let ((room (max 0 (- width 4)))
+        (bottom-y (+ y (max 0 (1- height)))))
+    (flet ((side (left right line)
+             (let* ((lw (if left (min room (measure left m room 1)) 0))
+                    (rw (if right
+                            (min (measure right m room 1)
+                                 (max 0 (- room lw (if left 1 0))))
+                            0)))
+               (when left (lay left m (+ x 2) line lw 1))
+               (when right (lay right m (- (+ x width) 2 rw) line rw 1)))))
+      (side (getf (titles w) :tl) (getf (titles w) :tr) y)
+      (when (> height 1)
+        (side (getf (titles w) :bl) (getf (titles w) :br) bottom-y)))))
+
+(defmethod measure ((w clip) m aw ah)
+  (let ((part (first (parts w))))
+    (if part (measure part m aw ah) (values 0 0))))
+
+(defmethod lay ((w clip) m x y width height)
+  (call-next-method)
+  (let ((part (first (parts w))))
+    (when part
+      (multiple-value-bind (cw ch) (measure part m most-positive-fixnum height)
+        (declare (ignore ch))
+        ;; laid at the size it wants and cut when painted, so what it holds
+        ;; keeps its own spacing rather than being squeezed
+        (lay part m x y (max width cw) height)))))
+
 (defmethod lay ((w framed) m x y width height)
   (call-next-method)
-  (destructuring-bind (child top bottom left right tl tr bl br) (parts w)
+  (destructuring-bind (child top bottom left right tl tr bl br &rest titled) (parts w)
+    (declare (ignore titled))
     (let ((iw (max 0 (- width 2))) (ih (max 0 (- height 2)))
           (right-x (+ x (max 0 (1- width)))) (bottom-y (+ y (max 0 (1- height)))))
+      (%lay-titles w m x y width height)
       (lay child m (1+ x) (1+ y) iw ih)
       (lay top m (1+ x) y iw 1)
       (lay bottom m (1+ x) bottom-y iw 1)

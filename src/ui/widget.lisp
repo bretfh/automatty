@@ -4,7 +4,7 @@
 
    #:widget #:parts #:label #:rule #:gap #:picture #:calendar #:slider #:ring
    #:column #:row #:stack #:box #:center #:centerbox #:scroll #:action #:choice
-   #:framed
+   #:framed #:clip #:line #:titles #:+frame-glyphs+
    #:icon #:button #:image #:rows #:glyph
    #:on-click #:on-change #:set-on-click #:set-on-change
    #:text #:value #:css-class-name #:hint #:hoveredp #:chosen #:expand
@@ -99,7 +99,14 @@ for itself."))
 
 (defclass center (widget) ())
 
-(defclass framed (widget) ())
+(defclass framed (widget)
+  ((line   :initarg :line   :accessor line   :initform :single)
+   (titles :initarg :titles :accessor titles :initform nil)))
+
+(defclass clip (widget) ()
+  (:documentation "Its one part, cut off at its own right edge. What is laid in
+less room than it wants overruns into whatever is beside it, which in a frame's
+border is the corner."))
 
 (defclass centerbox (widget)
   ((start   :initarg :start   :accessor start   :initform nil)
@@ -244,17 +251,37 @@ for itself."))
   (multiple-value-bind (props parts) (%split args)
     (apply #'make-instance 'center :parts (%one parts) props)))
 
+(defparameter +frame-glyphs+
+  '(:single (#\─ #\│ #\┌ #\┐ #\└ #\┘)
+    :double (#\═ #\║ #\╔ #\╗ #\╚ #\╝))
+  "What each kind of line is drawn with: across, up, and the four corners.")
+
+(defun clip (child &rest props)
+  (apply #'make-instance 'clip :parts (list child) props))
+
 (defun framed (child &rest props)
   "CHILD, boxed in on all four sides with the glyphs a border is drawn from,
-each lit however PROPS' :FACE says."
-  (let ((face (getf props :face)))
-    (apply #'make-instance 'framed :expand 1
-           :parts (list child
-                        (rule :face face) (rule :face face)
-                        (rule :upright t :face face) (rule :upright t :face face)
-                        (label "┌" :face face) (label "┐" :face face)
-                        (label "└" :face face) (label "┘" :face face))
-           props)))
+each lit however PROPS' :FACE says. :LINE is :single or :double. :TITLES is a
+plist from :tl :tr :bl :br to a widget set into the border at that corner, one
+cell in from it, and cut short when the border is too short for it."
+  (let* ((face (getf props :face))
+         (line (or (getf props :line) :single))
+         (glyphs (or (getf +frame-glyphs+ line) (getf +frame-glyphs+ :single)))
+         (titles (loop :for (corner it) :on (getf props :titles) :by #'cddr
+                       :when it :append (list corner (clip it)))))
+    (destructuring-bind (across up tl tr bl br) glyphs
+      (apply #'make-instance 'framed :expand 1
+             :line line
+             :titles titles
+             :parts (list* child
+                           (rule :face face :glyph across) (rule :face face :glyph across)
+                           (rule :upright t :face face :glyph up)
+                           (rule :upright t :face face :glyph up)
+                           (label (string tl) :face face) (label (string tr) :face face)
+                           (label (string bl) :face face) (label (string br) :face face)
+                           ;; last, so they are painted over the border they sit in
+                           (loop :for (nil it) :on titles :by #'cddr :collect it))
+             props))))
 
 (defun centerbox (&key class hint expand start center end)
   (make-instance 'centerbox :class class :hint hint :expand (or expand 0)

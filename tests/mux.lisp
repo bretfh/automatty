@@ -364,13 +364,15 @@ already failing."
                                       "enter came in the same breath as the text")
                                   (mux:wire-close wire))))))
 
-(test a-shell-is-not-said-to-be-doing-anything
-      (with-server (path :command "printf 'just-a-shell\\n'; sleep 30" :rows 10 :cols 40)
-                   (with-seer (seer path :rows 10 :cols 40)
+(test the-bar-has-a-chip-for-every-pane-saying-what-it-is-doing
+      (with-server (path :command "printf 'just-a-shell\\n'; sleep 30" :rows 10 :cols 80)
+                   (with-seer (seer path :rows 10 :cols 80)
                               (is-true (pump seer :want "just-a-shell"))
-                              (pump seer :seconds 1)
-                              (is (null (search "idle" (seen seer)))
-                                  "the bar reports on a program nobody recognised: ~S" (seen seer)))))
+                              (is-true (pump seer :want "○ idle")
+                                       "the bar did not say the quiet pane is idle: ~S" (seen seer))
+                              (type-at seer (format nil "~C3" mux:+prefix+))
+                              (is-true (pump seer :until (lambda () (<= 2 (count-of "○ idle" (seen seer)))))
+                                       "a second pane got no chip of its own: ~S" (seen seer)))))
 
 (test a-title-does-not-take-the-server-down
       (with-server (path :command "printf '\\033]0;a new title\\007here\\n'; sleep 30"
@@ -1066,4 +1068,103 @@ not the one clicked on: ~S" (seen seer))
         (is (integerp (first entry)))
         (is (equal '(:pane "todo:4") (second entry)))
         (is (eq :say (third entry))))
+      (mux:wire-close wire))))
+
+;;; The frames and the bar, through a real client.
+
+(defun a-dialog-script ()
+  "A script that sets the title a coding agent sets, draws a permission dialog
+under a rule, and then echoes whatever it is answered."
+  (let ((path (format nil "~Aatty-dialog-~D.sh" (uiop:temporary-directory) (sb-posix:getpid))))
+    (with-open-file (out path :direction :output :if-exists :supersede
+                              :external-format :utf-8)
+      (format out "printf '\\033]0;✳ Claude Code\\007'~%")
+      (dolist (line '("────────────────────────────────────"
+                      " Bash command" ""
+                      "   python3 -m pytest -q" ""
+                      " Do you want to proceed?"
+                      " ❯ 1. Yes"
+                      "   2. No, and tell Claude what to do differently (esc)" ""
+                      " Esc to cancel · Tab to amend"))
+        (format out "printf '%s\\n' '~A'~%" line))
+      (format out "stty -echo -icanon min 1; head -c 1 | sed 's/^/answered-with-/'; echo; sleep 30~%"))
+    path))
+
+(defun where-on (seer said)
+  "Column and row, from 0, where SAID first is on the seer's screen."
+  (loop :for y :below (term:term-height (seer-host seer))
+        :for x := (search said (term:term-dump-row-string (seer-host seer) y))
+        :when x :do (return (values x y))))
+
+(defun click-at (seer x y)
+  (type-at seer (format nil "~C[<0;~D;~DM~C[<0;~D;~Dm" #\Escape (1+ x) (1+ y)
+                        #\Escape (1+ x) (1+ y))))
+
+(test a-split-frame-says-which-pane-what-it-is-called-and-what-it-is-doing
+  (with-server (path :command "sleep 30" :rows 12 :cols 80)
+    (with-seer (seer path :rows 12 :cols 80)
+      (pump seer :seconds 1/2)
+      (type-at seer (format nil "~C3" mux:+prefix+))
+      (is-true (pump seer :until (lambda () (search "╔" (seen seer))))
+               "no double frame round the focused pane: ~S" (seen seer))
+      (type-at seer (format nil "~C," mux:+prefix+))
+      (is-true (pump seer :want "name ") "the name prompt did not open: ~S" (seen seer))
+      (type-at seer (format nil "impl~C" #\Return))
+      (is-true (pump seer :want " impl sleep")
+               "the frame does not carry the new name and the program: ~S" (seen seer))
+      (is-true (pump seer :want "○ idle")))))
+
+(test a-blocked-pane-is-answered-by-clicking-an-answer-in-its-border
+  (let ((script (a-dialog-script)))
+    (unwind-protect
+         (with-server (path :command "/bin/sh" :rows 16 :cols 90)
+           (with-seer (seer path :rows 16 :cols 90)
+             (pump seer :seconds 1/2)
+             (type-at seer (format nil "~C3" mux:+prefix+))
+             (pump seer :until (lambda () (search "╔" (seen seer))))
+             (pump seer :seconds 1/2)
+             (type-at seer (format nil "sh ~A~C" script #\Return))
+             (is-true (pump seer :want "▲ asks") "the question never reached the border: ~S"
+                      (seen seer))
+             (is-true (pump seer :want " 1 Yes") "the answers are not in the border: ~S" (seen seer))
+             (multiple-value-bind (x y) (where-on seer " 1 Yes")
+               (click-at seer (+ x 1) y))
+             (is-true (pump seer :want "answered-with-1")
+                      "clicking the answer did not type it: ~S" (seen seer))))
+      (ignore-errors (delete-file script)))))
+
+(test zooming-a-pane-gives-it-the-session-and-zooming-again-gives-it-back
+  (with-server (path :command "cat" :rows 12 :cols 80)
+    (with-seer (seer path :rows 12 :cols 80)
+      (type-at seer "in-the-first")
+      (is-true (pump seer :want "in-the-first"))
+      (type-at seer (format nil "~C3" mux:+prefix+))
+      (pump seer :until (lambda () (search "╔" (seen seer))))
+      (type-at seer "in-the-second")
+      (is-true (pump seer :want "in-the-second"))
+      (type-at seer (format nil "~Cz" mux:+prefix+))
+      (is-true (pump seer :until (lambda () (null (search "in-the-first" (seen seer)))))
+               "the other pane still shows while one is zoomed: ~S" (seen seer))
+      (is (search "in-the-second" (seen seer)))
+      (type-at seer (format nil "~Cz" mux:+prefix+))
+      (is-true (pump seer :want "in-the-first") "zooming again did not give it back: ~S"
+               (seen seer)))))
+
+(test going-to-the-blocked-pane-goes-to-it-in-whatever-session-it-is
+  (with-a-server-here (server path)
+    (let* ((here (mux:add-session server "cat" :name "here" :rows 6 :cols 30))
+           (there (mux:add-session server "cat" :name "there" :rows 6 :cols 30))
+           (wire (a-wire-to path)))
+      (blocked server (mux:session-focus there))
+      (say-to wire (list :want "here") (list :attach 6 30 t))
+      (is-true (step-until server (lambda () (mux:session-watchers here))))
+      (say-to wire '(:go-to-blocked))
+      (is (equal (list :focused "there" (mux:pane-id (mux:session-focus there)) t)
+                 (heard-from server wire :focused)))
+      (is (mux:session-watchers there) "the client was not taken to the blocked pane")
+      (agent:agent-hear (mux:pane-agent (mux:session-focus there)) :idle)
+      (step-until server (lambda () (eq :idle (agent:agent-state
+                                               (mux:pane-agent (mux:session-focus there))))))
+      (say-to wire '(:go-to-blocked))
+      (is (equal '(:say "nothing needs you") (heard-from server wire :say)))
       (mux:wire-close wire))))
