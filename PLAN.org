@@ -283,7 +283,7 @@ Every board needs facts the server does not keep yet.
 
 * Phase 6: board 05, needs you (=C-b n=)
 
-** TODO The queue overlay
+** DONE The queue overlay
 - A client-side overlay drawn with =draw-over=, in the style of
   src/mux/prompt.lisp, with its own =queue-mode=.
 - It sends =(:watch-panes t)= and =(:watch-screens t)= while open, and
@@ -297,9 +297,12 @@ Every board needs facts the server does not keep yet.
 - Below the list, "answered lately" shows the newest =:answer= and
   refused-prompt entries from every pane's log: who, what and when. The
   client's own id is printed as "you".
-- Typing filters the list, scored by match.lisp.
+- =/= starts a filter, and what is typed after it narrows the list, scored
+  by match.lisp; =RET= keeps the filter, =Esc= drops it. Not bare typing,
+  as first written: =r= and =p= are commands here, so a filter has to be
+  asked for, the way the switchboard's is.
 
-** TODO Keys in the queue
+** DONE Keys in the queue
 - =↑ ↓= / =C-n C-p= choose.
 - =1…9= answer the selected pane in place: =:answer=. The item leaves the
   list when its state changes.
@@ -309,10 +312,10 @@ Every board needs facts the server does not keep yet.
   refused, and says so, if the pane is still blocked.
 - =C-g= / =Esc= close.
 
-** TODO The bar's count opens it
+** DONE The bar's count opens it
 - Clicking "▲ N need you" runs =needs-you=, which =C-b n= also runs.
 
-** TODO Tests
+** DONE Tests
 - tests/prompt.lisp style: items built from pane plists, the order, a
   filter, a digit sending =:answer= with the right address, and the
   overlay closing when nothing is left.

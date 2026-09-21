@@ -1087,7 +1087,7 @@ under a rule, and then echoes whatever it is answered."
                       "   2. No, and tell Claude what to do differently (esc)" ""
                       " Esc to cancel · Tab to amend"))
         (format out "printf '%s\\n' '~A'~%" line))
-      (format out "stty -echo -icanon min 1; head -c 1 | sed 's/^/answered-with-/'; echo; sleep 30~%"))
+      (format out "stty -echo -icanon min 1; a=$(head -c 1); printf '\\033[2J\\033[H'; echo answered-with-$a; sleep 30~%"))
     path))
 
 (defun where-on (seer said)
@@ -1168,3 +1168,73 @@ under a rule, and then echoes whatever it is answered."
       (say-to wire '(:go-to-blocked))
       (is (equal '(:say "nothing needs you") (heard-from server wire :say)))
       (mux:wire-close wire))))
+
+;;; Needs you.
+
+(defun a-told-client (&rest rows)
+  "A client that has been told about ROWS, without a server behind it."
+  (let ((client (mux::%make-client)))
+    (dolist (row rows client)
+      (setf (gethash (cons (getf row :session) (getf row :id)) (mux::client-panes client))
+            (list* :heard-at (mux::ms-here) row)))))
+
+(test the-queue-holds-what-is-asking-oldest-first-and-can-be-narrowed
+  (let* ((client (a-told-client
+                  (list :session "todo" :id 2 :says "impl" :kind "claude-code" :state :blocked
+                        :for 42000 :asks '(:subject "Bash command" :options ((1 "Yes"))))
+                  (list :session "lib" :id 1 :says "core" :kind "claude-code" :state :blocked
+                        :for 8000 :asks '(:subject "Fetch" :options ((1 "Yes"))))
+                  (list :session "todo" :id 1 :says "arch" :kind "claude-code" :state :working
+                        :for 41000)))
+         (q (mux::%make-queue)))
+    (is (equal '("todo:2" "lib:1") (mapcar #'mux::row-address (mux::queue-rows q client)))
+        "the queue was not what is blocked, oldest first")
+    (setf (mux::queue-query q) "fetch")
+    (is (equal '("lib:1") (mapcar #'mux::row-address (mux::queue-rows q client))))))
+
+(test the-queue-draws-each-question-with-its-answers-and-the-one-picked-beside-it
+  (let* ((client (a-told-client
+                  (list :session "todo" :id 2 :says "impl" :kind "claude-code" :state :blocked
+                        :for 42000 :asks '(:subject "Bash command"
+                                           :detail ("python3 -m pytest -q")
+                                           :options ((1 "Yes") (2 "No"))))))
+         (q (mux::%make-queue))
+         (screen (tty:make-screen :width 100 :height 20)))
+    (let ((mux::*drawing-for* client))
+      (mux:draw-over q screen))
+    (let ((all (format nil "~{~A~%~}" (loop :for y :below 20 :collect (shown screen y)))))
+      (is (search "needs you" all) "~A" all)
+      (is (search "todo:2" all))
+      (is (search "Bash command" all))
+      (is (search "python3 -m pytest -q" all))
+      (is (search " 1 Yes" all))
+      (is (search "1 waiting · oldest 42s" all) "~A" all))))
+
+(test the-queue-answers-a-pane-in-another-session-without-going-there
+  (let ((script (a-dialog-script)))
+    (unwind-protect
+         (with-server (path :command "/bin/sh" :rows 20 :cols 100)
+           (with-seer (seer path :rows 20 :cols 100)
+             (pump seer :seconds 1/2)
+             (type-at seer (format nil "sh ~A~C" script #\Return))
+             (is-true (pump seer :want "needs you") "the bar never said anything needs you")
+             ;; somewhere else to be while it is answered
+             (type-at seer (format nil "~Cc" mux:+prefix+))
+             (is-true (pump seer :until (lambda () (null (search "Bash command" (seen seer))))))
+             (type-at seer (format nil "~Cn" mux:+prefix+))
+             (is-true (pump seer :want "1 waiting") "the queue did not open: ~S" (seen seer))
+             (is-true (pump seer :want "python3 -m pytest -q"))
+             (type-at seer "1")
+             (is-true (pump seer :want "nothing needs you")
+                      "answering did not take it off the queue: ~S" (seen seer))
+             (is-true (pump seer :want "✓")
+                      "the answer is not among those answered lately: ~S" (seen seer))
+             (is-true (pump seer :want "by you") "~S" (seen seer))
+             (type-at seer (string (code-char 27)))
+             (pump seer :seconds 1/2)
+             (type-at seer (format nil "~Cb" mux:+prefix+))
+             (is-true (pump seer :want "session"))
+             (type-at seer (string #\Return))
+             (is-true (pump seer :want "answered-with-1")
+                      "the pane was not answered: ~S" (seen seer))))
+      (ignore-errors (delete-file script)))))

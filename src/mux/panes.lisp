@@ -183,6 +183,20 @@ it back when it already has it."
     (tell watcher (list :read-it name id
                         (and pane (agent:last-lines (pane-term pane) 500))))))
 
+(defun lately (server n now)
+  "The last N answers anybody gave any pane, and prompts refused because a pane
+was asking something, newest first: what somebody glancing at the queue wants
+to know was just done for them, or by whom."
+  (let ((all (loop :for (session . pane) :in (every-pane server)
+                   :append (loop :for entry :in (pane-log pane)
+                                 :when (or (eq :answer (third entry))
+                                           (and (eq :prompt (third entry))
+                                                (eq :refused (fifth entry))))
+                                   :collect (list* (session-name session) (pane-id pane)
+                                                   (input-said entry now))))))
+    (let ((sorted (sort all #'< :key #'third)))
+      (subseq sorted 0 (min n (length sorted))))))
+
 (defun history-said (agent now)
   (mapcar (lambda (it) (list (max 0 (- now (first it))) (second it)))
           (agent:agent-history agent)))

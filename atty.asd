@@ -77,6 +77,7 @@
                              (:file "client")
                              (:file "note")
                              (:file "prompt")
+                             (:file "queue")
                              (:file "keys")
                              (:file "main")))
 

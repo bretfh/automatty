@@ -19,7 +19,7 @@ more than the terminal it is sitting inside costs in the first place.")
   '(:want :attach :open :who :go :new :sessions :kill-session :knock :detach :stop
     :name-pane :naming
     :panes :watch-panes :watch-screens :pane-screen :pane-history :pane-log
-    :answer :focus-pane :go-to-blocked :zoom :pane-read
+    :answer :focus-pane :go-to-blocked :zoom :pane-read :lately
     :keys :resize :bar :split :focus :close :only :mouse-at
     :agents :agent-signal :agent-read :agent-keys :agent-prompt :agent-explain
     :agent-trace)
@@ -406,7 +406,11 @@ is drawn is what they have just been told they are."
   "Tell WATCHER what it is looking at, and what this server can be asked to do."
   (tell watcher (list :hello (session-name session)
                       (session-rows session) (session-cols session)
-                      +understood+)))
+                      +understood+))
+  ;; on its own rather than on the end of the greeting: a client from before
+  ;; this takes the greeting apart by its exact shape, and passes over a
+  ;; message it has never heard of
+  (tell watcher (list :you (watcher-id watcher))))
 
 (defun frame-for (session watcher)
   (let* ((screen (session-screen session))
@@ -631,6 +635,7 @@ that is about a session is passed on only once it has joined one."
        (destructuring-bind (name id) (rest form)
          (focus-a-pane server watcher name id)))
       (:go-to-blocked (take-to-the-blocked server watcher))
+      (:lately (tell watcher (list :lately (lately server (or (second form) 5) (now-ms)))))
       (:zoom
        (destructuring-bind (&optional name id) (rest form)
          (zoom-a-pane server watcher name id)))

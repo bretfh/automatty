@@ -33,7 +33,15 @@ silence.")
            (knows +was-known+)
            (mode 'pane-mode)
            (going t :type boolean)
-           (why nil))
+           (why nil)
+           ;; what the server has told this client about every pane, while
+           ;; something on top has asked to be kept told
+           (id nil)
+           (panes (make-hash-table :test 'equal))
+           (screens (make-hash-table :test 'equal))
+           (lately nil)
+           (watching 0 :type fixnum)
+           (ticked 0 :type integer))
 
 (defun connect-to (path)
   (let ((socket (make-instance 'sb-bsd-sockets:local-socket :type :stream)))
@@ -42,6 +50,24 @@ silence.")
             socket)))
 
 (declaim (ftype function ask ask-a-name))
+
+(defun ms-here ()
+  (floor (* 1000 (get-internal-real-time)) internal-time-units-per-second))
+
+(defun keep-told (client)
+  "Something on top wants to be told about every pane. Asked for once however
+many want it, and dropped when the last of them goes."
+  (when (= 1 (incf (client-watching client)))
+    (wire-send (client-wire client) '(:watch-panes t))
+    (wire-send (client-wire client) '(:watch-screens 16)))
+  (wire-send (client-wire client) '(:lately 5)))
+
+(defun stop-told (client)
+  (when (zerop (setf (client-watching client) (max 0 (1- (client-watching client)))))
+    (wire-send (client-wire client) '(:watch-panes nil))
+    (wire-send (client-wire client) '(:watch-screens nil))
+    (clrhash (client-panes client))
+    (clrhash (client-screens client))))
 
 (defun tty-name (fd)
   "What the terminal on FD is called, such as /dev/ttys004, or nil. It is how a
@@ -114,6 +140,15 @@ them again."
 This is the seam: anything that can write cells can be put on top, and nothing
 else needs to know about it."))
 
+(defvar *drawing-for* nil
+  "The client whatever is being drawn over its session belongs to. Something on
+top that shows what the server said about the panes reads it from here.")
+
+(defgeneric ticks-p (thing)
+  (:documentation "Whether THING on top says how long something has been, and
+so is drawn again every second whether anything was said or not.")
+  (:method (thing) (declare (ignore thing)) nil))
+
 (defgeneric mode-of (thing)
   (:documentation "Which mode a client is in while THING is on top.")
   (:method (thing) (declare (ignore thing)) 'pane-mode))
@@ -133,8 +168,9 @@ not something everybody attached should be shown."
   (let ((work (client-screen client)))
     (when (and work (client-from client) (client-shown client))
       (tty:screen-copy work (client-from client))
-      (dolist (it (reverse (client-over client)))
-        (draw-over it work))
+      (let ((*drawing-for* client))
+        (dolist (it (reverse (client-over client)))
+          (draw-over it work)))
       (let ((runs (tty:screen-diff (client-shown client) work)))
         (host-say client
                   (with-output-to-string (s)
@@ -204,6 +240,49 @@ looks like, not why it happened."
         (:bell (host-say client (string (code-char 7))))
         (:do (run-command (second form) client))
         (:say (show-note client "atty" (second form) :face :accent))
+        (:you (setf (client-id client) (second form)))
+        (:pane
+         (let ((row (rest form)))
+           (setf (gethash (cons (getf row :session) (getf row :id)) (client-panes client))
+                 (list* :heard-at (ms-here) row)
+                 (client-dirty client) t)))
+        (:pane-gone
+         (remhash (cons (second form) (third form)) (client-panes client))
+         (remhash (cons (second form) (third form)) (client-screens client))
+         (setf (client-dirty client) t))
+        (:pane-screen
+         (destructuring-bind (session id &optional width said faces) (rest form)
+           (when width
+             (setf (gethash (cons session id) (client-screens client))
+                   (let ((screen (tty:make-screen :width width
+                                                  :height (1+ (reduce #'max said
+                                                                      :key #'first
+                                                                      :initial-value 0)))))
+                     (said-into-screen screen said faces)
+                     screen)
+                   (client-dirty client) t))))
+        (:lately (setf (client-lately client) (second form)
+                       (client-dirty client) t))
+        (:answered
+         (destructuring-bind (session id n outcome) (rest form)
+           (unless (eq outcome t)
+             (show-note client "not answered"
+                        (format nil "~A:~D was not answered ~D: ~(~A~)."
+                                session id n
+                                (case outcome
+                                  (:not-blocked "it is not asking anything now")
+                                  (:no-such-option "it has no such answer")
+                                  (:gone "it is gone")
+                                  (t outcome)))))
+           (wire-send (client-wire client) '(:lately 5))))
+        (:agent-prompted
+         (destructuring-bind (session id outcome) (rest form)
+           (unless (eq outcome t)
+             (show-note client "not prompted"
+                        (format nil "~A:~D ~A" session id
+                                (if (eq outcome :blocked)
+                                    "is asking something; answer it, not a prompt."
+                                    "is gone."))))))
         (:read-it
          (destructuring-bind (session id lines) (rest form)
            (show-note client (format nil "~A:~D" session id)
@@ -369,6 +448,10 @@ moment would otherwise answer that question first, and answer it wrongly."
         (if (null said)
             (done-with client :input-gone)
           (client-typed client said))))
+    (when (and (some #'ticks-p (client-over client))
+               (>= (- (ms-here) (client-ticked client)) 1000))
+      (setf (client-ticked client) (ms-here)
+            (client-dirty client) t))
     (when (client-dirty client) (client-show client))
     (wire-flush wire)
     client))
