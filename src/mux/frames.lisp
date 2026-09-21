@@ -114,8 +114,8 @@ last option is never the one that goes."
 
 (defun asks-title (asks)
   (atty/ui:row :spacing 0
-               (atty/ui:label " ▲ asks " :face :state-blocked)
-               (atty/ui:label (getf asks :subject))
+               (atty/ui:label " ▲ asks " :face :state-blocked-strong)
+               (atty/ui:label (getf asks :subject) :face :strong)
                (atty/ui:label (format nil "  ~A "
                                       (or (first (getf asks :detail))
                                           (getf asks :question))))))
@@ -126,12 +126,14 @@ the whole session, and which rule decided it was asking."
   (let ((name (session-name session))
         (id (pane-id pane)))
     (remove nil
+            ;; dim words beside the answers, not keys of their own: the
+            ;; answers are what the eye should land on
             (list (bar-button (list :pane-read name id)
-                              (atty/ui:label " read " :face :key))
+                              (atty/ui:label " read " :face :quiet))
                   (bar-button (list :zoom name id)
                               (atty/ui:label (if (eq pane (session-zoomed session))
                                                  " unzoom " " zoom ")
-                                             :face :key))
+                                             :face :quiet))
                   (and won (atty/ui:label (format nil " matched: ~A " won)
                                           :face :quiet))))))
 
@@ -156,11 +158,14 @@ the whole session, and which rule decided it was asking."
     (list
      :tl (atty/ui:row :spacing 0
                       (atty/ui:label (format nil " ~D " (pane-id pane))
-                                     :face (cond ((not focusp) :default)
+                                     :face (cond ((not focusp) :strong)
                                                  ((known-p pane) (number-face state))
                                                  (t :number-unknown)))
                       (atty/ui:label (format nil " ~A " (pane-says pane)))
-                      (atty/ui:label (format nil "~A " (pane-kind pane)) :face :quiet))
+                      (atty/ui:label (format nil "~A " (pane-kind pane)) :face :quiet)
+                      (if (eq pane (session-zoomed session))
+                          (atty/ui:label " ⤢ zoomed " :face :state-blocked-strong)
+                          (atty/ui:label "")))
      :tr (cond (asks (asks-title asks))
                ((known-p pane)
                 (atty/ui:label (format nil " ~A ~(~A~) ~A " (state-glyph state) state

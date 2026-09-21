@@ -170,17 +170,17 @@ than the card has would push the cards beside it off the screen."
     (if asks
         (let ((subject (format nil "▲ ~A  " (getf asks :subject))))
           (atty/ui:row :spacing 0
-                       (atty/ui:label (shortened-to subject room) :face :state-blocked)
+                       (atty/ui:label (shortened-to subject room) :face :state-blocked-strong)
                        (atty/ui:label (shortened-to (or (first (getf asks :detail))
                                                         (getf asks :question) "")
                                                     (max 1 (- room (length subject)))))))
+        ;; the glyph in the state's colour, what it is doing in bold
         (let ((state (row-state row)))
-          (atty/ui:label (shortened-to (if state
-                                           (format nil "~A ~A" (state-glyph state)
-                                                   (or (getf row :doing) ""))
-                                           (or (getf row :doing) ""))
-                                       room)
-                         :face (if state (state-face state) :default))))))
+          (atty/ui:row :spacing 0
+                       (atty/ui:label (if state (format nil "~A " (state-glyph state)) "")
+                                      :face (state-face state))
+                       (atty/ui:label (shortened-to (or (getf row :doing) "") (- room 2))
+                                      :face :strong))))))
 
 (defun card (b client row width)
   (let* ((key (row-key row))
@@ -277,7 +277,7 @@ than the card has would push the cards beside it off the screen."
     (t
      ;; what order and what filter first: the hints run off a narrow terminal,
      ;; and what the board is showing must not be what is cut
-     (atty/ui:row :spacing 0
+     (atty/ui:row :spacing 0 :background-color (bar-face :bg-dim)
                   (atty/ui:label (format nil " ~A~@[ · › ~A~] │"
                                          (second (nth (board-sort b) +sorts+))
                                          (and (plusp (length (board-query b)))
@@ -288,7 +288,8 @@ than the card has would push the cards beside it off the screen."
                          'switchboard-prompt "prompt" 'switchboard-read "read"
                          'switchboard-name "name" 'switchboard-close-pane "close"
                          'switchboard-filter "filter" 'switchboard-sort "sort"
-                         'switchboard-close "close this")))))
+                         'switchboard-close "close this")
+                  (atty/ui:gap)))))
 
 (defun board-tree (b client cols)
   (apply #'atty/ui:column :align :stretch :expand 1

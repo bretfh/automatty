@@ -78,16 +78,16 @@ names whatever somebody has set up, not what this file set up."
         (string-downcase (substitute #\Space #\- (symbol-name command))))))
 
 (defun hints (mode &rest pairs)
-  "A line of what the keys in MODE do: PAIRS is a command, then what it does. A
-string in place of the command is said as it is, for keys no one command is
-bound to, such as the digits."
-  (atty/ui:label
-   (format nil " ~{~A~^   ~}"
-           (loop :for (command does) :on pairs :by #'cddr
-                 :collect (format nil "~A ~A"
-                                  (if (stringp command) command (key-in mode command))
-                                  does)))
-   :face :quiet))
+  "A line of what the keys in MODE do, each key lit and what it does dim: PAIRS
+is a command, then what it does. A string in place of the command is said as it
+is, for keys no one command is bound to, such as the digits."
+  (apply #'atty/ui:row :spacing 0
+         (loop :for (command does) :on pairs :by #'cddr
+               :append (list (atty/ui:label (format nil " ~A" (if (stringp command)
+                                                                  command
+                                                                  (key-in mode command)))
+                                            :face :key-hint)
+                             (atty/ui:label (format nil " ~A  " does) :face :quiet)))))
 
 ;;; The queue.
 
@@ -125,11 +125,11 @@ those the filter matches."
             (list
              (atty/ui:row :spacing 0
                           (atty/ui:label (if selected " ▶ " "   ") :face :state-blocked)
-                          (atty/ui:label (row-address row) :face :accent)
+                          (atty/ui:label (row-address row) :face :strong)
                           (atty/ui:label (format nil " ~A  " (getf row :says)) :face :quiet)
                           (atty/ui:label (format nil "▲ blocked ~A   " (duration (row-for row now)))
                                          :face :state-blocked)
-                          (atty/ui:label (or (getf asks :subject) "asking something")))
+                          (atty/ui:label (or (getf asks :subject) "asking something") :face :strong))
              (atty/ui:label (format nil "     ~A" (or (first (getf asks :detail))
                                                      (getf asks :question) "")))
              (apply #'atty/ui:row :spacing 0 (atty/ui:label "    ")
@@ -197,11 +197,16 @@ those the filter matches."
                        (mapcar (lambda (e) (lately-line client e)) (client-lately client))))
                (list (atty/ui:gap :expand 1))))
        (queue-preview client chosen))
-      (hints 'queue-mode "↑↓" "choose" "1-9" "answer in place"
+      (atty/ui:row :background-color (bar-face :bg-alt)
+       (hints 'queue-mode "↑↓" "choose" "1-9" "answer in place"
              'queue-go "go there" 'queue-read "read" 'queue-prompt "prompt instead"
-             'queue-close "close"))
+             'queue-close "close")
+       (atty/ui:gap)))
      :face :state-blocked
-     :titles (list :tl (atty/ui:label " needs you " :face :chip-blocked)))))
+     :titles (list :tl (atty/ui:row :spacing 0
+                                   (atty/ui:label " needs you " :face :chip-blocked)
+                                   (atty/ui:label (format nil " ~A " (key-in 'pane-mode 'needs-you))
+                                                  :face :quiet))))))
 
 (defmethod draw-over ((q queue) screen)
   (let* ((cols (tty:screen-width screen))

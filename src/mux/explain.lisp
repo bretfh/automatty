@@ -58,14 +58,15 @@ won marked * with what it matched under it, the others that matched +."
                                            (atty/ui:label (cond ((eq row won) "* ")
                                                                 (hit "+ ")
                                                                 (t "  "))
-                                                          :face (if (eq row won) :state-blocked :quiet))
+                                                          :face (if (eq row won) :state-blocked-strong :quiet))
                                            (atty/ui:label (format nil "~4D " priority)
                                                           :face (if hit :default :quiet))
                                            (atty/ui:label (format nil "~(~7A~) " state)
                                                           :face (if hit (state-face state) :quiet))
                                            (atty/ui:label (format nil "~26A " rid)
-                                                          :face (if (eq row won) :accent
-                                                                    (if hit :default :quiet)))
+                                                          :face (cond ((eq row won) :strong)
+                                                                      (hit :default)
+                                                                      (t :quiet)))
                                            (atty/ui:label (format nil "~(~A~)"
                                                                   (if (consp region)
                                                                       (format nil "~{~A~^ ~}" region)
@@ -83,7 +84,10 @@ won marked * with what it matched under it, the others that matched +."
                               (atty/ui:label (format nil "~A " (wall-clock-ago (+ age late)))
                                              :face :quiet)
                               (atty/ui:label (format nil "~8A " (said-by client who))
-                                             :face (if (eq :pane (first who)) :driven :accent))
+                                             :face (case (first who)
+                                                     (:pane :driven)
+                                                     (:client :you)
+                                                     (t :quiet)))
                               (atty/ui:label (format nil "~(~A~)" verb))
                               (atty/ui:label (cond ((eq verb :keys) (format nil " ~D bytes" summary))
                                                    (summary (format nil " ~A"
@@ -99,7 +103,7 @@ won marked * with what it matched under it, the others that matched +."
         (multiple-value-bind (history history-at) (about client key :pane-history)
           (multiple-value-bind (log log-at) (about client key :pane-log)
             (let* ((about (first about))
-                   (state (getf row :state))
+                   (state (and (getf row :known) (getf row :state)))
                    (rows (third explained))
                    (for (row-for row now)))
               (atty/ui:framed
@@ -110,49 +114,56 @@ won marked * with what it matched under it, the others that matched +."
                        (list (atty/ui:row :spacing 0
                                           (atty/ui:label "kind    " :face :quiet)
                                           (atty/ui:label (or (getf about :kind) (getf row :kind) "")
-                                                         :face :accent))
+                                                         :face :strong))
                              (atty/ui:label (format nil "        foreground ~A~@[  group ~A~]"
                                                     (or (first (getf about :programs)) "nothing yet")
                                                     (getf about :group)))
                              (atty/ui:label (format nil "        spawned as ~A"
                                                     (shortened-to (or (getf about :command) "") 40))
                                             :face :quiet)
+                             (if (null state)
+                                 (atty/ui:label "state   not read: no rules know this program"
+                                                :face :quiet)
                              (atty/ui:row :spacing 0
                                           (atty/ui:label "state   " :face :quiet)
                                           (atty/ui:label (format nil "~A ~(~A~)" (state-glyph state) state)
-                                                         :face (state-face state))
+                                                         :face (if (eq state :blocked)
+                                                                   :state-blocked-strong
+                                                                   (state-face state)))
                                           (atty/ui:label (format nil " for ~A" (duration for)))
                                           (atty/ui:label (if for
                                                              (format nil " · since ~A" (wall-clock-ago for))
                                                              "")
-                                                         :face :quiet))
+                                                         :face :quiet)))
                              (atty/ui:label ""))
-                       (if rows
-                           (rule-lines rows)
-                           (list (atty/ui:label "  no rules know this program: it is working"
-                                                :face :quiet)
-                                 (atty/ui:label "  while its screen moves and idle once still"
-                                                :face :quiet)))
-                       (list (atty/ui:label "")
-                             (atty/ui:label "last 20 minutes" :face :quiet)
-                             (strip (list :history (first history) :heard-at (or history-at now))
-                                    now)
-                             (atty/ui:row :spacing 0
-                                          (atty/ui:label "■" :face :state-idle)
-                                          (atty/ui:label " idle  " :face :quiet)
-                                          (atty/ui:label "■" :face :state-working)
-                                          (atty/ui:label " working  " :face :quiet)
-                                          (atty/ui:label "■" :face :state-blocked)
-                                          (atty/ui:label " blocked" :face :quiet))
-                             (atty/ui:label "")
-                             (atty/ui:label "who typed here" :face :quiet))
+                       ;; the rules and the last while only for an agent that is
+                       ;; read; for anything else they would be about nothing
+                       (when state
+                         (append
+                          (and rows (rule-lines rows))
+                          (list (atty/ui:label "")
+                                (atty/ui:label "last 20 minutes" :face :quiet)
+                                (strip (list :history (first history) :heard-at (or history-at now))
+                                       now)
+                                (atty/ui:row :spacing 0
+                                             (atty/ui:label "■" :face :state-idle)
+                                             (atty/ui:label " idle  " :face :quiet)
+                                             (atty/ui:label "■" :face :state-working)
+                                             (atty/ui:label " working  " :face :quiet)
+                                             (atty/ui:label "■" :face :state-blocked)
+                                             (atty/ui:label " blocked" :face :quiet))
+                                (atty/ui:label ""))))
+                       (list (atty/ui:label "who typed here" :face :quiet))
                        (or (who-typed-lines client (first log) (max 0 (- now (or log-at now))))
                            (list (atty/ui:label "  nobody yet" :face :quiet)))
                        (list (atty/ui:gap :expand 1))))
-               :face :quiet
-               :titles (list :tl (atty/ui:label (format nil " why is ~A:~D ~(~A~)? "
-                                                        (car key) (cdr key) state)
-                                                :face :accent)
+               :face :state-unknown
+               :titles (list :tl (atty/ui:label (if state
+                                                    (format nil " why is ~A:~D ~(~A~)? "
+                                                            (car key) (cdr key) state)
+                                                    (format nil " what is ~A:~D? "
+                                                            (car key) (cdr key)))
+                                                :face :strong)
                              :tr (atty/ui:label (format nil " ~A " (key-in 'pane-mode 'explain-this-pane))
                                                 :face :quiet))))))))))
 

@@ -94,7 +94,7 @@ for how long. A click goes to it."
                           (append
                            (when (eq pane (session-focus session))
                              (list :background-color (bar-face :bg-active)))
-                           (list (atty/ui:label (format nil " ~D" (pane-id pane)) :face :accent)
+                           (list (atty/ui:label (format nil " ~D" (pane-id pane)) :face :strong)
                                  (atty/ui:label (format nil " ~A " says))))))
                   ((eq state :blocked)
                    (atty/ui:label (format nil " ~D ~A ~A ~(~A~) ~A "
@@ -106,7 +106,7 @@ for how long. A click goes to it."
                             (when (eq pane (session-focus session))
                               (list :background-color (bar-face :bg-active)))
                             (list (atty/ui:label (format nil " ~D" (pane-id pane))
-                                                 :face :accent)
+                                                 :face :strong)
                                   (atty/ui:label (format nil " ~A " says))
                                   (atty/ui:label (format nil "~A ~(~A~)" (state-glyph state) state)
                                                  :face (state-face state))
@@ -134,7 +134,7 @@ for how long. A click goes to it."
                   (atty/ui:row :spacing 0 :background-color (bar-face :bg-alt)
                                (atty/ui:label (format nil " ▲ ~D need~A you " n
                                                       (if (= n 1) "s" ""))
-                                              :face :state-blocked)
+                                              :face :state-blocked-strong)
                                (let ((key (key-for 'needs-you)))
                                  (atty/ui:label (if key (format nil "~A " key) "")
                                                 :face :quiet)))))))
@@ -166,8 +166,12 @@ it is another bar."
            :background-color (bar-face :bg-dim)
            (append
             (list (atty/ui:label " λ " :face :brand)
-                  (atty/ui:label (format nil "~A " (session-name session)) :face :accent))
+                  (atty/ui:label (format nil "~A " (session-name session)) :face :strong-accent)
+                  (atty/ui:label "│" :face :quiet))
             (mapcar (lambda (p) (pane-chip session p now)) (session-panes session))
+            (when (session-zoomed session)
+              (list (atty/ui:row :background-color (bar-face :bg-alt)
+                                 (atty/ui:label " ⤢ zoomed " :face :strong))))
             (list (atty/ui:gap)
                   (search-segment session)
                   (atty/ui:gap))

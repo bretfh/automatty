@@ -124,6 +124,10 @@ already failing."
 (defun seen (seer)
   (term:term-dump-to-string (seer-host seer)))
 
+(defun seen-below-bar (seer)
+  (let ((all (seen seer)))
+    (subseq all (min (length all) (1+ (or (position #\Newline all) (length all)))))))
+
 (defmacro with-seer ((seer path &rest args) &body body)
   `(let ((,seer (a-seer ,path ,@args)))
      (unwind-protect (progn ,@body) (seer-close ,seer))))
@@ -705,7 +709,8 @@ not the one clicked on: ~S" (seen seer))
                               (type-at seer "in-the-second")
                               (is-true (pump seer :want "in-the-second"))
                               (type-at seer (format nil "~C1" mux:+prefix+))
-                              (is-true (pump seer :until (lambda () (null (search "│" (seen seer)))))
+                              ;; below the bar, which has a rule of its own after the session
+                              (is-true (pump seer :until (lambda () (null (search "│" (seen-below-bar seer)))))
                                        "the rule is still there, so both panes are: ~S" (seen seer))
                               (is-true (pump seer :until (lambda () (null (search "in-the-first"
                                                                                   (seen seer)))))
@@ -1411,14 +1416,14 @@ Do you want to proceed?
     (with-seer (seer path :rows 24 :cols 150)
       (pump seer :seconds 1/2)
       (type-at seer (format nil "~Ce" mux:+prefix+))
-      (is-true (pump seer :want "why is 0:") "the drawer did not open: ~S" (seen seer))
-      (is-true (pump seer :want "no rules know this program"))
+      (is-true (pump seer :want "what is 0:") "the drawer did not open: ~S" (seen seer))
+      (is-true (pump seer :want "not read: no rules know this program"))
       (type-at seer "typed-past-it")
       (is-true (pump seer :want "typed-past-it")
                "what was typed with the drawer open did not reach the pane: ~S" (seen seer))
       (is-true (pump seer :want "bytes") "the drawer does not say who typed: ~S" (seen seer))
       (type-at seer (format nil "~Ce" mux:+prefix+))
-      (is-true (pump seer :until (lambda () (null (search "why is" (seen seer)))))
+      (is-true (pump seer :until (lambda () (null (search "what is" (seen seer)))))
                "the key that opened it did not close it"))))
 
 ;;; The command line does what the UI does.
