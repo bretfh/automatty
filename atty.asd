@@ -79,6 +79,7 @@
                              (:file "prompt")
                              (:file "queue")
                              (:file "switchboard")
+                             (:file "explain")
                              (:file "keys")
                              (:file "main")))
 

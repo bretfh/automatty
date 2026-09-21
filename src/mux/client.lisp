@@ -42,7 +42,8 @@ silence.")
            (lately nil)
            (watching 0 :type fixnum)
            (ticked 0 :type integer)
-           (session nil))
+           (session nil)
+           (about (make-hash-table :test 'equal)))
 
 (defun connect-to (path)
   (let ((socket (make-instance 'sb-bsd-sockets:local-socket :type :stream)))
@@ -148,6 +149,12 @@ top that shows what the server said about the panes reads it from here.")
 (defgeneric ticks-p (thing)
   (:documentation "Whether THING on top says how long something has been, and
 so is drawn again every second whether anything was said or not.")
+  (:method (thing) (declare (ignore thing)) nil))
+
+(defgeneric passes-keys-p (thing)
+  (:documentation "Whether what is typed goes on to the pane while THING is on
+top, as it would with nothing there. Something beside the panes rather than in
+front of them, that only says things, need not take the keyboard away.")
   (:method (thing) (declare (ignore thing)) nil))
 
 (defgeneric mode-of (thing)
@@ -264,6 +271,14 @@ looks like, not why it happened."
                    (client-dirty client) t))))
         (:lately (setf (client-lately client) (second form)
                        (client-dirty client) t))
+        ((:agent-explained :pane-history :pane-log :pane-about)
+         ;; what the drawer asked about a pane, kept by the pane and by what
+         ;; it was, with when it came so ages in it can be brought up to now
+         (destructuring-bind (session id &rest said) (rest form)
+           (let ((key (cons session id)))
+             (setf (getf (gethash key (client-about client)) (first form))
+                   (list* (ms-here) said)
+                   (client-dirty client) t))))
         (:answered
          (destructuring-bind (session id n outcome) (rest form)
            (unless (eq outcome t)
@@ -382,7 +397,8 @@ mode is written in, and the pane does not see them at all.
 
 A mouse report this build has no name for is forwarded the same way. One it
 does have a name for goes to the mode instead and is not passed on."
-  (when (client-over client)
+  (when (and (client-over client)
+             (not (passes-keys-p (first (client-over client)))))
     (return-from client-typed (client-pressed client said)))
   (let* ((said (client-holding client said))
          (out (make-array (length said) :element-type 'character :fill-pointer 0))

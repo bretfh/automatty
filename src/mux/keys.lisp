@@ -112,6 +112,7 @@ instead."
 (atty/mode:define-key 'pane-mode "C-b z" #'zoom-this-pane)
 (atty/mode:define-key 'pane-mode "C-b n" #'needs-you)
 (atty/mode:define-key 'pane-mode "C-b w" #'switchboard)
+(atty/mode:define-key 'pane-mode "C-b e" #'explain-this-pane)
 (atty/mode:define-key 'pane-mode "C-b c" #'new-session)
 (atty/mode:define-key 'pane-mode "C-b b" #'choose-a-session)
 

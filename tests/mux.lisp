@@ -1357,3 +1357,59 @@ under a rule, and then echoes whatever it is answered."
         (dolist (row rows)
           (is (some (lambda (l) (search "hello-both" l)) (funcall read row))
               "~A:~D was not prompted" (getf row :session) (getf row :id)))))))
+
+;;; Why it thinks so, and who typed.
+
+(test the-drawer-says-what-decided-the-state-and-who-typed-there
+  (let* ((client (a-told-client
+                  (list :session "todo" :id 2 :says "impl" :kind "claude-code" :state :blocked
+                        :for 42000 :focus t)))
+         (key (cons "todo" 2))
+         (now (mux::ms-here))
+         (d (mux::%make-drawer :key key :asked now))
+         (screen (tty:make-screen :width 150 :height 36)))
+    (setf (mux::client-session client) "todo"
+          (gethash key (mux::client-about client))
+          (list :agent-explained
+                (list now :blocked :blocked
+                      '(("live-prompt-box" 950 :prompt-box :idle nil "")
+                        ("bash-permission-prompt" 850 :whole :blocked t
+                         "Bash command
+Do you want to proceed?
+❯ 1. Yes")
+                        ("generic-permission-prompt" 840 :after-last-rule :blocked t "x")))
+                :pane-about (list now '(:kind "claude-code" :programs ("claude --resume")
+                                        :group 48213 :command "sh -c \"exec claude\""))
+                :pane-history (list now '((42000 :blocked) (60000 :working)))
+                :pane-log (list now '((50000 (:pane "todo:4") :prompt "STATUS?" :refused)
+                                      (80000 (:pane "todo:4") :prompt "run the suite" t)
+                                      (90000 (:client 7 "/dev/ttys004") :keys 14 t)))))
+    (let ((mux::*drawing-for* client))
+      (mux:draw-over d screen))
+    (let ((all (format nil "~{~A~%~}" (loop :for y :below 36 :collect (shown screen y)))))
+      (is (search "why is todo:2 blocked?" all) "~A" all)
+      (is (search "foreground claude --resume  group 48213" all))
+      (is (search "*  850 blocked bash-permission-prompt" all)
+          "the winning rule is not marked: ~A" all)
+      (is (search "│ Do you want to proceed?" all) "the winning rule's text is not under it")
+      (is (search "+ " all) "another rule that matched is not marked")
+      (is (search "who typed here" all))
+      (is (search "todo:4" all))
+      (is (search "refused" all))
+      (is (search "keys 14 bytes" all))
+      (is (search "last 20 minutes" all)))))
+
+(test the-drawer-follows-the-focus-and-typing-still-reaches-the-pane
+  (with-server (path :command "cat" :rows 24 :cols 150)
+    (with-seer (seer path :rows 24 :cols 150)
+      (pump seer :seconds 1/2)
+      (type-at seer (format nil "~Ce" mux:+prefix+))
+      (is-true (pump seer :want "why is 0:") "the drawer did not open: ~S" (seen seer))
+      (is-true (pump seer :want "no rules know this program"))
+      (type-at seer "typed-past-it")
+      (is-true (pump seer :want "typed-past-it")
+               "what was typed with the drawer open did not reach the pane: ~S" (seen seer))
+      (is-true (pump seer :want "bytes") "the drawer does not say who typed: ~S" (seen seer))
+      (type-at seer (format nil "~Ce" mux:+prefix+))
+      (is-true (pump seer :until (lambda () (null (search "why is" (seen seer)))))
+               "the key that opened it did not close it"))))

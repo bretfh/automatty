@@ -391,7 +391,7 @@ session chooser is its lighter form, not a separate thing.
 
 * Phase 8: board 06, why and who (=C-b e=)
 
-** TODO The drawer overlay
+** DONE The drawer overlay
 - A client-side overlay on the right, =min(60, cols/3)= wide, over the
   panes. The panes are not resized.
 - Kind: the class, the foreground program with its pid, and what the pane
@@ -407,7 +407,7 @@ session chooser is its lighter form, not a separate thing.
   as "you".
 - It follows the focus. =C-b e= again closes it.
 
-** TODO The frame's last-input marker
+** DONE The frame's last-input marker
 - When the newest log entry for a pane came from another pane, or from the
   CLI, the bottom-left title reads =⌁ last input: <who> <verb>, <age>=. The
   frame is shared by everyone attached, so it names the source, never
@@ -415,7 +415,7 @@ session chooser is its lighter form, not a separate thing.
 - A blocked pane's bottom border belongs to its answer options (Phase 5),
   so it has no marker. Its last input is shown only in the drawer.
 
-** TODO Tests
+** DONE Tests
 - The drawer drawn from a canned explain answer, history and log. The
   bucket arithmetic of the timeline.
 

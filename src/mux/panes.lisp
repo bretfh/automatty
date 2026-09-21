@@ -275,6 +275,14 @@ to know was just done for them, or by whom."
     (let ((sorted (sort all #'< :key #'third)))
       (subseq sorted 0 (min n (length sorted))))))
 
+(defun pane-about (pane)
+  "What PANE is running and how it was started: what its kind was decided from."
+  (list :kind (pane-kind pane)
+        :programs (pane-programs pane)
+        :group (pane-group pane)
+        :command (pane-command pane)
+        :directory (pane-directory pane)))
+
 (defun history-said (agent now)
   (mapcar (lambda (it) (list (max 0 (- now (first it))) (second it)))
           (agent:agent-history agent)))
