@@ -63,6 +63,8 @@
    #:term-reverse-wraparound
    #:term-synchronized-output
    #:term-mouse-mode
+   #:mouse-wanted-p
+   #:mouse-report
    #:term-mouse-utf8
    #:term-mouse-sgr
    #:term-mouse-urxvt
@@ -125,6 +127,7 @@
 
    #:term-max-scrollback
    #:term-scrollback-size
+   #:term-scrollback-pushed
    #:term-scrollback-row
    #:term-scrollback-row-string
 

@@ -196,6 +196,7 @@ are twelve, and clearing a line is two fills."
   (scrollback nil :type (or null vector))
   (scrollback-size 0 :type fixnum)
   (scrollback-head 0 :type fixnum)
+  (scrollback-pushed 0 :type fixnum)
   (max-scrollback 10000 :type fixnum)
   (input-fn nil)
   (bell-fn nil)

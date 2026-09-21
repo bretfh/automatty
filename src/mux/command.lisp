@@ -93,19 +93,27 @@ out would take the screen with it."
   "Where the click a command is running for landed, as (X . Y). Read the way
 *CLIENT* is, rather than passed: a mouse binding takes no arguments either.")
 
+(defvar *mouse-event* nil
+  "The whole of what the mouse did, as the terminal said it: which button, and
+what was held down with it. Beside *MOUSE-AT*, for the commands that pass a
+click on rather than act on where it was.")
+
 (defun mouse-key-of (event)
-  "A decoded mouse EVENT as a key a mode can bind, or nil for a gesture nothing
-is named for yet (a drag). Unlike KEY-OF, EVENT's tail is a plist, not a list
-of the modifiers that are down, so it is read with GETF rather than MEMBER."
+  "A decoded mouse EVENT as a key a mode can bind: a button going down, the
+same with -up when it comes back, with -drag while it moves held down, and the
+wheel either way. Nil for what has no name, which is the pointer moving with
+nothing held. Unlike KEY-OF, EVENT's tail is a plist, not a list of the
+modifiers that are down, so it is read with GETF rather than MEMBER."
   (let* ((e (rest event))
          (wheel (getf e :wheel))
+         (button (case (getf e :button) (:left 1) (:middle 2) (:right 3)))
          (sym (cond
                 (wheel (if (eq wheel :up) "wheel-up" "wheel-down"))
-                ((getf e :drag) nil)
-                (t (case (getf e :button)
-                     (:left (if (getf e :release) "mouse-1-up" "mouse-1"))
-                     (:middle (if (getf e :release) "mouse-2-up" "mouse-2"))
-                     (:right (if (getf e :release) "mouse-3-up" "mouse-3")))))))
+                ((null button) nil)
+                (t (format nil "mouse-~D~A" button
+                           (cond ((getf e :drag) "-drag")
+                                 ((getf e :release) "-up")
+                                 (t "")))))))
     (when sym
       (atty/mode:make-key sym :ctrl (getf e :ctrl) :meta (getf e :meta)
                              :shift (getf e :shift)))))

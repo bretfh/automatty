@@ -168,6 +168,10 @@ pointer moves with no consing."
   (let ((ring (term-scrollback term))
         (max (term-max-scrollback term)))
     (when (and ring (plusp max))
+      ;; counted whether or not the ring was full, so whoever is looking at a
+      ;; row in it can tell how far that row has moved
+      (setf (term-scrollback-pushed term)
+            (logand (1+ (term-scrollback-pushed term)) most-positive-fixnum))
       (let ((cap (length ring))
             (size (term-scrollback-size term))
             (head (term-scrollback-head term)))

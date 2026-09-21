@@ -96,30 +96,42 @@ short; nil when only the grid's own edge counts.")
                   (fill (term:row-chars row) char :start from :end to)
                   (fill (term:row-faces row) face :start from :end to))))))
 
-(defun blit (m term col line width height)
+(defun blit (m term col line width height &optional (back 0))
   "Copy what TERM holds into the grid at COL LINE, clipped to WIDTH by HEIGHT
-and to the grid itself.
+and to the grid itself. BACK is how many rows behind the screen to start: the
+rows that many back in the scrollback come first and the screen's own follow,
+so a view scrolled back is the same copy from further up.
 
 The cells are copied, never shared: the program goes on writing into its own
 grid, and a grid that pointed at those cells would show every later frame as
 already sent and repaint nothing ever again."
-  (declare (type fixnum col line width height)
+  (declare (type fixnum col line width height back)
            (optimize (speed 3) (safety 1)))
-  (let ((grid (the simple-vector (cells-grid m)))
-        (rows (min (term:term-height term) height (- (cells-rows m) line)))
-        (cols (min (term:term-width term) width (- (cells-cols m) col))))
-    (declare (type fixnum rows cols))
+  (let* ((grid (the simple-vector (cells-grid m)))
+         (rows (min (term:term-height term) height (- (cells-rows m) line)))
+         (cols (min (term:term-width term) width (- (cells-cols m) col)))
+         (kept (term:term-scrollback-size term))
+         (back (max 0 (min back kept))))
+    (declare (type fixnum rows cols kept back))
     (loop :for y :of-type fixnum :from (max 0 (- line)) :below rows
-          :do (let* ((from (term:term-grid-row term y))
+          :do (let* ((from (if (< y back)
+                               (term:term-scrollback-row term (+ (- kept back) y))
+                               (term:term-grid-row term (- y back))))
                      (into (svref grid (+ line y)))
                      (at (max 0 (- col)))
-                     (n (- cols at)))
-                (declare (type fixnum at n))
+                     ;; a row kept from when the pane was another width is as
+                     ;; wide as it was then
+                     (has (min cols (the fixnum (term:row-width from))))
+                     (n (- has at)))
+                (declare (type fixnum at has n))
                 (when (plusp n)
                   (replace (term:row-chars into) (term:row-chars from)
-                           :start1 (+ col at) :start2 at :end2 cols)
+                           :start1 (+ col at) :start2 at :end2 has)
                   (replace (term:row-faces into) (term:row-faces from)
-                           :start1 (+ col at) :start2 at :end2 cols))))
+                           :start1 (+ col at) :start2 at :end2 has))
+                (when (< (max has at) cols)
+                  (fill-rect m (+ col (max has at)) (+ line y)
+                             (- cols (max has at)) 1 (term:make-face)))))
     m))
 
 (defmethod ui:paint :around ((w ui:widget) (m cells))

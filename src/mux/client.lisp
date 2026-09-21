@@ -345,7 +345,8 @@ in. A click is a key a mode can bind, and says where it landed as *MOUSE-AT*."
   (if (and (consp event) (eq :mouse (first event)))
       (let ((key (mouse-key-of event)))
         (when key
-          (let ((*mouse-at* (cons (getf (rest event) :x) (getf (rest event) :y))))
+          (let ((*mouse-at* (cons (getf (rest event) :x) (getf (rest event) :y)))
+                (*mouse-event* (rest event)))
             (client-chord client key))))
       (client-chord client (key-of event))))
 
@@ -433,7 +434,8 @@ does have a name for goes to the mode instead and is not passed on."
                                  (progn
                                    (send)
                                    (let ((*mouse-at* (cons (getf (rest event) :x)
-                                                            (getf (rest event) :y))))
+                                                            (getf (rest event) :y)))
+                                         (*mouse-event* (rest event)))
                                      (client-chord client key))
                                    (incf at took))
                                  (progn (vector-push ch out) (incf at))))))

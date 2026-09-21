@@ -150,8 +150,146 @@
 (test a-lone-pane-with-no-split-has-no-frame
   (let* ((pane (a-pane "solo"))
          (tree (mux::layout-tree pane pane)))
-    (is (typep tree 'mux::pane-view))))
+    (is (typep tree 'mux::pane-area)
+        "a lone pane is itself and its scrollbar, with no frame round them")
+    (is (equal (list pane) (mapcar #'mux::view-pane (mux:views-in tree))))))
 
 (test a-layout-with-nothing-left-in-it-holds-no-panes
   (is (null (mux:panes-in nil))
       "an emptied layout answered a list holding nothing, which is not nothing"))
+
+;;; Reading a pane back, and the scrollbar that says how far.
+
+(defun a-pane-with-history (lines &key (rows 3) (cols 8))
+  "A pane that has had LINES lines written to it, numbered from nought, so all
+but the last ROWS of them are behind the screen."
+  (a-pane (with-output-to-string (s)
+            (dotimes (i lines)
+              (unless (zerop i) (format s "~C~C" #\Return #\Newline))
+              (format s "~D" i)))
+          :rows rows :cols cols))
+
+(test a-pane-scrolled-back-shows-the-rows-that-far-behind-the-screen
+  (let* ((pane (a-pane-with-history 10))
+         (v (mux:pane-view pane))
+         (screen (tty:make-screen :width 8 :height 3)))
+    (laid v screen)
+    (is (equal '("7" "8" "9") (loop :for y :below 3 :collect (shown screen y))))
+    (is-true (mux::pane-scroll-to pane 2))
+    (laid v screen)
+    (is (equal '("5" "6" "7") (loop :for y :below 3 :collect (shown screen y)))
+        "two rows back is two rows of history and then the top of the screen")
+    (mux::pane-scroll-to pane 1000)
+    (is (eql 7 (mux::pane-scrolled pane)) "it went further back than there is")
+    (laid v screen)
+    (is (equal '("0" "1" "2") (loop :for y :below 3 :collect (shown screen y))))))
+
+(test a-pane-being-read-back-holds-still-while-its-program-goes-on-writing
+  (let* ((pane (a-pane-with-history 10))
+         (v (mux:pane-view pane))
+         (screen (tty:make-screen :width 8 :height 3)))
+    (mux::pane-scroll-settle pane)
+    (mux::pane-scroll-to pane 4)
+    (term:term-process-output (mux:pane-term pane) (format nil "~C~%ten~C~%eleven" #\Return #\Return))
+    (mux::pane-scroll-settle pane)
+    (is (eql 6 (mux::pane-scrolled pane)) "two more rows went off the top")
+    (laid v screen)
+    (is (equal '("3" "4" "5") (loop :for y :below 3 :collect (shown screen y))))))
+
+(test a-pane-at-the-foot-stays-at-the-foot
+  (let ((pane (a-pane-with-history 10)))
+    (mux::pane-scroll-settle pane)
+    (term:term-process-output (mux:pane-term pane) (format nil "~C~%ten" #\Return))
+    (mux::pane-scroll-settle pane)
+    (is (eql 0 (mux::pane-scrolled pane)))))
+
+(test a-program-with-the-whole-screen-has-nothing-behind-it
+  (let ((pane (a-pane-with-history 10)))
+    (mux::pane-scroll-to pane 4)
+    (term:term-process-output (mux:pane-term pane) (format nil "~C[?1049h" #\Escape))
+    (mux::pane-scroll-settle pane)
+    (is (eql 0 (mux::pane-history pane)))
+    (is (eql 0 (mux::pane-scrolled pane)))))
+
+(test the-thumb-is-at-the-foot-when-live-and-at-the-head-when-all-the-way-back
+  (is (equal '(8 2) (multiple-value-list (mux::scrollbar-thumb 10 20 80 0))))
+  (is (equal '(0 2) (multiple-value-list (mux::scrollbar-thumb 10 20 80 80))))
+  (is (equal '(4 2) (multiple-value-list (mux::scrollbar-thumb 10 20 80 40))))
+  (is (equal '(9 1) (multiple-value-list (mux::scrollbar-thumb 10 20 10000 0)))
+      "however much there is behind it there is a thumb to take hold of")
+  (is (equal '(0 10) (multiple-value-list (mux::scrollbar-thumb 10 20 0 0)))))
+
+(test a-pane-gives-its-last-column-to-its-scrollbar
+  (let* ((pane (a-pane-with-history 30 :rows 8 :cols 12))
+         (area (mux::pane-area pane))
+         (screen (tty:make-screen :width 12 :height 8)))
+    (laid area screen)
+    (let ((v (first (mux:views-in area)))
+          (bar (mux::area-bar area)))
+      (is (eql 11 (atty/ui:width v)))
+      (is (eql 11 (atty/ui:left bar)))
+      (is (char= #\▲ (char-at screen 11 0)))
+      (is (char= #\▼ (char-at screen 11 7)))
+      (is (char= #\█ (char-at screen 11 6)) "live, the thumb is at the foot of the track")
+      (is (char= #\░ (char-at screen 11 1)))
+      (is (eq bar (atty/ui:under area 3 11)))
+      (is (eq v (atty/ui:under area 3 10))))))
+
+(test a-pane-too-narrow-for-one-keeps-every-column
+  (let* ((pane (a-pane "abc" :rows 3 :cols 3))
+         (area (mux::pane-area pane))
+         (screen (tty:make-screen :width 3 :height 3)))
+    (laid area screen)
+    (is (eql 3 (atty/ui:width (first (mux:views-in area)))))
+    (is (equal "abc" (shown screen 0)))))
+
+(test a-session-that-wants-no-scrollbars-has-none
+  (let* ((pane (a-pane "solo" :rows 3 :cols 8))
+         (tree (let ((mux::*scrollbars* nil)) (mux::layout-tree pane pane)))
+         (screen (tty:make-screen :width 8 :height 3)))
+    (laid tree screen)
+    (is (eql 8 (atty/ui:width (first (mux:views-in tree)))))))
+
+(test each-part-of-a-scrollbar-is-where-it-is-drawn
+  (let* ((pane (a-pane-with-history 38 :rows 8 :cols 12))
+         (area (mux::pane-area pane))
+         (bar (mux::area-bar area))
+         (screen (tty:make-screen :width 12 :height 8)))
+    (mux::pane-scroll-to pane 15)
+    (laid area screen)
+    ;; six cells of track, a thumb of one, half way up it
+    (is (eq :up (mux::scrollbar-part bar 0)))
+    (is (eq :down (mux::scrollbar-part bar 7)))
+    (let ((thumb (position #\█ (loop :for y :below 8 :collect (char-at screen 11 y)))))
+      (is-true thumb)
+      (is (eq :thumb (mux::scrollbar-part bar thumb)))
+      (is (eq :above (mux::scrollbar-part bar (1- thumb))))
+      (is (eq :below (mux::scrollbar-part bar (1+ thumb)))))))
+
+(test a-scrollbar-with-nothing-behind-the-pane-has-no-parts
+  (let* ((pane (a-pane "abc" :rows 8 :cols 12))
+         (area (mux::pane-area pane))
+         (screen (tty:make-screen :width 12 :height 8)))
+    (laid area screen)
+    (is (null (mux::scrollbar-part (mux::area-bar area) 3)))
+    (is (null (find #\█ (loop :for y :below 8 :collect (char-at screen 11 y)))))))
+
+(test dragging-the-thumb-goes-from-live-at-the-foot-to-the-oldest-at-the-head
+  (let* ((pane (a-pane-with-history 38 :rows 8 :cols 12))
+         (area (mux::pane-area pane))
+         (bar (mux::area-bar area))
+         (screen (tty:make-screen :width 12 :height 8)))
+    (laid area screen)
+    (is (eql 30 (mux::scrollbar-back-at bar 1 0)) "the head of the track is as far back as there is")
+    (is (eql 0 (mux::scrollbar-back-at bar 6 0)) "the foot of it is live")
+    (is (eql 0 (mux::scrollbar-back-at bar 100 0)) "past the foot is still the foot")
+    (is (< 0 (mux::scrollbar-back-at bar 3 0) 30))))
+
+(test a-lone-pane-read-back-says-so-over-its-own-last-line
+  (let* ((pane (a-pane-with-history 30 :rows 4 :cols 24))
+         (screen (tty:make-screen :width 24 :height 4)))
+    (mux::pane-scroll-to pane 5)
+    (let ((tree (mux::layout-tree pane pane)))
+      (laid tree screen)
+      (is (search "↓ 5 to live" (shown screen 3)) "~S" (shown screen 3))
+      (is (typep (atty/ui:under tree 3 (search "↓" (shown screen 3))) 'mux::live-chip)))))

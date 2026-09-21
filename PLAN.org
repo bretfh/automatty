@@ -463,7 +463,54 @@ session chooser is its lighter form, not a separate thing.
 - =usage= in main.lisp and README.org: one server, the new keys (=C-b a n w
   e z ,=), and the new verbs.
 
-* Phase 10: done means the field test passes
+* Phase 10: the mouse in a pane, and reading one back
+
+** DONE A scrolled view
+- =pane-scrolled=: rows back from live, the pane's and not the client's, like
+  focus and zoom. =blit= takes it and reads the scrollback ring above the grid.
+- =term-scrollback-pushed= counts rows as they go off the top, so a pane being
+  read back holds still while its program writes (=pane-scroll-settle=).
+- Keys to the pane, and a program taking the whole screen, are back to live.
+
+** DONE The scrollbar
+- A column of its own down the right of every pane (=pane-area= in view.lisp);
+  the program is sized a column narrower. =▲= =░= =█= =▼=.
+- Arrow: a line, repeating while held. Track: a page, until the thumb is under
+  the pointer. Thumb: dragged. The hold is a =later= on the server.
+- Read back, the thumb is yellow and a chip says how far: in the frame's
+  bottom right, or over a lone pane's last line. Clicking it is live.
+- =toggle scrollbars= gives the column back, for the session.
+
+** DONE The wheel and the buttons
+- =(:wheel way x y mods)=, =(:pointer what button x y mods)=, =(:scroll amount
+  x y)=, =(:scrollbars)=, all in =+understood+=. An older server is sent none
+  of them, and a click still reaches it as =:mouse-at=.
+- A program that asked for the mouse is told, in the encoding it asked for and
+  at its own coordinates (=term:mouse-report=). One with the whole screen that
+  did not gets arrow keys. Anything else is read back. Shift or meta with the
+  wheel, or the wheel over the scrollbar, is always the pane read back.
+- The host is asked for =?1002h= so drags arrive; =mouse-N-drag= is a key.
+
+** DONE Commands, with their default keys
+- =natural scroll up/down= (wheel), =scroll up/down a little= (S- and M-wheel),
+  =scroll up/down=, =scroll page up/down=, =scroll half page up/down=,
+  =scroll to top/bottom=, =scroll mode= (=C-b [=), =scroll mode page up=
+  (=C-b PageUp=), =toggle scrollbars=.
+- =scroll-mode= is a mode on top of =pane-mode=: arrows, =j k=, =PageUp
+  PageDown SPC=, =C-u C-d=, =g G Home End=; =q Escape RET= leave, to live.
+- =~/.config/atty/init.lisp= is loaded when atty starts.
+
+** DONE Tests
+- view.lisp: blit scrolled back, holding still, the thumb, each part, the drag,
+  the chip. term/input.lisp: every mouse encoding. mux.lisp: the three things a
+  wheel can be, a click passed on, the arrow held and let go, track and thumb,
+  the chip, the toggle, a wheel typed at a real client, the init file.
+
+** TODO Check by hand
+- Claude Code, vim and less in panes: wheel, click, drag a selection in vim.
+- Drag the thumb in a split; hold an arrow; resize while read back.
+
+* Phase 11: done means the field test passes
 
 ** TODO Rerun the field test on this build
 - One session, four panes made with =atty agent spawn=, driven from the

@@ -184,10 +184,14 @@ the whole session, and which rule decided it was asking."
                             (option-buttons session pane (getf asks :options) room)
                             (apply #'atty/ui:row :spacing 1 extras)))
              (last-input-marker pane now))
-     :br (when (and (eq state :blocked) (null asks))
-           (let ((answer (key-for 'go-to-the-blocked))
-                 (zoom (key-for 'zoom-this-pane)))
-             (when (or answer zoom)
-               (atty/ui:label (format nil " ~@[~A answer~]~:[~; · ~]~@[~A zoom~] "
-                                      answer (and answer zoom) zoom)
-                              :face :state-blocked)))))))
+     :br (cond
+           ;; being read back says so before anything else does: what is on
+           ;; the screen is not what the program has on it now
+           ((plusp (pane-scrolled pane)) (live-chip pane))
+           ((and (eq state :blocked) (null asks))
+            (let ((answer (key-for 'go-to-the-blocked))
+                  (zoom (key-for 'zoom-this-pane)))
+              (when (or answer zoom)
+                (atty/ui:label (format nil " ~@[~A answer~]~:[~; · ~]~@[~A zoom~] "
+                                       answer (and answer zoom) zoom)
+                               :face :state-blocked))))))))

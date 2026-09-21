@@ -90,3 +90,44 @@
        (when ch (string ch))))
 
     (t nil)))
+
+;;; What a mouse did, said to a program the way it asked to be told. The
+;;; program says which events it wants and in which encoding by setting modes;
+;;; this reads those and answers the report, or nil when it asked for none.
+
+(defun mouse-wanted-p (term kind)
+  "Whether the program in TERM asked to be told about a mouse doing KIND:
+:press, :release, :wheel or :drag."
+  (case (term-mouse-mode term)
+    ((nil) nil)
+    (:normal (member kind '(:press :release :wheel)))
+    (t t)))
+
+(defun mouse-report (term kind x y &key button wheel shift meta ctrl)
+  "The report for a mouse doing KIND at column X and line Y of TERM, both from
+nought. BUTTON is :left, :middle or :right; WHEEL is :up or :down. Nil when the
+program did not ask for it, or asked in an encoding that cannot say where it
+was."
+  (when (mouse-wanted-p term kind)
+    (let* ((cb (+ (if (eq kind :wheel)
+                      (if (eq wheel :up) 64 65)
+                      (ecase button (:left 0) (:middle 1) (:right 2) ((nil) 3)))
+                  (if (eq kind :drag) 32 0)
+                  (if shift 4 0) (if meta 8 0) (if ctrl 16 0)))
+           (cx (1+ x))
+           (cy (1+ y)))
+      (cond
+        ((or (term-mouse-sgr term) (term-mouse-sgr-pixels term))
+         (format nil "~C[<~D;~D;~D~C" #\Escape cb cx cy
+                 (if (eq kind :release) #\m #\M)))
+        (t
+         ;; the older encodings have no way to say which button let go
+         (let ((cb (if (eq kind :release) (+ 3 (logand cb (lognot 3))) cb)))
+           (cond
+             ((term-mouse-urxvt term)
+              (format nil "~C[~D;~D;~DM" #\Escape (+ 32 cb) cx cy))
+             ((or (term-mouse-utf8 term)
+                  (and (<= (+ 32 cx) 127) (<= (+ 32 cy) 127)))
+              (format nil "~C[M~C~C~C" #\Escape
+                      (code-char (+ 32 cb)) (code-char (+ 32 cx))
+                      (code-char (+ 32 cy)))))))))))

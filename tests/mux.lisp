@@ -186,7 +186,7 @@ already failing."
 (test a-resize-reaches-the-program-and-the-screen
       (with-server (path :command "trap 'stty size' WINCH; stty size; sleep 1; sleep 60" :rows 10 :cols 40)
                    (with-seer (seer path :rows 10 :cols 40)
-                              (is-true (pump seer :want "9 40")
+                              (is-true (pump seer :want "9 39")
                                        "the program was not given the rows the bar left it")
                               (pty:pty-set-size (seer-master seer) 20 60)
                               (term:term-resize (seer-host seer) 60 20)
@@ -194,7 +194,7 @@ already failing."
                                                    (is (eql 20 rows))
                                                    (is (eql 60 cols)))
                               (mux:client-resized (seer-client seer))
-                              (is-true (pump seer :want "19 60")))))
+                              (is-true (pump seer :want "19 59")))))
 
 (test a-pane-whose-program-is-done-says-bye
       (with-server (path :command "printf 'and-out\\n'; sleep 1")
@@ -396,7 +396,7 @@ already failing."
                    (with-seer (seer path)
                               (is-true (pump seer :want "leaf"))
                               (pump seer :seconds 1/4)
-                              (is (equal "├── leaf" (row (seer-host seer) 1))
+                              (is (eql 0 (search "├── leaf " (row (seer-host seer) 1)))
                                   "came out as ~S" (row (seer-host seer) 1)))))
 
 (test a-wide-character-takes-two-columns-through-the-whole-loop
@@ -441,7 +441,7 @@ already failing."
 (test the-program-is-given-the-rows-the-bar-left-it
       (with-server (path :command "stty size; sleep 30" :rows 10 :cols 40)
                    (with-seer (seer path :rows 10 :cols 40)
-                              (is-true (pump seer :want "9 40")
+                              (is-true (pump seer :want "9 39")
                                        "the program was told the whole terminal, bar and all: ~S"
                                        (seen seer)))))
 
@@ -449,12 +449,12 @@ already failing."
       (with-server (path :command "while :; do stty size; sleep 0.3; done"
                          :rows 10 :cols 40)
                    (with-seer (seer path :rows 10 :cols 40)
-                              (is-true (pump seer :want "9 40") "the bar was not taking a row")
+                              (is-true (pump seer :want "9 39") "the bar was not taking a row")
                               (type-at seer (format nil "~Ct" mux:+prefix+))
-                              (is-true (pump seer :want "10 40")
+                              (is-true (pump seer :want "10 39")
                                        "the bar did not come off: ~S" (seen seer))
                               (type-at seer (format nil "~Ct" mux:+prefix+))
-                              (is-true (pump seer :want "9 40")
+                              (is-true (pump seer :want "9 39")
                                        "the bar did not come back: ~S" (seen seer)))))
 
 (test with-no-bar-the-program-has-the-whole-terminal
@@ -465,7 +465,7 @@ already failing."
             (progn (setf mux:*bar* nil)
                    (with-server (path :command "stty size; sleep 30" :rows 10 :cols 40)
                                 (with-seer (seer path :rows 10 :cols 40)
-                                           (is-true (pump seer :want "10 40") "~S" (seen seer)))))
+                                           (is-true (pump seer :want "10 39") "~S" (seen seer)))))
           (setf mux:*bar* was))))
 
 (test the-prompt-opens-on-the-prefix-and-runs-what-was-chosen
@@ -575,18 +575,18 @@ whatever colour was last in force"
 (test a-click-moves-the-focus-to-the-pane-under-it
       (with-server (path :command "cat" :rows 10 :cols 40)
                    (with-seer (seer path :rows 10 :cols 40)
-                              (type-at seer "on-the-first")
-                              (is-true (pump seer :want "on-the-first"))
+                              (type-at seer "the-first")
+                              (is-true (pump seer :want "the-first"))
                               (type-at seer (format nil "~C3" mux:+prefix+))
                               (is-true (pump seer :until (lambda () (search "│" (seen seer))))
                                        "no rule came up between the two panes: ~S" (seen seer))
                               (type-at seer (format nil "~C[<0;3;3M~C[<0;3;3m" #\Escape #\Escape))
                               (pump seer :seconds 1/2)
                               (type-at seer "-again")
-                              (is-true (pump seer :want "on-the-first-again")
+                              (is-true (pump seer :want "the-first-again")
                                        "the click did not move the focus to the pane under it: ~S"
                                        (seen seer))
-                              (is (< (or (where-said seer "on-the-first-again") 100) 20)
+                              (is (< (or (where-said seer "the-first-again") 100) 20)
                                   "what was typed after the click went to the pane on the right,
 not the one clicked on: ~S" (seen seer))
                               (is (null (search "[<" (seen seer)))
@@ -1054,7 +1054,8 @@ not the one clicked on: ~S" (seen seer))
       (step-until server (lambda () (search "two" (term:term-dump-to-string (mux:pane-term pane)))))
       (say-to wire (list :pane-screen "work" (mux:pane-id pane) 2))
       (destructuring-bind (width said faces) (cdddr (heard-from server wire :pane-screen))
-        (is (eql 20 width))
+        ;; a column of the twenty is the scrollbar's
+        (is (eql 19 width))
         (let ((screen (tty:make-screen :width width :height 2)))
           (mux:said-into-screen screen said faces)
           (is (equal "one" (shown screen 0)))
@@ -1587,3 +1588,177 @@ under a rule, and then echoes whatever it is answered."
       (is (null (search "200~" (term:term-dump-to-string (mux:pane-term pane))))
           "one line was pasted: ~S" (term:term-dump-to-string (mux:pane-term pane)))
       (mux:wire-close wire))))
+
+;;; The mouse in a pane, and reading one back.
+
+(defun dumped (pane)
+  (term:term-dump-to-string (mux:pane-term pane)))
+
+(defmacro with-a-session ((session pane server command &key (rows 12) (cols 30)) &body body)
+  "One session of one pane running COMMAND on a server stepped by hand, laid
+out: the bar on the first row, the pane under it, its scrollbar down the last
+column."
+  (let ((path (gensym "PATH")))
+    `(with-a-server-here (,server ,path)
+       (let* ((,session (mux:add-session ,server ,command :name "work" :rows ,rows :cols ,cols))
+              (,pane (mux:session-focus ,session)))
+         ,@body))))
+
+(test a-key-names-a-button-going-down-moving-and-coming-up
+  (flet ((named (&rest event) (atty/mode:spelled (mux::mouse-key-of (cons :mouse event)))))
+    (is (equal "mouse-1" (named :button :left)))
+    (is (equal "mouse-1-up" (named :button :left :release t)))
+    (is (equal "mouse-1-drag" (named :button :left :drag t)))
+    (is (equal "mouse-3-drag" (named :button :right :drag t)))
+    (is (equal "wheel-up" (named :wheel :up)))
+    (is (equal "S-wheel-down" (named :wheel :down :shift t)))
+    (is (null (mux::mouse-key-of '(:mouse :button nil :drag t)))
+        "a pointer moving with nothing held has no name")))
+
+(test the-wheel-and-the-scroll-keys-are-bound-with-nothing-set-up
+  (flet ((bound (chord mode) (atty/mode:lookup-key chord (atty/mode:mode-named mode))))
+    (is (eq #'mux::natural-scroll-up (bound "wheel-up" 'mux:pane-mode)))
+    (is (eq #'mux::natural-scroll-down (bound "wheel-down" 'mux:pane-mode)))
+    (is (eq #'mux::scroll-up-a-little (bound "S-wheel-up" 'mux:pane-mode)))
+    (is (eq #'mux::mouse-dragged (bound "mouse-1-drag" 'mux:pane-mode)))
+    (is (eq #'mux::scroll-mode (bound "C-b [" 'mux:pane-mode)))
+    (is (eq #'mux::scroll-page-up (bound "PageUp" 'mux::scroll-mode)))
+    (is (eq #'mux::natural-scroll-up (bound "wheel-up" 'mux::scroll-mode))
+        "the mode for reading back lost what the pane's mode does with the wheel")))
+
+(test the-wheel-over-a-shell-reads-its-pane-back-and-typing-is-back-to-live
+  (with-a-session (session pane server "seq 1 60; sleep 30")
+    (is-true (step-until server (lambda () (search "60" (dumped pane)))))
+    (mux::session-compose session)
+    (mux::wheel-at session :up 4 4 nil)
+    (is (eql 3 (mux::pane-scrolled pane)))
+    (mux::wheel-at session :down 4 4 nil)
+    (mux::wheel-at session :down 4 4 nil)
+    (is (eql 0 (mux::pane-scrolled pane)) "it went past live")
+    (mux::scroll-the-pane pane :page-up)
+    (is (eql 10 (mux::pane-scrolled pane)) "a page is the pane less a line to keep your place by")
+    (mux::scroll-the-pane pane :top)
+    (is (eql (mux::pane-history pane) (mux::pane-scrolled pane)))
+    (mux::heard-about-a-session session (mux::%make-watcher) (list :keys "x"))
+    (is (eql 0 (mux::pane-scrolled pane)) "typing did not bring it back to live")))
+
+(test the-wheel-over-a-program-that-asked-for-the-mouse-is-that-programs
+  (with-a-session (session pane server
+                           "printf '\\033[?1000h\\033[?1006h'; seq 1 60; cat -v")
+    (is-true (step-until server (lambda () (and (search "60" (dumped pane))
+                                                (term:term-mouse-mode (mux:pane-term pane))))))
+    (mux::session-compose session)
+    (mux::wheel-at session :up 4 3 nil)
+    (is (eql 0 (mux::pane-scrolled pane)) "the pane was read back under a program that wanted the wheel")
+    (is-true (step-until server (lambda () (search "[<64;5;3M" (dumped pane))))
+             "it was not told, or not told where in its own pane: ~S" (dumped pane))
+    (mux::wheel-at session :up 4 3 '(:shift))
+    (is (eql 3 (mux::pane-scrolled pane)) "with shift held it is the pane that is read back")
+    (mux::wheel-at session :up 29 3 nil)
+    (is (eql 6 (mux::pane-scrolled pane)) "the scrollbar is nobody's but the multiplexer's")))
+
+(test the-wheel-over-a-program-with-the-whole-screen-is-the-arrow-keys
+  (with-a-session (session pane server "printf '\\033[?1049h'; cat -v")
+    (is-true (step-until server (lambda () (term:term-in-alt-screen (mux:pane-term pane)))))
+    (mux::session-compose session)
+    (mux::wheel-at session :down 4 3 nil)
+    (is-true (step-until server (lambda () (search "^[[B^[[B^[[B" (dumped pane))))
+             "~S" (dumped pane))))
+
+(test a-click-is-passed-on-to-a-program-that-asked-and-so-is-letting-go
+  (with-a-session (session pane server "printf '\\033[?1002h\\033[?1006h'; cat -v" :cols 60)
+    (is-true (step-until server (lambda () (term:term-mouse-mode (mux:pane-term pane)))))
+    (mux::session-compose session)
+    (let ((watcher (mux::%make-watcher)))
+      (mux::pointer-at session watcher :press :left 4 3 nil)
+      (mux::pointer-at session watcher :drag :left 6 4 nil)
+      (mux::pointer-at session watcher :release :left 6 4 nil))
+    (is-true (step-until server (lambda () (search "[<0;7;4m" (dumped pane)))) "~S" (dumped pane))
+    (is (search "[<0;5;3M" (dumped pane)))
+    (is (search "[<32;7;4M" (dumped pane)))))
+
+(test an-arrow-of-the-scrollbar-held-goes-on-until-it-is-let-go
+  (with-a-session (session pane server "seq 1 200; sleep 30")
+    (is-true (step-until server (lambda () (search "200" (dumped pane)))))
+    (mux::session-compose session)
+    (let ((watcher (mux::%make-watcher)))
+      (mux::pointer-at session watcher :press :left 29 1 nil)
+      (is (eql 1 (mux::pane-scrolled pane)) "a click on the arrow is a line")
+      (is-true (step-until server (lambda () (> (mux::pane-scrolled pane) 3)) 3)
+               "held, it did not go on")
+      (mux::pointer-at session watcher :release :left 29 1 nil)
+      (let ((stopped (mux::pane-scrolled pane)))
+        (step-until server (lambda () nil) 1/4)
+        (is (eql stopped (mux::pane-scrolled pane)) "let go, it did not stop")))))
+
+(test the-track-pages-and-the-thumb-drags
+  (with-a-session (session pane server "seq 1 200; sleep 30")
+    (is-true (step-until server (lambda () (search "200" (dumped pane)))))
+    (mux::session-compose session)
+    (let ((watcher (mux::%make-watcher))
+          (bar (mux::bar-of session pane)))
+      (is (eq :above (mux::scrollbar-part bar 3)))
+      (mux::pointer-at session watcher :press :left 29 3 nil)
+      (mux::pointer-at session watcher :release :left 29 3 nil)
+      (is (eql 10 (mux::pane-scrolled pane)) "a click on the track above the thumb is a page back")
+      (mux::pane-scroll-to pane 0)
+      (let ((thumb (loop :for y :from 1 :below 12
+                         :when (eq :thumb (mux::scrollbar-part bar y)) :do (return y))))
+        (mux::pointer-at session watcher :press :left 29 thumb nil)
+        (mux::pointer-at session watcher :drag :left 29 2 nil)
+        (is (eql (mux::pane-history pane) (mux::pane-scrolled pane))
+            "dragged to the head of the track it is as far back as there is")
+        (mux::pointer-at session watcher :drag :left 29 thumb nil)
+        (is (eql 0 (mux::pane-scrolled pane)) "and dragged back to where it was, live")
+        (mux::pointer-at session watcher :release :left 29 thumb nil)))))
+
+(test the-chip-is-back-to-live
+  (with-a-session (session pane server "seq 1 200; sleep 30")
+    (is-true (step-until server (lambda () (search "200" (dumped pane)))))
+    (mux::pane-scroll-to pane 40)
+    (let* ((screen (mux::session-compose session))
+           (at (search "↓ 40 to live" (shown screen 11))))
+      (is-true at "~S" (shown screen 11))
+      (mux::pointer-at session (mux::%make-watcher) :press :left at 11 nil)
+      (is (eql 0 (mux::pane-scrolled pane))))))
+
+(test a-session-can-give-the-column-back
+  (with-a-session (session pane server "sleep 30")
+    (mux::session-compose session)
+    (is (eql 29 (term:term-width (mux:pane-term pane))))
+    (mux::heard-about-a-session session (mux::%make-watcher) (list :scrollbars :toggle))
+    (mux::session-compose session)
+    (is (eql 30 (term:term-width (mux:pane-term pane))))))
+
+(test a-wheel-at-the-terminal-reads-the-pane-back-on-the-screen-and-a-key-returns
+  ;; below the bar, since the bar says what the command was and that has a 60 in it
+  (with-server (path :command "seq 1 60; sleep 30" :rows 10 :cols 40)
+    (with-seer (seer path :rows 10 :cols 40)
+      (is-true (pump seer :until (lambda () (search "60" (seen-below-bar seer)))))
+      (type-at seer (format nil "~C[<64;5;5M" #\Escape))
+      (is-true (pump seer :want "3 to live") "~S" (seen seer))
+      (is (search "57" (seen-below-bar seer)))
+      (is (null (search "60" (seen-below-bar seer)))
+          "the foot of it is still showing: ~S" (seen seer))
+      (is (null (search "[<" (seen seer))) "the wheel left raw bytes in the pane")
+      (type-at seer "x")
+      (is-true (pump seer :until (lambda () (search "60" (seen-below-bar seer))))
+               "a key did not bring it back to live: ~S" (seen seer))
+      (is (null (search "to live" (seen seer)))))))
+
+(test a-file-of-ones-own-binds-the-wheel-and-a-broken-one-is-passed-over
+  (let ((file (format nil "/tmp/atty-init-~D.lisp" (random 1000000))))
+    (unwind-protect
+         (progn
+           (with-open-file (s file :direction :output :if-exists :supersede)
+             (format s "(atty/mode:define-key 'scroll-mode \"C-wheel-up\" #'scroll-to-top)~%"))
+           (is-true (mux::load-user-init file))
+           (is (eq #'mux::scroll-to-top
+                   (atty/mode:lookup-key "C-wheel-up" (atty/mode:mode-named 'mux::scroll-mode))))
+           (atty/mode:undefine-key 'mux::scroll-mode "C-wheel-up")
+           (with-open-file (s file :direction :output :if-exists :supersede)
+             (format s "(this-is-not-anything)~%"))
+           (is (null (let ((*error-output* (make-broadcast-stream)))
+                       (mux::load-user-init file))))
+           (is (null (mux::load-user-init "/tmp/atty-there-is-no-such-file.lisp"))))
+      (ignore-errors (delete-file file)))))

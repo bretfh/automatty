@@ -25,6 +25,8 @@
   (programs nil)
   (paths nil)
   (programs-at 0)
+  (scrolled 0 :type fixnum)
+  (pushed-seen 0 :type fixnum)
   (decoder (term:make-decoder)))
 
 (defparameter +programs-every+ 1000)
@@ -103,7 +105,45 @@ comes straight back, so one pane writing without pause cannot starve the rest."
         (t (term:term-process-output
             (pane-term pane)
             (term:decode-utf-8 (pane-decoder pane) said))
+           (pane-scroll-settle pane)
            (setf (pane-dirty pane) t))))))
+
+;;; How far back a pane is being read. Nought is the screen as the program has
+;;; it now; anything more is that many rows up into what has scrolled off it.
+;;; It is the pane's and not the client's, the way the focus and the zoom are:
+;;; everybody attached is looking at the same pane.
+
+(defun pane-history (pane)
+  "How many rows there are behind PANE's screen to scroll back into. A program
+that has the whole screen to itself has none: what it draws never scrolls off."
+  (let ((term (pane-term pane)))
+    (if (term:term-in-alt-screen term) 0 (term:term-scrollback-size term))))
+
+(defun pane-scroll-to (pane back)
+  "Show PANE from BACK rows behind its screen, or as near as there is. Answers
+whether that moved it."
+  (let ((back (max 0 (min (pane-history pane) back))))
+    (unless (= back (pane-scrolled pane))
+      (setf (pane-scrolled pane) back
+            (pane-dirty pane) t)
+      t)))
+
+(defun pane-scroll-by (pane rows)
+  "ROWS further back, or nearer when it is negative."
+  (pane-scroll-to pane (+ (pane-scrolled pane) rows)))
+
+(defun pane-scroll-settle (pane)
+  "The program wrote something. A pane being read back stays on the rows it was
+showing, which are now further back by however many went off the top; one whose
+program has taken the whole screen is back at it."
+  (let* ((term (pane-term pane))
+         (pushed (term:term-scrollback-pushed term))
+         (more (- pushed (pane-pushed-seen pane))))
+    (setf (pane-pushed-seen pane) pushed)
+    (when (plusp (pane-scrolled pane))
+      (setf (pane-scrolled pane)
+            (max 0 (min (pane-history pane)
+                        (+ (pane-scrolled pane) (max 0 more))))))))
 
 (declaim (ftype function pane-say))
 
@@ -114,7 +154,8 @@ comes straight back, so one pane writing without pause cannot starve the rest."
 (defun pane-resize (pane rows cols)
   (term:term-resize (pane-term pane) cols rows)
   (ignore-errors (pty:pty-set-size (pane-fd pane) rows cols))
-  (setf (pane-dirty pane) t)
+  (setf (pane-scrolled pane) (min (pane-scrolled pane) (pane-history pane))
+        (pane-dirty pane) t)
   pane)
 
 (defun pane-close (pane)

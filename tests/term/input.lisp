@@ -75,3 +75,43 @@
     (dolist (key (list #\h #\i '(:enter)))
       (funcall (term:term-input-fn term) term (typed term key)))
     (is (equal (list (string #\Return) "i" "h") said))))
+
+(test a-program-that-did-not-ask-for-the-mouse-is-told-nothing
+  (let ((term (a-term)))
+    (is (null (term:mouse-report term :press 2 3 :button :left)))
+    (is (null (term:mouse-report term :wheel 2 3 :wheel :up)))))
+
+(test the-mouse-is-said-the-way-the-program-asked
+  (let ((term (a-term)))
+    (say term (csi "?1000h"))
+    (is (equal (format nil "~C[M~C~C~C" #\Escape #\Space #\# #\$)
+               (term:mouse-report term :press 2 3 :button :left))
+        "with no encoding asked for it is three bytes, each what it is and 32")
+    (is (equal (format nil "~C[M~C~C~C" #\Escape #\# #\# #\$)
+               (term:mouse-report term :release 2 3 :button :left))
+        "the old report cannot say which button let go")
+    (say term (csi "?1006h"))
+    (is (equal (format nil "~C[<0;3;4M" #\Escape)
+               (term:mouse-report term :press 2 3 :button :left)))
+    (is (equal (format nil "~C[<2;3;4m" #\Escape)
+               (term:mouse-report term :release 2 3 :button :right)))
+    (is (equal (format nil "~C[<64;3;4M" #\Escape)
+               (term:mouse-report term :wheel 2 3 :wheel :up)))
+    (is (equal (format nil "~C[<69;3;4M" #\Escape)
+               (term:mouse-report term :wheel 2 3 :wheel :down :shift t)))))
+
+(test a-drag-is-only-said-to-a-program-that-asked-for-drags
+  (let ((term (a-term)))
+    (say term (csi "?1000h") (csi "?1006h"))
+    (is (null (term:mouse-report term :drag 2 3 :button :left)))
+    (say term (csi "?1002h"))
+    (is (equal (format nil "~C[<32;3;4M" #\Escape)
+               (term:mouse-report term :drag 2 3 :button :left)))))
+
+(test the-old-encoding-says-nothing-rather-than-the-wrong-place
+  (let ((term (a-term)))
+    (say term (csi "?1000h"))
+    (is (null (term:mouse-report term :press 200 3 :button :left)))
+    (say term (csi "?1015h"))
+    (is (equal (format nil "~C[32;201;4M" #\Escape)
+               (term:mouse-report term :press 200 3 :button :left)))))

@@ -96,6 +96,29 @@ any session.
 ^-b ,                   # name a pane
 #+end_src
 
+The mouse works in a pane the way it would with nothing in between. A
+program that asked for it, an editor or an agent, gets the wheel and the
+buttons. One that has the whole screen and did not, =less= say, gets the wheel
+as arrow keys. Anything else has its pane read back: the wheel scrolls what has
+gone off the top, and typing, or the chip that says how far back you are, is
+back to live. With shift or meta held the wheel always reads the pane back.
+
+Every pane has a scrollbar down its right side, in a column of its own: click
+an arrow for a line or hold it to keep going, click the track for a page, drag
+the thumb. =toggle scrollbars= gives the column back to the program.
+
+#+begin_src sh
+^-b [                   # read back from the keys: arrows or j k, PageUp PageDown, ^-u ^-d, g G; q leaves
+^-b PageUp              # the same, a page back to begin with
+#+end_src
+
+These are defaults. =~/.config/atty/init.lisp= is loaded when atty starts, and
+binds a key, a button or the wheel to any command:
+
+#+begin_src lisp
+(atty/mode:define-key 'pane-mode "M-wheel-up" #'scroll-page-up)
+#+end_src
+
 The same from a shell, for a program driving other panes:
 
 #+begin_src sh

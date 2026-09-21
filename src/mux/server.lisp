@@ -22,6 +22,7 @@ more than the terminal it is sitting inside costs in the first place.")
     :answer :focus-pane :go-to-blocked :zoom :pane-read :lately :prompt-when-idle
     :close-pane :split-in :pane-about :spawn :since-prompt
     :keys :resize :bar :split :focus :close :only :mouse-at
+    :scroll :wheel :pointer :scrollbars
     :agents :agent-signal :agent-read :agent-keys :agent-prompt :agent-explain :agent-snapshot
     :agent-act :agent-observe :readers-load
     :agent-trace)
@@ -78,6 +79,8 @@ command line."
   (rows 24 :type fixnum)
   (cols 80 :type fixnum)
   (zoomed nil)
+  (scrollbarsp t)
+  (held nil)
   (server nil))
 
 (defparameter +bar-gap+ 1000000000
@@ -288,6 +291,8 @@ on it are the whole of who may."
   (setf (session-layout session) (without-pane (session-layout session) pane))
   (when (eq pane (session-zoomed session))
     (setf (session-zoomed session) nil))
+  (when (eq pane (second (session-held session)))
+    (setf (session-held session) nil))
   (pane-close pane)
   (let ((left (session-panes session)))
     (when (eq (session-focus session) pane)
@@ -323,6 +328,170 @@ landed on a rule, does nothing."
              (tell watcher (list :do runs)))))
       ((and (typep hit 'pane-view) (not (eq (view-pane hit) (session-focus session))))
        (focus-on session (view-pane hit))))))
+
+;;; Scrolling, and the mouse in a pane. A pane is read back by rows; what asks
+;;; for that is a key, a wheel, or the scrollbar down the pane's right side. The
+;;; wheel and the buttons are the program's when it asked for them, the way they
+;;; would be with no multiplexer in between, and the multiplexer's otherwise.
+
+(defparameter +wheel-rows+ 3
+  "How many rows one notch of a wheel is.")
+
+(defparameter +hold-after+ 350
+  "How long, in milliseconds, an arrow or the track is held before it repeats.")
+
+(defparameter +hold-every+ 50
+  "How long between repeats once it does.")
+
+(defun thing-at (session x y)
+  (and x y (session-geometry session)
+       (atty/ui:under (session-geometry session) y x)))
+
+(defun pane-at (session x y)
+  "The pane whose view, scrollbar or chip is at (X, Y), and which of them it is."
+  (let ((hit (thing-at session x y)))
+    (when (typep hit '(or pane-view scrollbar live-chip))
+      (values (view-pane hit) hit))))
+
+(defun bar-of (session pane)
+  "PANE's scrollbar as the session was last laid out."
+  (labels ((walk (w)
+             (if (and (typep w 'scrollbar) (eq pane (view-pane w)))
+                 w
+                 (some #'walk (atty/ui:parts w)))))
+    (and (session-geometry session) (walk (session-geometry session)))))
+
+(defun scroll-the-pane (pane amount)
+  "Read PANE back by AMOUNT: a number of rows, further back when it is more than
+nought, or :page-up, :page-down, :half-up, :half-down, :top or :bottom."
+  (when pane
+    (let ((rows (term:term-height (pane-term pane))))
+      (case amount
+        (:top (pane-scroll-to pane (pane-history pane)))
+        (:bottom (pane-scroll-to pane 0))
+        (:page-up (pane-scroll-by pane (max 1 (1- rows))))
+        (:page-down (pane-scroll-by pane (- (max 1 (1- rows)))))
+        (:half-up (pane-scroll-by pane (max 1 (floor rows 2))))
+        (:half-down (pane-scroll-by pane (- (max 1 (floor rows 2)))))
+        (t (when (integerp amount) (pane-scroll-by pane amount)))))))
+
+(defun tell-the-program (session pane kind x y &rest keys)
+  "Say to PANE's program that a mouse did KIND at (X, Y) of the session, where
+it is in the pane's own rows and columns. Answers whether it wanted to know."
+  (let* ((view (and (session-geometry session)
+                    (view-of (session-geometry session) pane)))
+         (term (pane-term pane))
+         (said (and view
+                    (zerop (pane-scrolled pane))
+                    (apply #'term:mouse-report term kind
+                           (max 0 (min (1- (term:term-width term))
+                                       (- x (atty/ui:left view))))
+                           (max 0 (min (1- (term:term-height term))
+                                       (- y (atty/ui:top view))))
+                           keys))))
+    (when said
+      (pane-say pane said)
+      t)))
+
+(defun wheel-at (session way x y mods)
+  "A notch of the wheel, WAY being :up or :down, over whatever is at (X, Y), or
+over the pane with the focus when nobody said where.
+
+A program that asked for the mouse is told. One that has the whole screen and
+did not is sent the arrow keys, which is what it scrolls by. Anything else has
+its pane read back. With shift held it is always the pane that is read back,
+and so it is over the scrollbar, which is nobody's but the multiplexer's."
+  (multiple-value-bind (pane hit) (pane-at session x y)
+    (let* ((pane (or pane (session-focus session)))
+           (term (and pane (pane-term pane)))
+           (rows (if (eq way :up) +wheel-rows+ (- +wheel-rows+))))
+      (when pane
+        (cond
+          ((or (member :shift mods) (typep hit 'scrollbar) (plusp (pane-scrolled pane)))
+           (pane-scroll-by pane rows))
+          ((and (typep hit 'pane-view)
+                (tell-the-program session pane :wheel x y :wheel way
+                                  :meta (and (member :meta mods) t)
+                                  :ctrl (and (member :ctrl mods) t))))
+          ((term:term-in-alt-screen term)
+           (let ((key (term:key-event-to-escape-sequence
+                       term (list (if (eq way :up) :up :down)))))
+             (dotimes (i +wheel-rows+) (pane-say pane key))))
+          (t (pane-scroll-by pane rows)))))))
+
+(defun hold-the-scrollbar (session pane part line)
+  "An arrow or the track of PANE's scrollbar is being held at LINE: do what one
+click of it does, and go on doing it until it is let go. The track stops when
+the thumb has come to where the pointer is."
+  (let ((held (list :bar pane part line)))
+    (setf (session-held session) held)
+    (labels ((once ()
+               (let* ((bar (bar-of session pane))
+                      (now (and bar (scrollbar-part bar (fourth held)))))
+                 (ecase part
+                   (:up (pane-scroll-by pane 1))
+                   (:down (pane-scroll-by pane -1))
+                   (:above (when (eq now :above) (scroll-the-pane pane :page-up)))
+                   (:below (when (eq now :below) (scroll-the-pane pane :page-down))))))
+             (again ()
+               (when (eq held (session-held session))
+                 (once)
+                 (when (session-server session)
+                   (later (session-server session) +hold-every+ #'again)))))
+      (once)
+      (when (session-server session)
+        (later (session-server session) +hold-after+ #'again)))))
+
+(defun pointer-at (session watcher what button x y mods)
+  "A button of the mouse went down, moved while down, or came up: WHAT is
+:press, :drag or :release.
+
+On the scrollbar it is the scrollbar's. On the chip it is back to live. Anywhere
+else a press of the left button is what a click has always been, and whichever
+button it was, a program that asked for the mouse is told, from the press to
+the release, wherever the pointer went in between."
+  (let ((held (session-held session)))
+    (ecase what
+      (:press
+       (multiple-value-bind (pane hit) (pane-at session x y)
+         (setf (session-held session) nil)
+         (cond
+           ((and (typep hit 'scrollbar) (eq button :left))
+            (let ((part (scrollbar-part hit y)))
+              (case part
+                ((nil))
+                (:thumb
+                 (multiple-value-bind (from track) (scrollbar-track hit)
+                   (let ((top (scrollbar-thumb track (term:term-height (pane-term pane))
+                                               (pane-history pane) (pane-scrolled pane))))
+                     (setf (session-held session)
+                           (list :thumb pane (- y from top))))))
+                (t (hold-the-scrollbar session pane part y)))))
+           ((typep hit 'scrollbar))
+           ((typep hit 'live-chip)
+            (when (eq button :left) (pane-scroll-to pane 0)))
+           (t
+            (when (eq button :left) (mouse-at session watcher x y))
+            (when (and (typep hit 'pane-view)
+                       (tell-the-program session pane :press x y :button button
+                                         :shift (and (member :shift mods) t)
+                                         :meta (and (member :meta mods) t)
+                                         :ctrl (and (member :ctrl mods) t)))
+              (setf (session-held session) (list :pane pane button)))))))
+      (:drag
+       (case (first held)
+         (:thumb
+          (let* ((pane (second held))
+                 (bar (bar-of session pane)))
+            (when bar
+              (pane-scroll-to pane (scrollbar-back-at bar y (third held))))))
+         (:bar (setf (fourth held) y))
+         (:pane
+          (tell-the-program session (second held) :drag x y :button (third held)))))
+      (:release
+       (when (eq (first held) :pane)
+         (tell-the-program session (second held) :release x y :button (third held)))
+       (setf (session-held session) nil)))))
 
 (defun focus-on (session pane)
   "PANE has the focus. A zoom was of the pane that had it, and goes with it, the
@@ -424,7 +593,10 @@ was put."
           (tty:screen-cursor-y screen)
           (min (+ (if v (atty/ui:top v) 0) (term:term-cursor-y term))
                (1- (tty:screen-height screen)))
-          (tty:screen-cursor-visible screen) (term:term-cursor-visible term)
+          ;; a pane being read back is not showing the line the cursor is on
+          (tty:screen-cursor-visible screen)
+          (and (zerop (pane-scrolled (session-focus session)))
+               (term:term-cursor-visible term))
           (tty:screen-cursor-style screen) (term:term-cursor-style term))))
 
 (defun session-compose (session)
@@ -434,7 +606,8 @@ is drawn is what they have just been told they are."
   (let* ((screen (session-screen session))
          (cols (tty:screen-width screen))
          (rows (tty:screen-height screen))
-         (tree (session-tree session))
+         (tree (let ((*scrollbars* (session-scrollbarsp session)))
+                 (session-tree session)))
          (m (atty/cells:make-cells (tty:screen-grid screen) cols rows)))
     (atty/ui:with-pass
       (atty/ui:restyle tree)
@@ -763,6 +936,8 @@ that is about a session is passed on only once it has joined one."
      (let ((pane (session-focus session))
            (said (second form)))
        (pane-logged pane (now-ms) (who-of watcher) :keys (length said))
+       ;; somebody typing wants to see what they are typing at
+       (pane-scroll-to pane 0)
        (pane-say pane said))
      t)
     (:resize
@@ -785,6 +960,25 @@ that is about a session is passed on only once it has joined one."
     (:only (only-the-pane session (session-focus session)) t)
     (:mouse-at
      (destructuring-bind (x y) (rest form) (mouse-at session watcher x y))
+     t)
+    (:pointer
+     (destructuring-bind (what button x y &optional mods) (rest form)
+       (pointer-at session watcher what button x y mods))
+     t)
+    (:wheel
+     (destructuring-bind (way &optional x y mods) (rest form)
+       (wheel-at session way x y mods))
+     t)
+    (:scroll
+     (destructuring-bind (amount &optional x y) (rest form)
+       (scroll-the-pane (or (and x y (pane-at session x y)) (session-focus session))
+                        amount))
+     t)
+    (:scrollbars
+     (setf (session-scrollbarsp session) (if (eq (second form) :toggle)
+                                             (not (session-scrollbarsp session))
+                                             (and (second form) t)))
+     (dolist (w (session-watchers session)) (setf (watcher-behind w) t))
      t)
     (t nil)))
 

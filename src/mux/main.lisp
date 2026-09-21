@@ -858,6 +858,7 @@ foreground. With a name it holds that session from the start."
 (defun main (&optional (args (rest sb-ext:*posix-argv*)))
   (handler-case
       (let ((*server-name* *server-name*))
+        (load-user-init)
         (loop :while (and (first args) (string= (first args) "-L"))
               :do (unless (second args) (error "-L wants the name of a server"))
                   (setf *server-name* (a-name (second args) "a server")
