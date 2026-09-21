@@ -43,7 +43,7 @@
 (defparameter +state-rank+ '(:blocked :working :idle :unknown))
 
 (defun state-rank (row)
-  (or (position (getf row :state) +state-rank+) (length +state-rank+)))
+  (or (position (row-state row) +state-rank+) (length +state-rank+)))
 
 (defun board-bands (b client)
   "Every session the client has been told of, in the server's order, each with
@@ -157,6 +157,11 @@ waits for it, who drives it or what it drives, or who last typed into it."
                                 (duration (+ age (max 0 (- now (getf row :heard-at))))))
                         :face :quiet))))))
 
+(defun row-state (row)
+  "What ROW's pane is doing, when that means anything: nil for a program
+nobody knows how to read, whose screen moving or not is all there is."
+  (and (getf row :known) (getf row :state)))
+
 (defun card-doing (row width)
   "The line at the top of a card, cut to the card: a line that wants more room
 than the card has would push the cards beside it off the screen."
@@ -169,15 +174,18 @@ than the card has would push the cards beside it off the screen."
                        (atty/ui:label (shortened-to (or (first (getf asks :detail))
                                                         (getf asks :question) "")
                                                     (max 1 (- room (length subject)))))))
-        (atty/ui:label (shortened-to (format nil "~A ~A" (state-glyph (getf row :state))
-                                             (or (getf row :doing) ""))
-                                     room)
-                       :face (state-face (getf row :state))))))
+        (let ((state (row-state row)))
+          (atty/ui:label (shortened-to (if state
+                                           (format nil "~A ~A" (state-glyph state)
+                                                   (or (getf row :doing) ""))
+                                           (or (getf row :doing) ""))
+                                       room)
+                         :face (if state (state-face state) :default))))))
 
 (defun card (b client row width)
   (let* ((key (row-key row))
          (now (ms-here))
-         (state (getf row :state))
+         (state (row-state row))
          (cursor (equal key (key-of-cursor b client)))
          (picked (member key (board-picked b) :test #'equal))
          (screen (gethash key (client-screens client))))
@@ -186,23 +194,27 @@ than the card has would push the cards beside it off the screen."
      (atty/ui:framed
       (atty/ui:column :align :stretch :expand 1
                       (card-doing row width)
-                      (strip row now)
+                      (if state (strip row now) (atty/ui:label ""))
                       (if screen (screen-view screen) (atty/ui:gap :expand 1)))
-      :face (state-face state)
+      ;; as a pane's frame: where the cursor is, or lit when it waits on you
+      :face (cond ((eq state :blocked) :state-blocked)
+                  (cursor :border-active)
+                  (t :border-inactive))
       :line (if cursor :double :single)
       :titles (list :tl (atty/ui:row :spacing 0
                                      (if picked
                                          (atty/ui:label " ✓ " :face :number-working)
                                          (atty/ui:label ""))
-                                     (atty/ui:label (format nil " ~A ~A:~D "
-                                                            (state-glyph state)
+                                     (atty/ui:label (format nil " ~@[~A ~]~A:~D "
+                                                            (and state (state-glyph state))
                                                             (getf row :session) (getf row :id))
-                                                    :face (number-face state))
+                                                    :face (if state (number-face state) :quiet))
                                      (atty/ui:label (format nil " ~A " (getf row :says)))
                                      (atty/ui:label (format nil "~A " (getf row :kind)) :face :quiet))
-                    :tr (atty/ui:label (format nil " ~(~A~) ~A " state
-                                               (duration (row-for row now)))
-                                       :face (state-face state))
+                    :tr (and state
+                             (atty/ui:label (format nil " ~(~A~) ~A " state
+                                                    (duration (row-for row now)))
+                                            :face (state-face state)))
                     :bl (card-foot client row width)))
      :expand 1)))
 

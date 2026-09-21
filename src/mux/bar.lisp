@@ -86,10 +86,21 @@ for how long. A click goes to it."
          (for (duration (agent:agent-for agent now)))
          (runs (list :focus-pane (session-name session) (pane-id pane))))
     (bar-button runs
-                (if (eq state :blocked)
-                    (atty/ui:label (format nil " ~D ~A ~A ~(~A~) ~A "
-                                           (pane-id pane) says (state-glyph state) state for)
-                                   :face :chip-blocked)
+                (cond
+                  ((not (known-p pane))
+                   ;; a program nobody knows how to read: which one, and
+                   ;; nothing about what it is doing
+                   (apply #'atty/ui:row :spacing 0
+                          (append
+                           (when (eq pane (session-focus session))
+                             (list :background-color (bar-face :bg-active)))
+                           (list (atty/ui:label (format nil " ~D" (pane-id pane)) :face :accent)
+                                 (atty/ui:label (format nil " ~A " says))))))
+                  ((eq state :blocked)
+                   (atty/ui:label (format nil " ~D ~A ~A ~(~A~) ~A "
+                                          (pane-id pane) says (state-glyph state) state for)
+                                  :face :chip-blocked))
+                  (t
                     (apply #'atty/ui:row :spacing 0
                            (append
                             (when (eq pane (session-focus session))
@@ -99,7 +110,7 @@ for how long. A click goes to it."
                                   (atty/ui:label (format nil " ~A " says))
                                   (atty/ui:label (format nil "~A ~(~A~)" (state-glyph state) state)
                                                  :face (state-face state))
-                                  (atty/ui:label (format nil " ~A " for) :face :quiet))))))))
+                                  (atty/ui:label (format nil " ~A " for) :face :quiet)))))))))
 
 (defparameter +worse+ '(:blocked :working :idle :unknown)
   "The states, the one that most wants somebody first.")
@@ -107,7 +118,8 @@ for how long. A click goes to it."
 (defun worst-pane (session)
   "The pane in SESSION that most wants somebody."
   (first (sort (copy-list (session-panes session)) #'<
-               :key (lambda (p) (or (position (agent:agent-state (pane-agent p)) +worse+)
+               :key (lambda (p) (or (and (known-p p)
+                                         (position (agent:agent-state (pane-agent p)) +worse+))
                                     (length +worse+))))))
 
 (defun blocked-count (server)
@@ -134,7 +146,7 @@ somebody; a click goes there."
     (loop :for s :in (and server (server-sessions server))
           :for worst := (and (not (eq s session)) (worst-pane s))
           :when worst
-            :collect (let ((state (agent:agent-state (pane-agent worst))))
+            :collect (let ((state (and (known-p worst) (agent:agent-state (pane-agent worst)))))
                        (bar-button (list :focus-pane (session-name s) (pane-id worst))
                                    (atty/ui:row :spacing 0
                                                 (atty/ui:label (format nil " ~A " (session-name s))

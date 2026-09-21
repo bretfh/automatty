@@ -20,7 +20,8 @@ the last while is drawn from.")
    (prompted :initform nil :accessor agent-prompted-at)
    (since :initform nil :accessor agent-since)
    (history :initform nil :accessor agent-history)
-   (historied :initform 0 :accessor agent-historied)))
+   (historied :initform 0 :accessor agent-historied)
+   (told :initform nil :accessor agent-told)))
 
 (defstruct rule id state priority region test)
 
@@ -195,7 +196,15 @@ been anything."
           (t :quiet))))
 
 (defun agent-hear (agent state)
-  (setf (agent-heard agent) state))
+  (setf (agent-heard agent) state
+        (agent-told agent) t))
+
+(defun agent-known-p (agent)
+  "Whether what AGENT is doing means anything: it was recognised and has rules
+to read its screen by, or its program has said for itself. For anything else
+working and idle only say whether the screen moved, which a person watching a
+shell already sees, and is not worth a colour."
+  (and (or (agent-rules agent) (agent-told agent)) t))
 
 (defun agent-look (agent term now moved)
   (setf (agent-moved agent) moved)

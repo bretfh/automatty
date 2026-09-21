@@ -42,8 +42,18 @@
         ((< ms 3600000) (format nil "~Dm" (floor ms 60000)))
         (t (format nil "~Dh" (floor ms 3600000)))))
 
-(defun pane-state-face (pane)
-  (state-face (agent:agent-state (pane-agent pane))))
+(defun known-p (pane)
+  (agent:agent-known-p (pane-agent pane)))
+
+(defun frame-face (pane focusp)
+  "What colour PANE's frame is: where the focus is, as it always was, except
+that an agent waiting on somebody is lit so it is seen from across the screen.
+Whether an agent is working or idle is said in its title, not its frame: a
+frame that changed colour with every screenful would drown out the focus."
+  (cond ((and (known-p pane) (eq :blocked (agent:agent-state (pane-agent pane))))
+         :state-blocked)
+        (focusp :border-active)
+        (t :border-inactive)))
 
 (defun key-for (command)
   "The chord COMMAND is bound to in the pane's mode, as a hint says it, or nil
@@ -146,14 +156,14 @@ the whole session, and which rule decided it was asking."
     (list
      :tl (atty/ui:row :spacing 0
                       (atty/ui:label (format nil " ~D " (pane-id pane))
-                                     :face (if focusp (number-face state) :default))
+                                     :face (if focusp :number-focus :default))
                       (atty/ui:label (format nil " ~A " (pane-says pane)))
                       (atty/ui:label (format nil "~A " (pane-kind pane)) :face :quiet))
-     :tr (if asks
-             (asks-title asks)
-             (atty/ui:label (format nil " ~A ~(~A~) ~A " (state-glyph state) state
-                                    (duration (agent:agent-for agent now)))
-                            :face (state-face state)))
+     :tr (cond (asks (asks-title asks))
+               ((known-p pane)
+                (atty/ui:label (format nil " ~A ~(~A~) ~A " (state-glyph state) state
+                                       (duration (agent:agent-for agent now)))
+                               :face (state-face state))))
      :bl (if asks
              (let* ((extras (answer-extras session pane (agent:agent-won agent term)))
                     (room (- width 2 (extras-width extras) 1)))

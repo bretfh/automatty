@@ -53,6 +53,7 @@ thing that acted on it was one."
           :says (pane-says pane)
           :kind (pane-kind pane)
           :state (agent:agent-state agent)
+          :known (agent:agent-known-p agent)
           :for (agent:agent-for agent now)
           :asks (agent:agent-asks agent (pane-term pane))
           :doing (pane-doing pane)

@@ -35,11 +35,11 @@ widgets already use, just answering with itself rather than an action to run."
 ;;; program is doing and drawn double where the focus is. What the corners say
 ;;; is src/mux/frames.lisp's business.
 
-(declaim (ftype function pane-titles pane-state-face))
+(declaim (ftype function pane-titles frame-face))
 
 (defun pane-frame (pane focusp &optional session)
   (atty/ui:framed (pane-view pane)
-                  :face (pane-state-face pane)
+                  :face (frame-face pane focusp)
                   :line (if focusp :double :single)
                   :titles (and session (pane-titles session pane focusp))))
 

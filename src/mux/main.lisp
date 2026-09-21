@@ -298,8 +298,9 @@ it, and the pane that was acted on can say who by."
                :for address :in addresses
                :for name :in names
                :do (format t "~&~vA  ~vA  ~vA  ~(~7A~)  ~4A~@[  ~A~]~%"
-                           wa address wn name wk (getf r :kind) (getf r :state)
-                           (duration (getf r :for))
+                           wa address wn name wk (getf r :kind)
+                           (if (getf r :known) (getf r :state) "-")
+                           (if (getf r :known) (duration (getf r :for)) "")
                            (getf (getf r :asks) :subject))))))))
 
 (defun spawn-agent (args)

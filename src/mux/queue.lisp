@@ -100,7 +100,8 @@ bound to, such as the digits."
   "Every pane that is asking something, the one waiting longest first, and only
 those the filter matches."
   (let* ((now (ms-here))
-         (blocked (remove-if-not (lambda (r) (eq :blocked (getf r :state))) (rows-of client)))
+         (blocked (remove-if-not (lambda (r) (and (getf r :known) (eq :blocked (getf r :state))))
+                                 (rows-of client)))
          (sorted (sort blocked #'> :key (lambda (r) (or (row-for r now) 0)))))
     (if (plusp (length (queue-query q)))
         (matches (queue-query q) sorted #'row-text)

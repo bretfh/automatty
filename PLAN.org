@@ -23,6 +23,15 @@ ends with the suite green and a note of what to try by hand.
   =C-b= keys in this plan are defaults in =pane-mode= and the overlays'
   modes. People rebind them and write their own commands on top, so each
   feature is written as a =defcommand= first and bound second.
+- *A frame's colour is the focus, as it always was.* State is said in a
+  pane's title and on its chip, never by recolouring its frame: a frame that
+  changed colour with every screenful drowned the focus out. The one
+  exception is an agent waiting on somebody, whose frame is lit.
+- *Only a known agent is said to be doing anything.* Known means recognised
+  (it has rules to read its screen by) or it has said its own state with
+  =atty agent signal=. For anything else working and idle only say whether
+  its screen moved, so the bar, the frame, the switchboard and =agent list=
+  say nothing about it.
 - *What a person types is logged by count, not content.* The input log
   records that you typed 14 bytes. It records the text of prompts and
   answers sent through =atty agent=, because those are commands on the

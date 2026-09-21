@@ -364,15 +364,19 @@ already failing."
                                       "enter came in the same breath as the text")
                                   (mux:wire-close wire))))))
 
-(test the-bar-has-a-chip-for-every-pane-saying-what-it-is-doing
+(test a-program-nobody-knows-has-a-chip-but-is-not-said-to-be-doing-anything
+      ;; working and idle for a shell would only say whether its screen moved
       (with-server (path :command "printf 'just-a-shell\\n'; sleep 30" :rows 10 :cols 80)
                    (with-seer (seer path :rows 10 :cols 80)
                               (is-true (pump seer :want "just-a-shell"))
-                              (is-true (pump seer :want "○ idle")
-                                       "the bar did not say the quiet pane is idle: ~S" (seen seer))
                               (type-at seer (format nil "~C3" mux:+prefix+))
-                              (is-true (pump seer :until (lambda () (<= 2 (count-of "○ idle" (seen seer)))))
-                                       "a second pane got no chip of its own: ~S" (seen seer)))))
+                              (is-true (pump seer :until (lambda () (<= 2 (count-of "printf 'just" (seen seer)))))
+                                       "a second pane got no chip of its own: ~S" (seen seer))
+                              (pump seer :seconds 1)
+                              (is (null (search "idle" (seen seer)))
+                                  "a program nobody recognised was said to be idle: ~S" (seen seer))
+                              (is (null (search "working" (seen seer)))
+                                  "a program nobody recognised was said to be working: ~S" (seen seer)))))
 
 (test a-title-does-not-take-the-server-down
       (with-server (path :command "printf '\\033]0;a new title\\007here\\n'; sleep 30"
@@ -1115,7 +1119,8 @@ under a rule, and then echoes whatever it is answered."
       (type-at seer (format nil "impl~C" #\Return))
       (is-true (pump seer :want " impl sleep")
                "the frame does not carry the new name and the program: ~S" (seen seer))
-      (is-true (pump seer :want "○ idle")))))
+      (is (null (search "idle" (seen seer)))
+          "a frame said what a program nobody knows is doing: ~S" (seen seer)))))
 
 (test a-blocked-pane-is-answered-by-clicking-an-answer-in-its-border
   (let ((script (a-dialog-script)))
@@ -1179,7 +1184,9 @@ under a rule, and then echoes whatever it is answered."
   (let ((client (mux::%make-client)))
     (dolist (row rows client)
       (setf (gethash (cons (getf row :session) (getf row :id)) (mux::client-panes client))
-            (list* :heard-at (mux::ms-here) row)))))
+            (list* :heard-at (mux::ms-here)
+                   ;; a row made up here is a known agent unless it says not
+                   (if (member :known row) row (list* :known t row)))))))
 
 (test the-queue-holds-what-is-asking-oldest-first-and-can-be-narrowed
   (let* ((client (a-told-client

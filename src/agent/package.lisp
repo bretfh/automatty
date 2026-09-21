@@ -24,6 +24,7 @@
    #:+history-length+
    #:agent-asks
    #:agent-won
+   #:agent-known-p
    #:agent-doing
    #:screen-lines
    #:asks-of-lines
