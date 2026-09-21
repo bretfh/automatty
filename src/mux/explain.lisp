@@ -46,37 +46,33 @@
   (multiple-value-bind (s m h) (decode-universal-time (- (get-universal-time) (floor ms 1000)))
     (format nil "~2,'0D:~2,'0D:~2,'0D" h m s)))
 
+(defun seen-lines (seen)
+  (remove nil
+          (append (list (getf seen :question))
+                  (loop :for option :in (getf seen :options)
+                        :for n :from 1
+                        :collect (format nil "~:[ ~;>~] ~D. ~A" (eql (1- n) (getf seen :selected)) n option))
+                  (list (getf seen :label)
+                        (getf seen :line)
+                        (and (not (getf seen :options)) (getf seen :text))))))
+
 (defun rule-lines (rows)
-  "The rule table: every rule with its priority and what it says, the one that
-won marked * with what it matched under it, the others that matched +."
-  (let* ((hits (remove-if-not #'fifth rows))
-         (won (and hits (reduce (lambda (a z) (if (>= (second a) (second z)) a z)) hits))))
-    (cons (atty/ui:label "  pri  says    rule                       looks at" :face :quiet)
-          (loop :for row :in (sort (copy-list rows) #'> :key #'second)
-                :for (rid priority region state hit text) := row
-                :append (cons (atty/ui:row :spacing 0
-                                           (atty/ui:label (cond ((eq row won) "* ")
-                                                                (hit "+ ")
-                                                                (t "  "))
-                                                          :face (if (eq row won) :state-blocked-strong :quiet))
-                                           (atty/ui:label (format nil "~4D " priority)
-                                                          :face (if hit :default :quiet))
-                                           (atty/ui:label (format nil "~(~7A~) " state)
-                                                          :face (if hit (state-face state) :quiet))
-                                           (atty/ui:label (format nil "~26A " rid)
-                                                          :face (cond ((eq row won) :strong)
-                                                                      (hit :default)
-                                                                      (t :quiet)))
-                                           (atty/ui:label (format nil "~(~A~)"
-                                                                  (if (consp region)
-                                                                      (format nil "~{~A~^ ~}" region)
-                                                                      region))
-                                                          :face :quiet))
-                              (when (eq row won)
-                                (loop :for line :in (subseq (agent:lines-of text) 0
-                                                            (min 3 (length (agent:lines-of text))))
-                                      :collect (atty/ui:label (format nil "        │ ~A"
-                                                                      (string-trim " " line))))))))))
+  (cons (atty/ui:label "  says    screen        widget" :face :quiet)
+        (loop :for row :in rows
+              :for (id widget means won seen) := row
+              :append (cons (atty/ui:row :spacing 0
+                                         (atty/ui:label (cond (won "* ") (seen "+ ") (t "  "))
+                                                        :face (if won :state-blocked-strong :quiet))
+                                         (atty/ui:label (format nil "~(~7A~) " means)
+                                                        :face (if seen (state-face means) :quiet))
+                                         (atty/ui:label (format nil "~(~13A~) " id)
+                                                        :face (cond (won :strong) (seen :default) (t :quiet)))
+                                         (atty/ui:label (format nil "~(~A~)" widget) :face :quiet))
+                            (when won
+                              (loop :for line :in (seen-lines seen)
+                                    :repeat 3
+                                    :collect (atty/ui:label (format nil "        │ ~A"
+                                                                    (string-trim " " line)))))))))
 
 (defun who-typed-lines (client log late)
   (loop :for (age who verb summary outcome) :in log

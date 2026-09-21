@@ -1450,12 +1450,13 @@ under a rule, and then echoes whatever it is answered."
           (gethash key (mux::client-about client))
           (list :agent-explained
                 (list now :blocked :blocked
-                      '(("live-prompt-box" 950 :prompt-box :idle nil "")
-                        ("bash-permission-prompt" 850 :whole :blocked t
-                         "Bash command
-Do you want to proceed?
-❯ 1. Yes")
-                        ("generic-permission-prompt" 840 :after-last-rule :blocked t "x")))
+                      '((:transcript :footer :skip nil nil)
+                        (:permission :choice :blocked t
+                         (:screen :permission :means :blocked :widget :choice
+                          :question "Do you want to proceed?" :options ("Yes" "No") :selected 0))
+                        (:question :choice :blocked nil
+                         (:screen :question :means :blocked :widget :choice
+                          :question "Which?" :options ("a" "b") :selected 0))))
                 :pane-about (list now '(:kind "claude-code" :programs ("claude --resume")
                                         :group 48213 :command "sh -c \"exec claude\""))
                 :pane-history (list now '((42000 :blocked) (60000 :working)))
@@ -1467,7 +1468,7 @@ Do you want to proceed?
     (let ((all (format nil "~{~A~%~}" (loop :for y :below 36 :collect (shown screen y)))))
       (is (search "why is todo:2 blocked?" all) "~A" all)
       (is (search "foreground claude --resume  group 48213" all))
-      (is (search "*  850 blocked bash-permission-prompt" all)
+      (is (search "* blocked permission" all)
           "the winning rule is not marked: ~A" all)
       (is (search "│ Do you want to proceed?" all) "the winning rule's text is not under it")
       (is (search "+ " all) "another rule that matched is not marked")
