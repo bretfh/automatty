@@ -326,7 +326,7 @@ Where you work with every agent at once, across sessions, without going to
 any of them. Switching sessions is this view with nothing selected, so the
 session chooser is its lighter form, not a separate thing.
 
-** TODO The overlay, by session
+** DONE The overlay, by session
 - A client-side overlay covering everything under the bar. It has no header
   of its own: the bar already carries the counts.
 - One band per session. A band's label shows the session name, its pane
@@ -335,7 +335,7 @@ session chooser is its lighter form, not a separate thing.
 - Cards sit in a grid of =floor((cols - 12) / 40)= columns, at least 1.
   Each band ends with a "+ new pane in <session>" card.
 
-** TODO What a card says
+** DONE What a card says
 - It is a =framed= widget. Its face comes from state, and a double line
   marks the cursor.
 - Top left: a ✓ when selected, then =glyph address=, label, kind. Top
@@ -353,7 +353,7 @@ session chooser is its lighter form, not a separate thing.
 - The summary line is a new =agent-doing (agent term)= next to
   =agent-asks=.
 
-** TODO Prompt several at once
+** DONE Prompt several at once
 - =space= selects cards. The composer line at the foot takes a prompt and
   sends it to every selected pane with =:agent-prompt=, logged per pane.
 - A selected pane that is blocked is refused, as a single prompt is, and
@@ -362,28 +362,30 @@ session chooser is its lighter form, not a separate thing.
   per pane (=:prompt-queued=), and the card shows the queued prompt until
   it is sent.
 
-** TODO Sort and filter
+** DONE Sort and filter
 - Within a band, cards are ordered: needs you first, then by session order,
   then by most recent change. =s= cycles this.
 - Typing after =/= filters on address, label, kind, state and the summary
   line.
 
-** TODO Commands, with their default keys
-- Commands: =switchboard-move=, =switchboard-go=, =switchboard-select=,
-  =switchboard-answer n=, =switchboard-prompt=, =switchboard-read=,
+** DONE Commands, with their default keys
+- Commands: =switchboard-left= =-right= =-up= =-down= (one move command
+  per direction, since a command takes no arguments), =switchboard-go=,
+  =switchboard-select=, =switchboard-prompt=, =switchboard-read=,
   =switchboard-name=, =switchboard-close-pane=, =switchboard-filter=,
-  =switchboard-sort=.
+  =switchboard-sort=, =switchboard-close=. The digits answer through the
+  mode's unbound-key handler, as they do in the queue.
 - Default keys: arrows, =RET=, =space=, =1…9=, =p=, =r=, =n=, =x=, =/=,
   =s=, =Esc=.
 - A click on a card goes there. A click on its option answers it.
 - =choose-a-session= (=C-b b= today) opens this overlay with the cursor on
   the current session.
 
-** TODO Keeping it live
+** DONE Keeping it live
 - Screens and states come from the Phase 3 pushes while it is open.
   Nothing polls.
 
-** TODO Tests
+** DONE Tests
 - Grid arithmetic at 80, 164 and 300 columns, the sort order, a filter, and
   a push updating one card only.
 

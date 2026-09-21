@@ -17,6 +17,7 @@
   (log nil)
   (log-count 0 :type fixnum)
   (moved-at 0 :type integer)
+  (queued nil)
   (command nil)
   (directory nil)
   (agent nil)

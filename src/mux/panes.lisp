@@ -19,26 +19,60 @@ ends do not share a clock."
        (destructuring-bind (ms who verb summary outcome) entry
          (list (max 0 (- now ms)) who verb summary outcome))))
 
-(defun pane-row (session pane now)
+(defparameter +history-said+ (* 20 60 1000)
+  "How far back a pane's history goes out with it: what a strip of its last
+while is drawn from.")
+
+(defun pane-doing (pane)
+  "One line of what PANE is doing: what its agent says, or else, for a program
+nobody recognised, what is running in front, or the last thing on its screen."
+  (let ((agent (pane-agent pane))
+        (term (pane-term pane)))
+    (or (agent:agent-doing agent term)
+        (let ((front (first (pane-programs pane))))
+          (and front (not (member (program-name front) +shells+ :test #'string=))
+               front))
+        (let ((lines (agent:screen-lines term)))
+          (and lines (string-trim " " (first (last lines))))))))
+
+(defun driver-of (pane)
+  "The pane whose agent verbs last acted on PANE, as its address, when the last
+thing that acted on it was one."
+  (let ((newest (find :keys (pane-log pane) :key #'third :test-not #'eq)))
+    (and newest (eq :pane (first (second newest))) (second (second newest)))))
+
+(defun pane-row (session pane now &optional drives)
   "What a client is told about PANE of SESSION, as a plist."
-  (let ((agent (pane-agent pane)))
+  (let ((agent (pane-agent pane))
+        (server (session-server session)))
     (list :session (session-name session)
           :id (pane-id pane)
+          :order (and server (position session (server-sessions server)))
+          :at (position pane (session-panes session))
           :label (pane-label pane)
           :says (pane-says pane)
           :kind (pane-kind pane)
           :state (agent:agent-state agent)
           :for (agent:agent-for agent now)
           :asks (agent:agent-asks agent (pane-term pane))
+          :doing (pane-doing pane)
+          :history (loop :for (ms state) :in (agent:agent-history agent)
+                         :for age := (- now ms)
+                         :collect (list age state)
+                         :until (> age +history-said+))
           :title (pane-named pane)
           :focus (eq pane (session-focus session))
+          :queued (first (pane-queued pane))
+          :driven-by (driver-of pane)
+          :drives drives
           :last-input (input-said (first (pane-log pane)) now))))
 
 (defun row-standing (row)
   "ROW without what moves every moment by itself, the times, so two rows can be
-told apart by what actually changed."
+told apart by what actually changed. A history changes when the state does, and
+goes out with it."
   (loop :for (key value) :on row :by #'cddr
-        :unless (eq key :for)
+        :unless (member key '(:for :history))
           :append (list key (if (eq key :last-input) (rest value) value))))
 
 (defun every-pane (server)
@@ -46,7 +80,17 @@ told apart by what actually changed."
         :append (mapcar (lambda (p) (cons s p)) (session-panes s))))
 
 (defun pane-rows (server now)
-  (mapcar (lambda (it) (pane-row (car it) (cdr it) now)) (every-pane server)))
+  (let* ((all (every-pane server))
+         (drivers (mapcar (lambda (it) (driver-of (cdr it))) all)))
+    (mapcar (lambda (it)
+              (let ((address (format nil "~A:~D" (session-name (car it)) (pane-id (cdr it)))))
+                (pane-row (car it) (cdr it) now
+                          (loop :for other :in all
+                                :for driver :in drivers
+                                :when (equal driver address)
+                                  :collect (format nil "~A:~D" (session-name (car other))
+                                                   (pane-id (cdr other)))))))
+            all)))
 
 (defun every-watcher (server)
   (append (server-knocking server)
@@ -182,6 +226,40 @@ it back when it already has it."
   (let ((pane (pane-called server name id)))
     (tell watcher (list :read-it name id
                         (and pane (agent:last-lines (pane-term pane) 500))))))
+
+(defun prompt-a-pane (server pane text who)
+  "Give PANE's program TEXT as new work: pasted, when it takes pastes, and
+entered a moment later. Refused, and answers :blocked, while it is asking
+something: a prompt then would be taken for the answer."
+  (cond
+    ((or (eq :blocked (agent:agent-state (pane-agent pane)))
+         (agent:screen-blocked-p (pane-term pane)))
+     (pane-logged pane (now-ms) who :prompt (summarised text) :refused)
+     :blocked)
+    (t (pane-logged pane (now-ms) who :prompt (summarised text))
+       (agent:agent-prompted (pane-agent pane) (now-ms))
+       (pane-say pane (if (term:term-bracketed-paste (pane-term pane))
+                          (concatenate 'string (string #\Escape) "[200~"
+                                       text (string #\Escape) "[201~")
+                          text))
+       (later server +enter-after+
+              (lambda () (pane-say pane (string #\Return))))
+       t)))
+
+(defun prompt-when-idle (server pane text who)
+  "Prompt PANE now when it is idle, and otherwise when it next is: :queued. A
+pane that is asking something is refused as a prompt to it now would be."
+  (case (agent:agent-state (pane-agent pane))
+    (:blocked (prompt-a-pane server pane text who))
+    (:working (setf (pane-queued pane) (list text who)) :queued)
+    (t (prompt-a-pane server pane text who))))
+
+(defun send-what-waited (server pane)
+  "PANE has gone idle: what was queued for it goes now."
+  (let ((queued (pane-queued pane)))
+    (when (and queued (eq :idle (agent:agent-state (pane-agent pane))))
+      (setf (pane-queued pane) nil)
+      (prompt-a-pane server pane (first queued) (second queued)))))
 
 (defun lately (server n now)
   "The last N answers anybody gave any pane, and prompts refused because a pane

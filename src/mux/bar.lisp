@@ -44,8 +44,8 @@ gave itself, else the program."
 (defclass bar-button (atty/ui:widget)
   ((runs :initarg :runs :reader bar-button-runs)))
 
-(defun bar-button (runs part)
-  (make-instance 'bar-button :runs runs :parts (list part)))
+(defun bar-button (runs part &rest props)
+  (apply #'make-instance 'bar-button :runs runs :parts (list part) props))
 
 (defmethod atty/ui:measure ((w bar-button) m aw ah)
   (let ((part (first (atty/ui:parts w))))

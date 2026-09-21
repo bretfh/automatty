@@ -58,7 +58,9 @@ instead."
   (tell-the-server (list :new)))
 
 (defcommand choose-a-session
-  (tell-the-server (list :sessions)))
+  ;; the switchboard with nothing picked: its bands are the sessions, and the
+  ;; cursor starts on the one this is
+  (open-the-board *client* :session (client-session *client*)))
 
 (defcommand send-the-prefix
   (tell-the-server (list :keys (string +prefix+))))
@@ -109,6 +111,7 @@ instead."
 (atty/mode:define-key 'pane-mode "C-b a" #'go-to-the-blocked)
 (atty/mode:define-key 'pane-mode "C-b z" #'zoom-this-pane)
 (atty/mode:define-key 'pane-mode "C-b n" #'needs-you)
+(atty/mode:define-key 'pane-mode "C-b w" #'switchboard)
 (atty/mode:define-key 'pane-mode "C-b c" #'new-session)
 (atty/mode:define-key 'pane-mode "C-b b" #'choose-a-session)
 

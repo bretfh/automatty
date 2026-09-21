@@ -41,7 +41,8 @@ silence.")
            (screens (make-hash-table :test 'equal))
            (lately nil)
            (watching 0 :type fixnum)
-           (ticked 0 :type integer))
+           (ticked 0 :type integer)
+           (session nil))
 
 (defun connect-to (path)
   (let ((socket (make-instance 'sb-bsd-sockets:local-socket :type :stream)))
@@ -204,8 +205,8 @@ looks like, not why it happened."
   (case (first form)
         (:hello
          (destructuring-bind (name rows cols &optional knows) (rest form)
-                             (declare (ignore name))
                              (setf (client-greeted client) t
+                                   (client-session client) name
                                    (client-knows client) (or knows +was-known+))
                              (client-fit client rows cols)
                              (host-say client tty:+blanked+)))
@@ -277,7 +278,7 @@ looks like, not why it happened."
            (wire-send (client-wire client) '(:lately 5))))
         (:agent-prompted
          (destructuring-bind (session id outcome) (rest form)
-           (unless (eq outcome t)
+           (unless (member outcome '(t :queued))
              (show-note client "not prompted"
                         (format nil "~A:~D ~A" session id
                                 (if (eq outcome :blocked)
@@ -322,6 +323,16 @@ it."
   (setf (client-partial client)
         (if (> (- n at) +half-said+) "" (subseq said at n))))
 
+(defun client-chord-event (client event)
+  "EVENT, a key or a click as the terminal sent it, to the mode this client is
+in. A click is a key a mode can bind, and says where it landed as *MOUSE-AT*."
+  (if (and (consp event) (eq :mouse (first event)))
+      (let ((key (mouse-key-of event)))
+        (when key
+          (let ((*mouse-at* (cons (getf (rest event) :x) (getf (rest event) :y))))
+            (client-chord client key))))
+      (client-chord client (key-of event))))
+
 (defun client-pressed (client said)
   "Bytes, as keys, to the mode whatever is on top put the client in.
 
@@ -336,7 +347,7 @@ kept until it has."
                   (tty:escape-sequence-to-key-event said at n nil)
                 (when (zerop took) (client-hold client said at n) (return))
                 (incf at took)
-                (when event (client-chord client (key-of event)))))))
+                (when event (client-chord-event client event))))))
 
 (defgeneric unbound (thing chord client)
   (:documentation "What to do with a key the mode has no binding for. A prompt
@@ -388,7 +399,7 @@ does have a name for goes to the mode instead and is not passed on."
                         (tty:escape-sequence-to-key-event said at n nil)
                       (when (zerop took) (client-hold client said at n) (return))
                       (incf at took)
-                      (when event (client-chord client (key-of event)))
+                      (when event (client-chord-event client event))
                       (when (client-over client) (return)))
                     (let ((ch (char said at)))
                       (cond

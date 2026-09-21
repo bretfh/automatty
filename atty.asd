@@ -78,6 +78,7 @@
                              (:file "note")
                              (:file "prompt")
                              (:file "queue")
+                             (:file "switchboard")
                              (:file "keys")
                              (:file "main")))
 

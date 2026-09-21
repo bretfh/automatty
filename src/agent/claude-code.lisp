@@ -123,3 +123,24 @@
 
 (defmethod agent-rules ((agent claude-code))
   *claude-code-rules*)
+
+(defun without-spinner-tail (line)
+  "A spinner line without the part in parentheses a coding agent puts after
+what it is doing, the time and the tokens, which change every moment and say
+nothing about what."
+  (let* ((said (string-trim " " line))
+         (open (search " (" said)))
+    (if open (subseq said 0 open) said)))
+
+(defmethod agent-doing ((agent claude-code) term)
+  "What Claude Code says it is doing: its spinner line while it works, and the
+last thing it said above its prompt box once it stops."
+  (let* ((lines (screen-lines term))
+         (spinner (find-if #'spinner-line-p (bottom-non-empty lines 12) :from-end t)))
+    (cond
+      (spinner (without-spinner-tail spinner))
+      (t (let ((said (find-if (lambda (l)
+                                (let ((s (string-trim " " l)))
+                                  (and (> (length s) 2) (char= (char s 0) #\⏺))))
+                              (above-prompt-box lines) :from-end t)))
+           (and said (string-trim " ⏺" said)))))))

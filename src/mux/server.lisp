@@ -19,7 +19,8 @@ more than the terminal it is sitting inside costs in the first place.")
   '(:want :attach :open :who :go :new :sessions :kill-session :knock :detach :stop
     :name-pane :naming
     :panes :watch-panes :watch-screens :pane-screen :pane-history :pane-log
-    :answer :focus-pane :go-to-blocked :zoom :pane-read :lately
+    :answer :focus-pane :go-to-blocked :zoom :pane-read :lately :prompt-when-idle
+    :close-pane :split-in
     :keys :resize :bar :split :focus :close :only :mouse-at
     :agents :agent-signal :agent-read :agent-keys :agent-prompt :agent-explain
     :agent-trace)
@@ -566,23 +567,18 @@ that is about a session is passed on only once it has joined one."
              (pane-say pane text)))))
       (:agent-prompt
        (destructuring-bind (name id text &optional caller) (rest form)
-         (let ((pane (pane-called server name id))
-               (who (who-of watcher caller)))
-           (cond
-             ((null pane) (tell watcher (list :agent-prompted name id :gone)))
-             ((or (eq :blocked (agent:agent-state (pane-agent pane)))
-                  (agent:screen-blocked-p (pane-term pane)))
-              (pane-logged pane (now-ms) who :prompt (summarised text) :refused)
-              (tell watcher (list :agent-prompted name id :blocked)))
-             (t (pane-logged pane (now-ms) who :prompt (summarised text))
-                (agent:agent-prompted (pane-agent pane) (floor (nanos) 1000000))
-                (pane-say pane (if (term:term-bracketed-paste (pane-term pane))
-                                   (concatenate 'string (string #\Escape) "[200~"
-                                                text (string #\Escape) "[201~")
-                                   text))
-                (later server +enter-after+
-                       (lambda () (pane-say pane (string #\Return))))
-                (tell watcher (list :agent-prompted name id t)))))))
+         (let ((pane (pane-called server name id)))
+           (tell watcher (list :agent-prompted name id
+                               (if pane
+                                   (prompt-a-pane server pane text (who-of watcher caller))
+                                   :gone))))))
+      (:prompt-when-idle
+       (destructuring-bind (name id text &optional caller) (rest form)
+         (let ((pane (pane-called server name id)))
+           (tell watcher (list :agent-prompted name id
+                               (if pane
+                                   (prompt-when-idle server pane text (who-of watcher caller))
+                                   :gone))))))
       (:agent-trace
        (destructuring-bind (name id) (rest form)
          (let ((pane (pane-called server name id)))
@@ -636,6 +632,15 @@ that is about a session is passed on only once it has joined one."
          (focus-a-pane server watcher name id)))
       (:go-to-blocked (take-to-the-blocked server watcher))
       (:lately (tell watcher (list :lately (lately server (or (second form) 5) (now-ms)))))
+      (:close-pane
+       (destructuring-bind (name id) (rest form)
+         (let* ((session (session-named server name))
+                (pane (and session (find id (session-panes session) :key #'pane-id))))
+           (when pane (close-the-pane session pane)))))
+      (:split-in
+       (destructuring-bind (name &optional (way :across)) (rest form)
+         (let ((session (session-named server name)))
+           (when session (split-the-session session way)))))
       (:zoom
        (destructuring-bind (&optional name id) (rest form)
          (zoom-a-pane server watcher name id)))
@@ -743,6 +748,8 @@ it was the last are they told WHY and let go."
                               (floor now 1000000) (pane-dirty pane))
         (push pane changed)))
     (dolist (pane changed)
+      (when (session-server session)
+        (send-what-waited (session-server session) pane))
       (dolist (w (session-watchers session))
         (setf (watcher-behind w) t)
         (when (wire-open (watcher-wire w))

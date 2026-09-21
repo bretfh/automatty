@@ -250,6 +250,14 @@ been anything."
                                 (subseq text 0 (min 240 (length text))))))
                       rows)))))
 
+(defgeneric agent-doing (agent term)
+  (:documentation "One line of what AGENT is doing, in its own words where its
+screen has any, for somebody glancing at it rather than reading it; nil when
+its screen says nothing a line could.")
+  (:method ((agent agent) term)
+    (declare (ignore term))
+    nil))
+
 (defun agent-won (agent term)
   "The id of the rule that says what AGENT's screen is, or nil when none does."
   (let ((won (judged (agent-rules agent) term)))
