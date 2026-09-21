@@ -41,7 +41,16 @@ silence.")
     (values (make-wire (sb-bsd-sockets:socket-file-descriptor socket) socket)
             socket)))
 
-(declaim (ftype function ask))
+(declaim (ftype function ask ask-a-name))
+
+(defun tty-name (fd)
+  "What the terminal on FD is called, such as /dev/ttys004, or nil. It is how a
+server tells one person's keys from another's in a pane's log."
+  (and (tty:a-terminal-p fd)
+       (ignore-errors
+        (sb-alien:alien-funcall
+         (sb-alien:extern-alien "ttyname" (function sb-alien:c-string sb-alien:int))
+         fd))))
 
 (defun terminal-size (fd)
   "How big the terminal on FD is. One that says it has no rows or no columns,
@@ -70,6 +79,7 @@ with them when it is not there."
                                               ;; about names passes it over and
                                               ;; the attach it does know is the
                                               ;; shape it has always been
+                                              (wire-send wire (list :who (tty-name fd)))
                                               (if open
                                                   (wire-send wire (list* :open name
                                                                          (append open
@@ -193,6 +203,9 @@ looks like, not why it happened."
                                   (list :go (subseq said 0 (position #\Space said)))))))
         (:bell (host-say client (string (code-char 7))))
         (:do (run-command (second form) client))
+        (:name-it
+         (destructuring-bind (session id label title) (rest form)
+           (ask-a-name client session id label title)))
         (:bye (done-with client (second form)))
         (t nil)))
 

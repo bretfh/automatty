@@ -63,6 +63,9 @@ instead."
 (defcommand send-the-prefix
   (tell-the-server (list :keys (string +prefix+))))
 
+(defcommand name-this-pane
+  (tell-the-server (list :naming)))
+
 (defcommand (mouse-clicked :unlisted)
   (tell-the-server (list :mouse-at (car *mouse-at*) (cdr *mouse-at*))))
 
@@ -96,6 +99,7 @@ instead."
 (atty/mode:define-key 'pane-mode "C-b 1" #'only-this-pane)
 (atty/mode:define-key 'pane-mode "C-b o" #'next-pane)
 
+(atty/mode:define-key 'pane-mode "C-b ," #'name-this-pane)
 (atty/mode:define-key 'pane-mode "C-b c" #'new-session)
 (atty/mode:define-key 'pane-mode "C-b b" #'choose-a-session)
 

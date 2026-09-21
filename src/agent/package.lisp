@@ -18,6 +18,13 @@
    #:agent-trace
    #:agent-prompted
    #:agent-prompted-at
+   #:agent-since
+   #:agent-for
+   #:agent-history
+   #:+history-length+
+   #:agent-asks
+   #:asks-of-lines
+   #:option-of
    #:screen-blocked-p
    #:+turn-patience+
    #:*agents*

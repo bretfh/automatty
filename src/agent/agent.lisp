@@ -5,6 +5,10 @@
 (defparameter +hold+ 700)
 (defparameter +turn-patience+ 60000)
 (defparameter +trace-length+ 4000)
+(defparameter +history-length+ 512
+  "How many changes of state an agent keeps. A trace is every look and is for
+finding out why; this is only what it became and when, and is what a timeline of
+the last while is drawn from.")
 
 (defclass agent ()
   ((state :initform :unknown :accessor agent-state)
@@ -13,7 +17,10 @@
    (heard :initform nil :accessor agent-heard)
    (trace :initform nil :accessor agent-trace)
    (traced :initform 0 :accessor agent-traced)
-   (prompted :initform nil :accessor agent-prompted-at)))
+   (prompted :initform nil :accessor agent-prompted-at)
+   (since :initform nil :accessor agent-since)
+   (history :initform nil :accessor agent-history)
+   (historied :initform 0 :accessor agent-historied)))
 
 (defstruct rule id state priority region test)
 
@@ -49,6 +56,19 @@
   (when (> (incf (agent-traced agent)) +trace-length+)
     (setf (agent-trace agent) (subseq (agent-trace agent) 0 (floor +trace-length+ 2))
           (agent-traced agent) (floor +trace-length+ 2))))
+
+(defun became (agent now state)
+  "AGENT is STATE from NOW on: when it changed, and a line in its history."
+  (setf (agent-since agent) now)
+  (push (list now state) (agent-history agent))
+  (when (> (incf (agent-historied agent)) +history-length+)
+    (setf (agent-history agent) (subseq (agent-history agent) 0 (floor +history-length+ 2))
+          (agent-historied agent) (floor +history-length+ 2))))
+
+(defun agent-for (agent now)
+  "How many milliseconds AGENT has been what it is, or nil when it has never
+been anything."
+  (and (agent-since agent) (max 0 (- now (agent-since agent)))))
 
 (defun screen-lines (term)
   (let ((lines (loop :for y :below (term:term-height term)
@@ -190,6 +210,8 @@
                        ((< (- now asked) +turn-patience+)
                         (setf state :working))
                        (t (setf (agent-prompted-at agent) nil)))))
+             (unless (eq state (agent-state agent))
+               (became agent now state))
              (setf (agent-quiet-since agent) nil
                    (agent-state agent) state)))
       (if (and (not moved) (null (agent-quiet-since agent)) (null (agent-heard agent))
@@ -232,3 +254,64 @@
   (loop :for (class . nil) :in *agents*
         :thereis (let ((won (judged (agent-rules (make-instance class)) term)))
                    (and won (eq :blocked (rule-state won))))))
+
+;;; What a blocked program is asking. A dialog in a terminal is a subject, a few
+;;; lines of what it is about, a question, and numbered options, one of them
+;;; pointed at. Nothing here knows any one program's wording: a program whose
+;;; dialogs are shaped like that is read by this, and a program whose are not
+;;; says so with a method of its own.
+
+(defun option-of (line)
+  "LINE as (number text chosen) when it is a numbered option, such as
+\"❯ 1. Yes\" or \"  2. No, and tell Claude what to do differently (esc)\"."
+  (let* ((said (string-trim " " line))
+         (chosen (and (plusp (length said)) (char= (char said 0) #\❯)))
+         (said (string-left-trim " ❯>" said))
+         (dot (position #\. said)))
+    (when (and dot (plusp dot) (< dot 3)
+               (every #'digit-char-p (subseq said 0 dot))
+               (< (1+ dot) (length said))
+               (char= #\Space (char said (1+ dot))))
+      (list (parse-integer said :end dot)
+            (string-trim " " (subseq said (1+ dot)))
+            chosen))))
+
+(defun asks-of-lines (lines)
+  "What LINES are asking, as a plist of :subject :detail :question :options and
+:chosen, or nil when they hold no numbered options with a question above them.
+
+LINES is what is under the last rule on the screen, which is where a dialog is
+drawn: the subject is the first line of it, the question the nearest line above
+the options that ends in a question mark, and the detail what is between."
+  (let* ((lines (mapcar (lambda (l) (string-right-trim " " l)) lines))
+         (first-option (position-if #'option-of lines))
+         (question-at (and first-option
+                           (position-if (lambda (l)
+                                          (let ((s (string-trim " " l)))
+                                            (and (plusp (length s))
+                                                 (char= #\? (char s (1- (length s)))))))
+                                        lines :end first-option :from-end t))))
+    (when question-at
+      (let* ((options (loop :for l :in (nthcdr first-option lines)
+                            :for o := (option-of l)
+                            :while (or o (zerop (length (string-trim " " l))))
+                            :when o :collect o))
+             (subject-at (position-if (lambda (l) (plusp (length (string-trim " " l))))
+                                      lines :end question-at))
+             (detail (and subject-at
+                          (remove "" (mapcar (lambda (l) (string-trim " " l))
+                                             (subseq lines (1+ subject-at) question-at))
+                                  :test #'string=))))
+        (list :subject (string-trim " " (nth (or subject-at question-at) lines))
+              :detail detail
+              :question (string-trim " " (nth question-at lines))
+              :options (mapcar (lambda (o) (list (first o) (second o))) options)
+              :chosen (first (find-if #'third options)))))))
+
+(defgeneric agent-asks (agent term)
+  (:documentation "What AGENT is asking, when it is blocked on a question, as
+ASKS-OF-LINES says it; nil when it is not blocked or asks nothing a person
+could answer by number.")
+  (:method ((agent agent) term)
+    (and (eq :blocked (agent-state agent))
+         (asks-of-lines (region-lines term (screen-lines term) :after-last-rule)))))

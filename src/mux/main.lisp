@@ -171,6 +171,13 @@ path."
       (unless row (error "there is no pane called ~A running" address))
       (values (first row) session id (fifth row)))))
 
+(defun caller ()
+  "The pane this is running in, as ATTY_PANE says, or nil outside one. It goes
+last in what an agent verb sends, so a server from before it is not bothered by
+it, and the pane that was acted on can say who by."
+  (let ((pane (sb-ext:posix-getenv "ATTY_PANE")))
+    (and pane (plusp (length pane)) pane)))
+
 (defun unescaped (said)
   (with-output-to-string (out)
     (loop :with i := 0
@@ -225,7 +232,7 @@ path."
       ((string= what "say")
        (unless (third args) (error "atty agent say <session>:<pane> <keys>"))
        (multiple-value-bind (path session id) (pane-found (second args))
-         (asked path (list (list :agent-keys session id (unescaped (third args))))
+         (asked path (list (list :agent-keys session id (unescaped (third args)) (caller)))
                 :patience 0)))
       ((string= what "prompt")
        (unless (third args)
@@ -234,7 +241,7 @@ path."
          (let* ((wanted (mapcar #'a-state
                                 (rest (member "--until" (cdddr args) :test #'string=))))
                 (said (asked path (list (list :go session)
-                                        (list :agent-prompt session id (third args)))
+                                        (list :agent-prompt session id (third args) (caller)))
                              :patience (if wanted 3600 3)
                              :done (lambda (f)
                                      (case (first f)
@@ -269,7 +276,7 @@ path."
          (unless (and (second args) socket pane (plusp (length socket)) (plusp (length pane)))
            (error "atty agent signal <working|blocked|idle> is said from inside a pane"))
          (multiple-value-bind (session id) (pane-address pane)
-           (asked socket (list (list :agent-signal session id (a-state (second args))))
+           (asked socket (list (list :agent-signal session id (a-state (second args)) (caller)))
                   :patience 0))))
       ((string= what "wait")
        (unless (second args) (error "atty agent wait <session>:<pane> [<state>...]"))

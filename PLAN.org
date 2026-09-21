@@ -93,18 +93,18 @@ is the server reading its own session list.
 
 Every board needs facts the server does not keep yet.
 
-** TODO Time in state
+** DONE Time in state
 - =agent= (src/agent/agent.lisp) gets a =since= slot, set in =publish= only
   when the state actually changes.
 - Done when: an agent row carries the ms since its state changed, and a
   pane idle for 3m says 3m.
 
-** TODO State history
+** DONE State history
 - A ring of =(ms state)= transitions, up to 512, pushed in =publish=.
 - This is not =agent-trace=, which records every look. Board 06's timeline
   is drawn from the history.
 
-** TODO Pane names
+** DONE Pane names
 - A =label= slot on =pane= (src/mux/pane.lisp).
 - How a pane gets one:
   - =--name= on anything that makes a pane: =atty run=, =atty agent spawn=
@@ -115,7 +115,7 @@ Every board needs facts the server does not keep yet.
 - =pane-says= (bar.lisp) prefers the label, then the shortened title, then
   the command.
 
-** TODO What kind of program, said properly
+** DONE What kind of program, said properly
 - Today the generic class prints as "agent", which is wrong for a shell.
 - The kind shown is:
   - the agent class name when it is a recognised class;
@@ -125,7 +125,7 @@ Every board needs facts the server does not keep yet.
 - Keep the programs and the group pid on the agent for board 06's
   "foreground claude pid 48213" line.
 
-** TODO What a blocked pane is asking
+** DONE What a blocked pane is asking
 - Add a generic =agent-asks (agent term)= that answers
   =(:subject "Bash command" :detail ("python3.13 -m pytest tests/ -q" …)
   :question "Do you want to proceed?" :options ((1 "Yes") (2 "Yes, and
@@ -140,7 +140,7 @@ Every board needs facts the server does not keep yet.
   generic permission prompt.
 - Answers nil unless the state is =:blocked=.
 
-** TODO Who typed into a pane
+** DONE Who typed into a pane
 - Each pane keeps a ring of 256 entries:
   =(ms who verb summary outcome)=.
   - =who= is =(:client n "tty-name")= for an attached client, =(:pane
@@ -150,13 +150,15 @@ Every board needs facts the server does not keep yet.
 - Clients say who they are at attach: =(:who tty-name)= is sent before
   =:attach=, or the server numbers them.
 - The CLI verbs send the caller's =ATTY_PANE= as an optional last element
-  of =:agent-keys=, =:agent-prompt= and =:agent-signal=. Old servers ignore
-  it, because it is optional and last.
+  of =:agent-keys=, =:agent-prompt= and =:agent-signal=. A server from
+  before this does not ignore it: its handler takes an exact number of
+  arguments, so it logs the message and passes over it. That only matters
+  for legacy servers, which are only ever stopped now.
 - Typed keys coalesce: consecutive =:keys= from one client within 2s are
   one entry holding a byte count.
 - A refused prompt is logged with outcome =:refused=.
 
-** TODO Tests
+** DONE Tests
 - tests/agent.lisp: =since= across flapping, the history ring, =asks= on
   each dialog screen, the kind of a shell versus make versus claude.
 - tests/mux.lisp: the log's attribution for client keys, a CLI prompt from

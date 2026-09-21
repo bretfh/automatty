@@ -29,7 +29,10 @@ reads to the end, and its name is the last thing in it."
         name)))
 
 (defun pane-says (pane)
-  (or (and (pane-named pane) (plusp (length (pane-named pane))) (pane-named pane))
+  "What to call PANE: the name somebody gave it, else the title its program
+gave itself, else the program."
+  (or (pane-label pane)
+      (and (pane-named pane) (plusp (length (pane-named pane))) (pane-named pane))
       (shortened (pane-command pane))
       ""))
 

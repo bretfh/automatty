@@ -15,14 +15,21 @@
   (most 8 :type fixnum)
   (chose nil)
   (dropped nil)
-  (kind nil))
+  (kind nil)
+  (free nil))
 
-(defun make-prompt (title items &key (text #'identity) chose dropped (most 8) kind)
-  (%make-prompt :title title :items items :text text
-                :chose chose :dropped dropped :most most :kind kind))
+(defun make-prompt (title items &key (text #'identity) chose dropped (most 8) kind
+                                     free (query ""))
+  "A prompt titled TITLE offering ITEMS. A FREE one takes what was typed rather
+than one of its items: they are only lines saying what to type, and are not
+narrowed by it."
+  (%make-prompt :title title :items items :text text :query query
+                :chose chose :dropped dropped :most most :kind kind :free free))
 
 (defun prompt-showing (p)
-  (matches (prompt-query p) (prompt-items p) (prompt-text p)))
+  (if (prompt-free p)
+      (prompt-items p)
+      (matches (prompt-query p) (prompt-items p) (prompt-text p))))
 
 (defun prompt-chosen (p)
   (nth (prompt-index p) (prompt-showing p)))
@@ -34,11 +41,13 @@
                            (- (prompt-index p) (floor room 2)))))
          (rows (loop :for item :in (subseq showing from (+ from room))
                      :for i :from from
-                     :collect (atty/ui:choice
-                               :chosen (= i (prompt-index p))
-                               :face (if (= i (prompt-index p)) :accent :default)
-                               (atty/ui:label (princ-to-string
-                                             (funcall (prompt-text p) item)))))))
+                     :collect (let ((said (princ-to-string (funcall (prompt-text p) item))))
+                                (if (prompt-free p)
+                                    (atty/ui:label (format nil "  ~A" said))
+                                    (atty/ui:choice
+                                     :chosen (= i (prompt-index p))
+                                     :face (if (= i (prompt-index p)) :accent :default)
+                                     (atty/ui:label said)))))))
     (atty/ui:framed
      (atty/ui:column
       :align :stretch
@@ -100,7 +109,8 @@ was typed -- unless it is another prompt's prefix, typed at the very start,
 which switches to that prompt instead."
   (let ((said (atty/mode:self-inserting chord)))
     (when said
-      (let ((runs (and (= 1 (length said)) (zerop (length (prompt-query p)))
+      (let ((runs (and (not (prompt-free p))
+                       (= 1 (length said)) (zerop (length (prompt-query p)))
                        (not (eql (char said 0) (prompt-kind p)))
                        (cdr (assoc (char said 0) +prompt-toggles+)))))
         (if runs
@@ -145,7 +155,7 @@ which switches to that prompt instead."
 (defcommand (prompt-accept :unlisted)
   (let ((p (the-prompt)))
     (when p
-      (let ((it (prompt-chosen p)))
+      (let ((it (if (prompt-free p) (prompt-query p) (prompt-chosen p))))
         (prompt-close p *client*)
         (when (and it (prompt-chose p)) (funcall (prompt-chose p) it *client*))))))
 
@@ -169,12 +179,28 @@ which switches to that prompt instead."
 (atty/mode:define-key 'prompt-mode "Escape"   #'prompt-cancel)
 (atty/mode:define-key 'prompt-mode "C-g"      #'prompt-cancel)
 
-(defun ask (client title items &key (text #'identity) chose dropped kind)
+(defun ask (client title items &key (text #'identity) chose dropped kind free (query ""))
   "Put a prompt over whatever CLIENT is showing."
   (client-over-put client (make-prompt title items :text text
                                                    :chose chose
                                                    :dropped dropped
-                                                   :kind kind)))
+                                                   :kind kind
+                                                   :free free
+                                                   :query query)))
+
+(defun ask-a-name (client session id label title)
+  "Ask what to call pane ID of SESSION, starting from what it is called now."
+  (ask client (format nil "name ~A:~D" session id)
+       (list (if label
+                 (format nil "now  ~A" label)
+                 (format nil "now  no name; shown as its title~@[, ~A~]"
+                         (and title (plusp (length title)) title)))
+             "RET sets it   empty RET clears it   C-g cancels")
+       :free t
+       :query (or label "")
+       :chose (lambda (typed c)
+                (let ((*client* c))
+                  (tell-the-server (list :name-pane session id typed))))))
 
 (defun ask-a-command (client)
   (ask client "run" (command-names) :kind #\:

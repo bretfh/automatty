@@ -13,6 +13,9 @@
   (dirty t :type boolean)
   (rang nil :type boolean)
   (named nil)
+  (label nil)
+  (log nil)
+  (log-count 0 :type fixnum)
   (command nil)
   (directory nil)
   (agent nil)
@@ -110,3 +113,60 @@ comes straight back, so one pane writing without pause cannot starve the rest."
   (when (pane-started pane)
     (ignore-errors (pty:pty-close (pane-fd pane)))
     (ignore-errors (pty:pty-reap (pane-pid pane)))))
+
+;;; What kind of program a pane holds, said the way a person would: the agent
+;;; it was recognised as, or else whatever has the terminal now.
+
+(defparameter +shells+
+  '("sh" "bash" "zsh" "fish" "dash" "ksh" "mksh" "oksh" "tcsh" "csh" "yash"
+    "nu" "elvish" "xonsh")
+  "Programs that are a shell, and so are called one rather than by name.")
+
+(defun program-name (line)
+  "The program LINE runs: the first word, without where it lives, and without
+the dash a login shell is started with."
+  (let* ((said (string-trim " " (or line "")))
+         (word (subseq said 0 (or (position #\Space said) (length said))))
+         (base (subseq word (1+ (or (position #\/ word :from-end t) -1)))))
+    (string-left-trim "-" base)))
+
+(defun pane-kind (pane)
+  "What the pane holds: a recognised agent's name, \"shell\" for a shell with
+nothing in front of it, and otherwise the program in the foreground."
+  (let ((agent (pane-agent pane)))
+    (if (not (eq 'agent:agent (type-of agent)))
+        (string-downcase (type-of agent))
+        (let ((name (program-name (or (first (pane-programs pane)) (pane-command pane)))))
+          (cond ((zerop (length name)) "shell")
+                ((member name +shells+ :test #'string=) "shell")
+                (t name))))))
+
+;;; Who typed into a pane, newest first. Keys somebody typed are counted, not
+;;; kept: what is typed at a shell is theirs. What an agent verb sent is kept,
+;;; since it was said on the record by one program to another.
+
+(defparameter +log-length+ 256)
+(defparameter +keys-run+ 2000
+  "Keys from one source this close together, in milliseconds, are one entry.")
+
+(defun pane-logged (pane now who verb summary &optional (outcome t))
+  "Put in PANE's log that WHO did VERB at NOW. For :keys SUMMARY is how many
+bytes; a run of them from the same place is one entry that grows."
+  (let ((newest (first (pane-log pane))))
+    (if (and newest (eq verb :keys) (eq (third newest) :keys)
+             (equal (second newest) who)
+             (<= (- now (first newest)) +keys-run+))
+        (setf (first newest) now
+              (fourth newest) (+ (fourth newest) summary))
+        (progn
+          (push (list now who verb summary outcome) (pane-log pane))
+          (when (> (incf (pane-log-count pane)) +log-length+)
+            (setf (pane-log pane) (subseq (pane-log pane) 0 (floor +log-length+ 2))
+                  (pane-log-count pane) (floor +log-length+ 2)))))
+    (first (pane-log pane))))
+
+(defun summarised (text &optional (most 60))
+  (let ((one-line (substitute #\Space #\Newline (substitute #\Space #\Return text))))
+    (if (> (length one-line) most)
+        (concatenate 'string (subseq one-line 0 (1- most)) "…")
+        one-line)))
