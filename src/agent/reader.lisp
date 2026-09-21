@@ -2,7 +2,7 @@
 
 (in-package #:atty/agent)
 
-(defstruct reader name programs title from-path versions from launch submit interrupt screens scenario form)
+(defstruct reader name programs title from-path versions from launch submit interrupt said screens scenario form)
 
 (defstruct entry id widget means match question lines choose actions input)
 
@@ -130,7 +130,7 @@
     (refuse "a reader is (name :programs … :screens …), not ~S" form))
   (handler-case
       (destructuring-bind (&key programs title version versions from launch (submit :typed) interrupt
-                             screens scenario)
+                             said screens scenario)
           (rest form)
         (unless (or (null version)
                     (and (consp version) (eq :exec-path (first version)) (stringp (second version))))
@@ -156,6 +156,9 @@
                                    (strings-of launch "launch"))
                        :submit (one-of submit '(:typed :paste) "submit")
                        :interrupt (or interrupt (and parent (reader-interrupt parent)) (string #\Escape))
+                       :said (cond ((stringp said) said)
+                                   (said (refuse ":said is the mark an agent's messages start with, not ~S" said))
+                                   (parent (reader-said parent)))
                        :screens (inherited-screens parent screens)
                        :scenario (if (and parent (null scenario))
                                      (reader-scenario parent)

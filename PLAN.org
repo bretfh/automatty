@@ -1,0 +1,477 @@
+#+TITLE: The agent UI: every pane's state where you are already looking
+#+TODO: TODO DOING | DONE
+#+STARTUP: overview
+
+The mockups are the design canvas "atty UI mockups" (six boards). This is
+the work that makes all six real, in the order it has to land. Every phase
+ends with the suite green and a note of what to try by hand.
+
+* Decisions
+
+- *One server per user, like tmux.* A server holds every session and says
+  what is in all of them. A client never goes looking for other servers.
+- *Pane names are set explicitly*: a flag at spawn, =atty agent name=, or
+  =C-b ,=. Without one a pane falls back to its shortened OSC title, then
+  its command.
+- *All six boards ship*: 02 state in the frame and the bar, 03 answer from
+  the frame, 04 switchboard, 05 needs you, 06 explain and who typed.
+- *A pane is never resized because it blocked.* Shrinking it to fit an
+  answer strip would send the agent a SIGWINCH and reflow the dialog it is
+  asking. So the strip on board 03 is drawn in the frame's own border rows,
+  with the question in the top border and the options in the bottom one.
+- *Every action is a named command; keys are only default bindings.* The
+  =C-b= keys in this plan are defaults in =pane-mode= and the overlays'
+  modes. People rebind them and write their own commands on top, so each
+  feature is written as a =defcommand= first and bound second.
+- *As the mockups have it: a frame's colour is its agent's state, and the
+  focus is the double line.* The old red for the focus and blue for the rest
+  is gone, not kept alongside. A pane that is not a known agent has a frame of
+  one colour that never changes.
+- *Only a known agent is said to be doing anything.* Known means recognised
+  (it has rules to read its screen by) or it has said its own state with
+  =atty agent signal=. For anything else working and idle only say whether
+  its screen moved, so the bar, the frame, the switchboard and =agent list=
+  say nothing about it.
+- *What a person types is logged by count, not content.* The input log
+  records that you typed 14 bytes. It records the text of prompts and
+  answers sent through =atty agent=, because those are commands on the
+  record.
+
+* Phase 1: one server, many sessions
+
+The field test ran a server per session. After this phase =atty <name>=
+adds a session to the one server, and everything cross-session later on
+is the server reading its own session list.
+
+** DONE One socket per user
+- =socket-path= (src/mux/main.lisp) answers =<mux-dir>/default= and no
+  longer takes a session name. =-L <name>= and =ATTY_SERVER= pick another
+  server, for anyone who wants two, the way tmux =-L= does.
+- The server log is =<mux-dir>/default.log=.
+- Done when: two =atty <name>= invocations leave one socket and one server
+  process.
+
+** DONE Attach-or-create on the server, in one message
+- A new form, =(:open name command cwd rows cols takes)=, joins NAME and
+  makes it first if it is missing. The existence check and the create
+  happen server-side, so two clients opening the same new name cannot race.
+- =(:attach …)= keeps its meaning (join, or =:no-such-session=) for
+  =atty attach=.
+- Add =:open= to =+understood+=.
+
+** DONE New sessions start where the client is
+- =:open= and =:new= carry the client's cwd, and the pane's program starts
+  in it.
+- Use =posix_spawn_file_actions_addchdir_np= where it exists (macOS 10.15+,
+  glibc 2.29+). Elsewhere wrap the command as =cd <dir> && exec <cmd>=.
+  src/pty/pty.lisp =spawn-pty-process= takes =:directory=.
+- Done when: =cd /tmp && atty scratch= gives a shell whose =pwd= is =/tmp=.
+
+** DONE Starting the server
+- =start-a-server= (main.lisp) starts =atty serve= with no session name.
+  The first =:open= makes the first session.
+- =serve= and =add-session= no longer need a session up front. The server
+  still exits once its last session ends, as =end-the-session= does now,
+  but it does not exit before the first session arrives: allow a grace
+  period of a few seconds.
+
+** DONE The commands, against one server
+- =atty= / =atty <name>=: ensure the server, then =:open=.
+- =atty attach <name>=: =:attach=, or say there is no such session.
+- =atty list=: one =(:sessions)= call printing name, panes, attached
+  clients and how many panes need you.
+- =atty stop <name>=: a new =(:kill-session name)=. =atty kill-server= stops
+  everything.
+- =atty run <name> <command>=: =:open= with that command.
+- =C-b b= and =C-b c= already work server-side and now see every session.
+
+** DONE The agent verbs, against one server
+- =agents-here= and =pane-found= ask the one socket, with no directory scan.
+- =wait= and =prompt --until= subscribe on the one connection.
+
+** DONE Servers from before this change
+- A legacy per-name socket found in mux-dir shows in =atty list= as
+  "legacy". =atty stop <name>= still stops it. Nothing starts one any more.
+
+** DONE Tests
+- tests/mux.lisp: several sessions in one server, attach-or-create racing
+  from two clients, kill-session leaving the others running, and the
+  server exiting after its last session.
+
+* Phase 2: what the server knows about a pane
+
+Every board needs facts the server does not keep yet.
+
+** DONE Time in state
+- =agent= (src/agent/agent.lisp) gets a =since= slot, set in =publish= only
+  when the state actually changes.
+- Done when: an agent row carries the ms since its state changed, and a
+  pane idle for 3m says 3m.
+
+** DONE State history
+- A ring of =(ms state)= transitions, up to 512, pushed in =publish=.
+- This is not =agent-trace=, which records every look. Board 06's timeline
+  is drawn from the history.
+
+** DONE Pane names
+- A =label= slot on =pane= (src/mux/pane.lisp).
+- How a pane gets one:
+  - =--name= on anything that makes a pane: =atty run=, =atty agent spawn=
+    (Phase 9), splits started from the CLI.
+  - =(:name-pane session id label)=, sent by =atty agent name <pane> <name>=,
+    or by =atty agent name <name>= from inside a pane (via =ATTY_PANE=).
+  - =C-b ,= opens a prompt to rename the focused pane.
+- =pane-says= (bar.lisp) prefers the label, then the shortened title, then
+  the command.
+
+** DONE What kind of program, said properly
+- Today the generic class prints as "agent", which is wrong for a shell.
+- The kind shown is:
+  - the agent class name when it is a recognised class;
+  - otherwise the basename of the foreground program from =pane-programs=
+    (for example =shell=, =make=, =vim=);
+  - =shell= when the foreground program is the pane's own shell.
+- Keep the programs and the group pid on the agent for board 06's
+  "foreground claude pid 48213" line.
+
+** DONE What a blocked pane is asking
+- Add a generic =agent-asks (agent term)= that answers
+  =(:subject "Bash command" :detail ("python3.13 -m pytest tests/ -q" …)
+  :question "Do you want to proceed?" :options ((1 "Yes") (2 "Yes, and
+  don't ask again …") (3 "No, and tell Claude …")) :chosen 1)=, or nil.
+- Put the parsing in agent.lisp so any class can use it:
+  - an option is a line of the form =[❯] N. text=;
+  - the question is the nearest line above the options ending in =?=;
+  - the subject is the first non-empty line after the last rule;
+  - the detail is the lines between the subject and the question.
+- =claude-code= calls it on =:after-last-rule=. Test it against the
+  field-test screens: bash, fetch, trust, MCP elicitation and the
+  generic permission prompt.
+- Answers nil unless the state is =:blocked=.
+
+** DONE Who typed into a pane
+- Each pane keeps a ring of 256 entries:
+  =(ms who verb summary outcome)=.
+  - =who= is =(:client n "tty-name")= for an attached client, =(:pane
+    "todo:4")= for =atty agent= run inside a pane, and =(:cli)= for one run
+    outside any pane.
+  - =verb= is one of =:keys :prompt :say :answer :signal=.
+- Clients say who they are at attach: =(:who tty-name)= is sent before
+  =:attach=, or the server numbers them.
+- The CLI verbs send the caller's =ATTY_PANE= as an optional last element
+  of =:agent-keys=, =:agent-prompt= and =:agent-signal=. A server from
+  before this does not ignore it: its handler takes an exact number of
+  arguments, so it logs the message and passes over it. That only matters
+  for legacy servers, which are only ever stopped now.
+- Typed keys coalesce: consecutive =:keys= from one client within 2s are
+  one entry holding a byte count.
+- A refused prompt is logged with outcome =:refused=.
+
+** DONE Tests
+- tests/agent.lisp: =since= across flapping, the history ring, =asks= on
+  each dialog screen, the kind of a shell versus make versus claude.
+- tests/mux.lisp: the log's attribution for client keys, a CLI prompt from
+  inside a pane, and a refused prompt.
+
+* Phase 3: the wire
+
+** DONE Pane rows as plists
+- Add =(:panes)= answering one plist per pane across every session:
+  =(:session :id :label :kind :state :since :asks :title :focus
+  :last-input)=. =:last-input= is the newest log entry.
+- Keep =(:agents)= and =(:agent …)= exactly as they are, so a CLI from
+  before this change still parses what it is sent.
+- Add =(:pane …)=, a plist pushed on every state change, to every client
+  that has said =(:watch-panes t)=.
+
+** DONE Screens on request, with their faces
+- =(:pane-screen session id n)= answers the last N rows as runs and faces,
+  in the same shape as =runs-said= (wire.lisp). Previews are then drawn in
+  their real colours, and faint text such as Claude Code's suggestion
+  stays faint.
+- =(:watch-screens t)= makes the server push =(:pane-screen …)= for panes
+  that moved, at most every 250ms per pane, while a client has the
+  switchboard or the queue open.
+
+** DONE History and log on request
+- =(:pane-history session id)= and =(:pane-log session id n)=.
+
+** DONE Answering, as its own verb
+- =(:answer session id n)= types the digit N into the pane, which is how the
+  field test answered every dialog, and logs it with verb =:answer=.
+- It is refused with =:not-blocked= when the pane is not blocked, so a
+  stale click cannot type a stray digit into a prompt box.
+
+** DONE Focus a pane anywhere
+- =(:focus-pane session id)= moves this client to SESSION if it is not
+  there already, then focuses the pane.
+
+** DONE Everything new goes in =+understood+=
+- The client's =tell-the-server= already says "not here" for anything a
+  server does not list.
+
+* Phase 4: board 02, state in the frame and the bar
+
+** DONE Frames that can say things
+- =framed= (src/ui/widget.lisp, layout in src/ui/layout.lisp) gets:
+  - =:line :single | :double=, using =┌┐└┘─│= or =╔╗╚╝═║=;
+  - =:titles=, a plist from =:tl :tr :bl :br= to widgets, laid over the
+    border rows with a one-cell inset. A title too long for its border is
+    truncated rather than overrunning the corner.
+- tests/view.lisp: the glyphs of a double frame, titles laid at each
+  corner, and truncation.
+
+** DONE State faces
+- Add to theme.lisp: =:state-working= (blue), =:state-blocked= (yellow),
+  =:state-idle= (green), =:state-unknown= (border).
+- Add =:chip-blocked=: dark on yellow, bold.
+
+** DONE Frames by state, focus by line
+- =pane-frame= (view.lisp) takes its face from the pane's state and its
+  line from focus.
+- Titles:
+  - top left: number, label, kind;
+  - top right: the state glyph, the state and the time in it;
+  - bottom right, when blocked: =C-b a answer · C-b z zoom=.
+- A session with one pane stays unframed, as it is now. The bar carries its
+  state.
+
+** DONE The bar
+- =default-bar= (bar.lisp): brand, session name, then a chip per pane in
+  the session (number, label, glyph, state, time in state). The focused
+  chip is lit. A blocked chip is filled.
+- Right side:
+  - "▲ N need you" counted across every session in the server, with a
+    =C-b n= hint;
+  - a dot per other session, coloured by its worst pane, with blocked
+    worse than working worse than idle;
+  - the clock.
+- The time labels already redraw every second: =+bar-gap+= is 1s.
+
+** DONE Clickable chips
+- A =bar-button='s =runs= may be a server form, such as
+  =(:focus-pane "todo" 2)=. =mouse-at= (server.lisp) runs a form itself and
+  tells the client a command name as it does now.
+- A session dot is =(:focus-pane <that session> <its worst pane>)=.
+
+** DONE Check by hand
+- Four panes, one per state, with the right frames, chips, count and times.
+- Clicking a chip focuses that pane. Clicking another session's dot
+  switches to it.
+
+* Phase 5: board 03, answer from the frame
+
+** DONE The strip, in the border
+- When a framed pane is blocked and =asks= is non-nil:
+  - the top-right title becomes =▲ asks <subject> <first detail line>=;
+  - the bottom border carries the options as bar-buttons =[1 Yes] [2 …]
+    [3 …]=, then =r read=, =z zoom= and =matched: <rule id>=.
+- Options truncate to fit the pane width. The last option and =r read=
+  always show.
+- Each option button runs =(:answer session id n)=.
+
+** DONE Keys
+- Typing a digit into a focused blocked pane already reaches the program
+  unchanged. Nothing is needed for that path, and it must stay that way.
+- =C-b a=: focus the longest-blocked pane in any session, switching
+  session if it has to. It says "nothing needs you" when that is so.
+- =C-b z=: zoom. The session keeps a =zoomed= pane, =layout-tree= draws only
+  that pane, framed so its state still shows, and =C-b z= again puts the
+  split back. A zoomed pane is resized; that is the person's choice, not a
+  side effect of blocking.
+
+** DONE The guard, shown in the log
+- =:agent-prompt= already refuses a blocked pane (server.lisp, via
+  =screen-blocked-p=). Log the refusal (Phase 2) so boards 05 and 06 can
+  show it.
+
+** DONE Check by hand
+- Put Claude Code on a bash permission dialog and click =[1 Yes]=: the
+  command runs and the log says who answered.
+- Clicking again after the dialog has gone is refused and types nothing.
+
+* Phase 6: board 05, needs you (=C-b n=)
+
+** DONE The queue overlay
+- A client-side overlay drawn with =draw-over=, in the style of
+  src/mux/prompt.lisp, with its own =queue-mode=.
+- It sends =(:watch-panes t)= and =(:watch-screens t)= while open, and
+  turns both off when it closes.
+- The left column lists every blocked pane in every session, oldest first,
+  each as three rows:
+  - address, label, =▲ blocked 0:42= and the subject;
+  - the first detail line;
+  - the options.
+- The right column previews the selected pane's last rows, in its faces.
+- Below the list, "answered lately" shows the newest =:answer= and
+  refused-prompt entries from every pane's log: who, what and when. The
+  client's own id is printed as "you".
+- =/= starts a filter, and what is typed after it narrows the list, scored
+  by match.lisp; =RET= keeps the filter, =Esc= drops it. Not bare typing,
+  as first written: =r= and =p= are commands here, so a filter has to be
+  asked for, the way the switchboard's is.
+
+** DONE Keys in the queue
+- =↑ ↓= / =C-n C-p= choose.
+- =1…9= answer the selected pane in place: =:answer=. The item leaves the
+  list when its state changes.
+- =RET= goes there: =:focus-pane=, then close.
+- =r= reads it: the whole screen in a note.
+- =p= prompts it instead: a one-line input, then =:agent-prompt=. This is
+  refused, and says so, if the pane is still blocked.
+- =C-g= / =Esc= close.
+
+** DONE The bar's count opens it
+- Clicking "▲ N need you" runs =needs-you=, which =C-b n= also runs.
+
+** DONE Tests
+- tests/prompt.lisp style: items built from pane plists, the order, a
+  filter, a digit sending =:answer= with the right address, and the
+  overlay closing when nothing is left.
+
+* Phase 7: board 04, the switchboard
+
+Where you work with every agent at once, across sessions, without going to
+any of them. Switching sessions is this view with nothing selected, so the
+session chooser is its lighter form, not a separate thing.
+
+** DONE The overlay, by session
+- A client-side overlay covering everything under the bar. It has no header
+  of its own: the bar already carries the counts.
+- One band per session. A band's label shows the session name, its pane
+  count, and "● here" or "go there"; clicking the label goes to that
+  session.
+- Cards sit in a grid of =floor((cols - 12) / 40)= columns, at least 1.
+  Each band ends with a "+ new pane in <session>" card.
+
+** DONE What a card says
+- It is a =framed= widget. Its face comes from state, and a double line
+  marks the cursor.
+- Top left: a ✓ when selected, then =glyph address=, label, kind. Top
+  right: state and time.
+- Body:
+  - a one-line summary of what the agent is doing: the spinner or status
+    line for =claude-code=, the subject when blocked, the last command line
+    for a shell;
+  - the last 20 minutes as a strip of state cells, drawn from the Phase 2
+    history;
+  - the pane's last rows, bottom aligned, in their faces.
+- Bottom left: the answer options when blocked. Otherwise who is driving it
+  ("driven by ctl:4", worked out from the input log), or for a pane that
+  drives others, the panes it drives. Otherwise its last input.
+- The summary line is a new =agent-doing (agent term)= next to
+  =agent-asks=.
+
+** DONE Prompt several at once
+- =space= selects cards. The composer line at the foot takes a prompt and
+  sends it to every selected pane with =:agent-prompt=, logged per pane.
+- A selected pane that is blocked is refused, as a single prompt is, and
+  the composer says which ones were refused.
+- A busy pane gets the prompt when it next goes idle. The server queues it
+  per pane (=:prompt-queued=), and the card shows the queued prompt until
+  it is sent.
+
+** DONE Sort and filter
+- Within a band, cards are ordered: needs you first, then by session order,
+  then by most recent change. =s= cycles this.
+- Typing after =/= filters on address, label, kind, state and the summary
+  line.
+
+** DONE Commands, with their default keys
+- Commands: =switchboard-left= =-right= =-up= =-down= (one move command
+  per direction, since a command takes no arguments), =switchboard-go=,
+  =switchboard-select=, =switchboard-prompt=, =switchboard-read=,
+  =switchboard-name=, =switchboard-close-pane=, =switchboard-filter=,
+  =switchboard-sort=, =switchboard-close=. The digits answer through the
+  mode's unbound-key handler, as they do in the queue.
+- Default keys: arrows, =RET=, =space=, =1…9=, =p=, =r=, =n=, =x=, =/=,
+  =s=, =Esc=.
+- A click on a card goes there. A click on its option answers it.
+- =choose-a-session= (=C-b b= today) opens this overlay with the cursor on
+  the current session.
+
+** DONE Keeping it live
+- Screens and states come from the Phase 3 pushes while it is open.
+  Nothing polls.
+
+** DONE Tests
+- Grid arithmetic at 80, 164 and 300 columns, the sort order, a filter, and
+  a push updating one card only.
+
+* Phase 8: board 06, why and who (=C-b e=)
+
+** DONE The drawer overlay
+- A client-side overlay on the right, =min(60, cols/3)= wide, over the
+  panes. The panes are not resized.
+- Kind: the class, the foreground program with its pid, and what the pane
+  was spawned as.
+- State: the state, how long, and since when.
+- The rule table from =(:agent-explain)=:
+  - winner marked =*=, other hits marked =+=;
+  - the winner's matched text shown under it;
+  - rules that did not hit, dimmed.
+- "Last 20 minutes": the state history as one cell per time bucket,
+  coloured by state, with its ends labelled.
+- "Who typed here": the pane's log, newest first, with the client's own id
+  as "you".
+- It follows the focus. =C-b e= again closes it.
+
+** DONE The frame's last-input marker
+- When the newest log entry for a pane came from another pane, or from the
+  CLI, the bottom-left title reads =⌁ last input: <who> <verb>, <age>=. The
+  frame is shared by everyone attached, so it names the source, never
+  "you".
+- A blocked pane's bottom border belongs to its answer options (Phase 5),
+  so it has no marker. Its last input is shown only in the drawer.
+
+** DONE Tests
+- The drawer drawn from a canned explain answer, history and log. The
+  bucket arithmetic of the timeline.
+
+* Phase 9: the CLI does everything the UI does
+
+** DONE =atty agent list=
+- Columns: address, label, kind, state, time in state, subject when
+  blocked.
+- =--blocked=, =--session <name>=.
+- =--json= gives the plists as JSON, for scripts.
+
+** DONE =atty agent spawn <session> [--name n] [--cwd d] -- <command>=
+- Adds a pane to a session, making the session if it is missing, and
+  prints its address.
+- This is how the field-test setup is built in one command per worker,
+  inside one session.
+
+** DONE =atty agent name=, =atty agent answer=, =atty agent log=
+- =name <pane> <label>=, or =name <label>= from inside a pane.
+- =answer <pane> <n>=: the =:answer= verb. It exits 3 when the pane is not
+  blocked.
+- =log <pane> [n]=: who typed there.
+
+** DONE =atty agent read --plain=
+- Leaves out faint text, so a greyed suggestion in a prompt box is not read
+  as typed input (field-test finding 4). The server sends faces with the
+  rows, and the CLI drops the faint ones.
+
+** DONE =atty agent wait= after a prompt
+- =prompt --until= already waits out =agent-prompted-at=.
+- =wait --after-prompt= returns only on a transition that happened after
+  the last prompt was sent to that pane, so a script that prompts and waits
+  in two commands gets the same guarantee.
+
+** DONE usage and README
+- =usage= in main.lisp and README.org: one server, the new keys (=C-b a n w
+  e z ,=), and the new verbs.
+
+* Phase 10: done means the field test passes
+
+** TODO Rerun the field test on this build
+- One session, four panes made with =atty agent spawn=, driven from the
+  fifth.
+- Every finding in AGENT-LAYER-FIELD-TEST.org is re-checked, and each of
+  the six boards is exercised by hand at least once.
+- Record the results in the same file, under a new dated heading.
+
+** TODO Benchmarks
+- =make mux-bench= and =make attached= before and after. The chips, titles
+  and log must not show up in frame cost.

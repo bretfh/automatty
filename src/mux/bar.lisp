@@ -29,20 +29,12 @@ reads to the end, and its name is the last thing in it."
         name)))
 
 (defun pane-says (pane)
-  (or (and (pane-named pane) (plusp (length (pane-named pane))) (pane-named pane))
+  "What to call PANE: the name somebody gave it, else the title its program
+gave itself, else the program."
+  (or (pane-label pane)
+      (and (pane-named pane) (plusp (length (pane-named pane))) (pane-named pane))
       (shortened (pane-command pane))
       ""))
-
-(defun agent-says (pane)
-  (let ((agent (pane-agent pane)))
-    (if (string= "agent" (agent:agent-kind agent))
-        ""
-        (let ((reason (agent:agent-reason agent)))
-          (cond ((and (eq :blocked (agent:agent-state agent)) (getf reason :question))
-                 (format nil "blocked: ~A" (getf reason :question)))
-                ((and (consp reason) (eq :unrecognized (first reason)))
-                 "unrecognized")
-                (t (string-downcase (agent:agent-state agent))))))))
 
 ;;; A button on the bar is a widget like any other, except a click on it does
 ;;; not run anything itself: the bar is composed once and shared by everyone
@@ -52,8 +44,8 @@ reads to the end, and its name is the last thing in it."
 (defclass bar-button (atty/ui:widget)
   ((runs :initarg :runs :reader bar-button-runs)))
 
-(defun bar-button (runs part)
-  (make-instance 'bar-button :runs runs :parts (list part)))
+(defun bar-button (runs part &rest props)
+  (apply #'make-instance 'bar-button :runs runs :parts (list part) props))
 
 (defmethod atty/ui:measure ((w bar-button) m aw ah)
   (let ((part (first (atty/ui:parts w))))
@@ -78,33 +70,121 @@ runs whichever of them is current."
                     +prompt-toggles+))
          (prefix (car kind)) (runs (cdr kind)))
     (atty/ui:row
-     :spacing 0 :background-color (bar-face :bg-dim)
+     :spacing 0 :background-color (bar-face :bg-alt)
      (bar-button :cycle-search-kind (atty/ui:label (format nil " ~C " prefix) :face :brand))
      (bar-button runs (atty/ui:label (format nil " ~A " runs))))))
 
-(defun default-bar (session)
-  "What the bar shows. Rebind *BAR* to a function of the session answering
-another tree, and it is another bar."
-  (atty/ui:row
-   :spacing 1
-   :background-color (bar-face :blue)
-   (atty/ui:label " λ " :face :brand)
-   (atty/ui:label (format nil " ~A " (session-name session)) :face :accent)
-   (atty/ui:label (pane-says (session-focus session)))
-   (atty/ui:label (agent-says (session-focus session))
-                 :face (if (eq :blocked (agent:agent-state
-                                         (pane-agent (session-focus session))))
-                           :warning
-                           :accent))
-   (atty/ui:gap)
-   (search-segment session)
-   (atty/ui:gap)
-   (atty/ui:label (if (pane-running (session-focus session)) "" "done") :face :warning)
-   (atty/ui:label (let ((term (session-pane-term session)))
-                  (format nil "~Dx~D" (term:term-width term) (term:term-height term))))
-   (atty/ui:label (clock-says))
-   (atty/ui:label " ")))
+(defparameter +chip-says+ 20
+  "How much of a pane's name a chip on the bar has room for.")
 
+(defun pane-chip (session pane now)
+  "A pane on the bar: its number, what it is called, and what it is doing and
+for how long. A click goes to it."
+  (let* ((agent (pane-agent pane))
+         (state (agent:agent-state agent))
+         (says (shortened-to (pane-says pane) +chip-says+))
+         (for (duration (agent:agent-for agent now)))
+         (runs (list :focus-pane (session-name session) (pane-id pane))))
+    (bar-button runs
+                (cond
+                  ((not (known-p pane))
+                   ;; a program nobody knows how to read: which one, and
+                   ;; nothing about what it is doing
+                   (apply #'atty/ui:row :spacing 0
+                          (append
+                           (when (eq pane (session-focus session))
+                             (list :background-color (bar-face :bg-active)))
+                           (list (atty/ui:label (format nil " ~D" (pane-id pane)) :face :strong)
+                                 (atty/ui:label (format nil " ~A " says))))))
+                  ((eq state :blocked)
+                   (atty/ui:label (format nil " ~D ~A ~A ~(~A~) ~A "
+                                          (pane-id pane) says (state-glyph state) state for)
+                                  :face :chip-blocked))
+                  (t
+                    (apply #'atty/ui:row :spacing 0
+                           (append
+                            (when (eq pane (session-focus session))
+                              (list :background-color (bar-face :bg-active)))
+                            (list (atty/ui:label (format nil " ~D" (pane-id pane))
+                                                 :face :strong)
+                                  (atty/ui:label (format nil " ~A " says))
+                                  (atty/ui:label (format nil "~A ~(~A~)" (state-glyph state) state)
+                                                 :face (state-face state))
+                                  (atty/ui:label (format nil " ~A " for) :face :quiet)))))))))
+
+(defparameter +worse+ '(:blocked :working :idle :unknown)
+  "The states, the one that most wants somebody first.")
+
+(defun worst-pane (session)
+  "The pane in SESSION that most wants somebody."
+  (first (sort (copy-list (session-panes session)) #'<
+               :key (lambda (p) (or (and (known-p p)
+                                         (position (agent:agent-state (pane-agent p)) +worse+))
+                                    (length +worse+))))))
+
+(defun blocked-count (server)
+  (loop :for s :in (server-sessions server)
+        :sum (count :blocked (session-panes s)
+                    :key (lambda (p) (agent:agent-state (pane-agent p))))))
+
+(defun needs-you-button (server)
+  (let ((n (blocked-count server)))
+    (when (plusp n)
+      (bar-button "needs you"
+                  (atty/ui:row :spacing 0 :background-color (bar-face :bg-alt)
+                               (atty/ui:label (format nil " ▲ ~D need~A you " n
+                                                      (if (= n 1) "s" ""))
+                                              :face :state-blocked-strong)
+                               (let ((key (key-for 'needs-you)))
+                                 (atty/ui:label (if key (format nil "~A " key) "")
+                                                :face :quiet)))))))
+
+(defun other-sessions (session)
+  "A dot for every other session, coloured by the pane in it that most wants
+somebody; a click goes there."
+  (let ((server (session-server session)))
+    (loop :for s :in (and server (server-sessions server))
+          :for worst := (and (not (eq s session)) (worst-pane s))
+          :when worst
+            :collect (let ((state (and (known-p worst) (agent:agent-state (pane-agent worst)))))
+                       (bar-button (list :focus-pane (session-name s) (pane-id worst))
+                                   (atty/ui:row :spacing 0
+                                                (atty/ui:label (format nil " ~A " (session-name s))
+                                                               :face :quiet)
+                                                (atty/ui:label (state-glyph state)
+                                                               :face (state-face state))))))))
+
+(defun default-bar (session)
+  "What the bar shows: the session, a chip for every pane in it, the way in to
+commands, how many panes anywhere are waiting on somebody, and every other
+session. Rebind *BAR* to a function of the session answering another tree, and
+it is another bar."
+  (let ((now (now-ms))
+        (server (session-server session)))
+    (apply #'atty/ui:row
+           :spacing 1
+           :background-color (bar-face :bg-dim)
+           (append
+            (list (atty/ui:label " λ " :face :brand)
+                  (atty/ui:label (format nil "~A " (session-name session)) :face :strong-accent)
+                  (atty/ui:label "│" :face :quiet))
+            (mapcar (lambda (p) (pane-chip session p now)) (session-panes session))
+            (when (session-zoomed session)
+              (list (atty/ui:row :background-color (bar-face :bg-alt)
+                                 (atty/ui:label " ⤢ zoomed " :face :strong))))
+            (list (atty/ui:gap)
+                  (search-segment session)
+                  (atty/ui:gap))
+            (let ((it (and server (needs-you-button server)))) (and it (list it)))
+            (other-sessions session)
+            (list (atty/ui:label (if (pane-running (session-focus session)) "" "done")
+                                 :face :warning)
+                  (atty/ui:label (let ((term (session-pane-term session)))
+                                   (format nil "~Dx~D" (term:term-width term)
+                                           (term:term-height term)))
+                                 :face :quiet)
+                  (atty/ui:label (clock-says))
+                  (atty/ui:label " "))))))
 (defvar *bar* #'default-bar)
 
 (defun session-bar (session)

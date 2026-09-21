@@ -124,6 +124,10 @@ already failing."
 (defun seen (seer)
   (term:term-dump-to-string (seer-host seer)))
 
+(defun seen-below-bar (seer)
+  (let ((all (seen seer)))
+    (subseq all (min (length all) (1+ (or (position #\Newline all) (length all)))))))
+
 (defmacro with-seer ((seer path &rest args) &body body)
   `(let ((,seer (a-seer ,path ,@args)))
      (unwind-protect (progn ,@body) (seer-close ,seer))))
@@ -234,9 +238,13 @@ already failing."
                               (is (search (format nil "socket=~A" path) (seen seer))
                                   "the program was not told where its server is: ~S" (seen seer)))))
 
-(defun heard-back (wire)
-  (when (mux:wire-fill wire)
-    (loop :for form := (mux:wire-take wire) :while form :collect form)))
+(defun step-until (server test &optional (seconds 5))
+  (let ((deadline (+ (get-internal-real-time)
+                     (* seconds internal-time-units-per-second))))
+    (loop :until (funcall test)
+          :do (mux:server-step server :interval 0)
+          (when (> (get-internal-real-time) deadline) (return nil))
+          :finally (return t))))
 
 (defmacro with-a-server-here ((server path) &body body)
   "A server stepped by hand, so a test can look at what it holds between steps."
@@ -246,6 +254,11 @@ already failing."
            (unwind-protect (progn ,@body)
              (mux:server-close ,server)))
        (ignore-errors (delete-file ,path)))))
+
+(defun heard-back (wire)
+  (when (mux:wire-fill wire)
+    (loop :for form := (mux:wire-take wire) :while form :collect form)))
+
 
 (test what-every-pane-is-doing-can-be-asked-and-a-hook-can-say-it
       (with-a-server-here (server path)
@@ -264,7 +277,7 @@ already failing."
                                        "the server never said what the panes are doing")
                               (let ((rows (second (find :agents heard :key #'first))))
                                 (is (eql 1 (length rows)) "the rows came back as ~S" rows)
-                                (is (equal (list "0" (mux:pane-id pane) "agent") (subseq (first rows) 0 3))
+                                (is (equal (list "0" (mux:pane-id pane) "cat") (subseq (first rows) 0 3))
                                     "the rows came back as ~S" rows)
                                 (is (member (fourth (first rows)) '(:unknown :working :idle))
                                     "a pane nobody has spoken to is ~S" (fourth (first rows))))
@@ -276,7 +289,7 @@ already failing."
                                                             (setf heard (append heard (heard-back wire)))
                                                             (find :agent heard :key #'first)))
                                        "nobody was told the pane's state changed")
-                              (is (equal (list :agent "0" (mux:pane-id pane) "agent" :blocked
+                              (is (equal (list :agent "0" (mux:pane-id pane) "cat" :blocked
                                                '(:signalled :blocked))
                                          (subseq (find :agent heard :key #'first) 0 6)))
                               (is (eq :blocked (agent:agent-state (mux:pane-agent pane))))
@@ -331,7 +344,7 @@ already failing."
                                          "the prompt did not reach the pane")
                                 (mux:wire-close wire))))))
 
-(test a-prompt-is-pasted-and-entered-a-moment-later
+(test a-prompt-of-more-than-one-line-is-pasted-and-entered-a-moment-later
       (with-server (path :command "printf '\\033[?2004h'; stty -echo; cat -v" :rows 10 :cols 60)
                    (with-seer (seer path :rows 10 :cols 60)
                               (pump seer :seconds 1/2)
@@ -348,22 +361,28 @@ already failing."
                                            "the server never said what it holds")
                                   (mux:wire-send wire (list :agent-prompt "0"
                                                             (second (first (second (find :agents heard :key #'first))))
-                                                            "hello there"))
+                                                            (format nil "hello~%there")))
                                   (mux:wire-flush wire)
-                                  (is-true (pump seer :want "^[[200~hello there^[[201~")
-                                           "the text was not pasted as a paste, or enter never came: ~S" (seen seer))
+                                  (is-true (pump seer :want "there^[[201~")
+                                           "more than one line was not pasted as a paste: ~S" (seen seer))
                                   (is (>= (- (get-internal-real-time) then)
                                           (* 1/4 internal-time-units-per-second))
                                       "enter came in the same breath as the text")
                                   (mux:wire-close wire))))))
 
-(test a-shell-is-not-said-to-be-doing-anything
-      (with-server (path :command "printf 'just-a-shell\\n'; sleep 30" :rows 10 :cols 40)
-                   (with-seer (seer path :rows 10 :cols 40)
+(test a-program-nobody-knows-has-a-chip-but-is-not-said-to-be-doing-anything
+      ;; working and idle for a shell would only say whether its screen moved
+      (with-server (path :command "printf 'just-a-shell\\n'; sleep 30" :rows 10 :cols 80)
+                   (with-seer (seer path :rows 10 :cols 80)
                               (is-true (pump seer :want "just-a-shell"))
+                              (type-at seer (format nil "~C3" mux:+prefix+))
+                              (is-true (pump seer :until (lambda () (<= 2 (count-of "printf 'just" (seen seer)))))
+                                       "a second pane got no chip of its own: ~S" (seen seer))
                               (pump seer :seconds 1)
                               (is (null (search "idle" (seen seer)))
-                                  "the bar reports on a program nobody recognised: ~S" (seen seer)))))
+                                  "a program nobody recognised was said to be idle: ~S" (seen seer))
+                              (is (null (search "working" (seen seer)))
+                                  "a program nobody recognised was said to be working: ~S" (seen seer)))))
 
 (test a-title-does-not-take-the-server-down
       (with-server (path :command "printf '\\033]0;a new title\\007here\\n'; sleep 30"
@@ -612,22 +631,17 @@ not the one clicked on: ~S" (seen seer))
                               (is (null (search "in-the-first" (seen seer)))
                                   "the two sessions are sharing a screen: ~S" (seen seer))
                               (type-at seer (format nil "~Cb" mux:+prefix+))
-                              (is-true (pump seer :want "session") "no chooser came up: ~S" (seen seer))
+                              (is-true (pump seer :want "● here") "no chooser came up: ~S" (seen seer))
                               (is-true (pump seer :until (lambda () (search "1 pane" (seen seer))))
                                        "the chooser does not say what is in them: ~S" (seen seer))
+                              ;; it opens on the session this is; the first is above it
+                              (type-at seer (format nil "~C[A" #\Escape))
+                              (pump seer :seconds 1/4)
                               (type-at seer (string #\Return))
                               (is-true (pump seer :want "in-the-first")
                                        "choosing the first session did not go back to it: ~S" (seen seer))
                               (is (null (search "in-the-second" (seen seer)))
                                   "what the second session holds came along: ~S" (seen seer)))))
-
-(defun step-until (server test &optional (seconds 5))
-  (let ((deadline (+ (get-internal-real-time)
-                     (* seconds internal-time-units-per-second))))
-    (loop :until (funcall test)
-          :do (mux:server-step server :interval 0)
-          (when (> (get-internal-real-time) deadline) (return nil))
-          :finally (return t))))
 
 (test a-watcher-whose-wire-was-shut-here-is-let-go
       (with-a-server-here (server path)
@@ -697,7 +711,8 @@ not the one clicked on: ~S" (seen seer))
                               (type-at seer "in-the-second")
                               (is-true (pump seer :want "in-the-second"))
                               (type-at seer (format nil "~C1" mux:+prefix+))
-                              (is-true (pump seer :until (lambda () (null (search "│" (seen seer)))))
+                              ;; below the bar, which has a rule of its own after the session
+                              (is-true (pump seer :until (lambda () (null (search "│" (seen-below-bar seer)))))
                                        "the rule is still there, so both panes are: ~S" (seen seer))
                               (is-true (pump seer :until (lambda () (null (search "in-the-first"
                                                                                   (seen seer)))))
@@ -769,3 +784,805 @@ not the one clicked on: ~S" (seen seer))
             (is (= 1 (length (third said)))))
           (is (equal "latecomer" (agent:agent-kind (mux:pane-agent pane))))
           (mux:wire-close wire))))))
+
+;;; One server holds every session.
+
+(defun a-wire-to (path)
+  (let ((socket (make-instance 'sb-bsd-sockets:local-socket :type :stream)))
+    (sb-bsd-sockets:socket-connect socket path)
+    (mux:make-wire (sb-bsd-sockets:socket-file-descriptor socket) socket)))
+
+(defun say-to (wire &rest forms)
+  (dolist (form forms) (mux:wire-send wire form))
+  (mux:wire-flush wire))
+
+(defun heard-from (server wire tag)
+  "Step SERVER until WIRE has been told something tagged TAG, and answer it."
+  (let ((heard nil))
+    (step-until server (lambda ()
+                         (setf heard (append heard (heard-back wire)))
+                         (find tag heard :key #'first)))
+    (find tag heard :key #'first)))
+
+(defun session-names (server)
+  (mapcar #'mux:session-name (mux:server-sessions server)))
+
+(test opening-a-session-makes-it-and-opening-it-again-joins-it
+  (with-a-server-here (server path)
+    (let ((one (a-wire-to path))
+          (two (a-wire-to path)))
+      (say-to one (list :open "work" "cat" nil 6 20 t))
+      (say-to two (list :open "work" "cat" nil 6 20 t))
+      (is-true (step-until server (lambda ()
+                                    (let ((work (mux:session-named server "work")))
+                                      (and work
+                                           (= 2 (length (mux:session-watchers work))))))))
+      (is (equal '("work") (session-names server))
+          "two clients opening one name made ~S" (session-names server))
+      (say-to one (list :open "play" "cat" nil 6 20 t))
+      (is-true (step-until server (lambda () (mux:session-named server "play"))))
+      (is (equal '("work" "play") (session-names server)))
+      (mux:wire-close one)
+      (mux:wire-close two))))
+
+(test a-session-opened-with-no-name-is-given-one
+  (with-a-server-here (server path)
+    (let ((wire (a-wire-to path)))
+      (say-to wire (list :open nil "cat" nil 6 20 t))
+      (is-true (step-until server (lambda () (mux:server-sessions server))))
+      (is (equal '("0") (session-names server)))
+      (mux:wire-close wire))))
+
+(test a-new-session-starts-where-it-was-asked-to
+  (let ((dir (string-right-trim "/" (namestring (truename (uiop:temporary-directory))))))
+    (with-a-server-here (server path)
+      (let ((wire (a-wire-to path)))
+        (say-to wire (list :open "here" "pwd -P; sleep 30" dir 6 60 t))
+        (is-true (step-until server (lambda ()
+                                      (let ((s (mux:session-named server "here")))
+                                        (and s (search dir (term:term-dump-to-string
+                                                            (mux:pane-term
+                                                             (mux:session-focus s)))))))))
+        (mux:wire-close wire)))))
+
+(test stopping-one-session-leaves-the-others-and-moves-whoever-watched-it
+  (with-a-server-here (server path)
+    (let ((watching (a-wire-to path))
+          (asking (a-wire-to path)))
+      (say-to watching (list :open "keep" "cat" nil 6 20 t))
+      (is-true (step-until server (lambda () (mux:session-named server "keep"))))
+      (say-to watching (list :open "drop" "cat" nil 6 20 t))
+      (is-true (step-until server (lambda () (mux:session-named server "drop"))))
+      (say-to asking (list :kill-session "drop"))
+      (is (equal (list :killed "drop" t) (heard-from server asking :killed)))
+      (is (equal '("keep") (session-names server)))
+      (is-true (mux:server-going server) "stopping one session stopped the server")
+      (is-true (step-until server (lambda ()
+                                    (mux:session-watchers (mux:session-named server "keep"))))
+               "whoever watched the stopped session was not moved to the one left")
+      (say-to asking (list :kill-session "nothing-by-this-name"))
+      (is (equal (list :killed "nothing-by-this-name" nil) (heard-from server asking :killed)))
+      (mux:wire-close watching)
+      (mux:wire-close asking))))
+
+(test the-sessions-say-how-many-of-their-panes-need-you
+  (with-a-server-here (server path)
+    (let* ((session (mux:add-session server "cat" :name "work" :rows 6 :cols 20))
+           (wire (a-wire-to path)))
+      ;; a pane that has just started is still drawing, and anything it is said
+      ;; to be doing is taken back the moment it draws; so it is let settle first
+      (let ((agent (mux:pane-agent (mux:session-focus session))))
+        (step-until server (lambda () (eq :idle (agent:agent-state agent))))
+        (agent:agent-hear agent :blocked)
+        (is-true (step-until server (lambda () (eq :blocked (agent:agent-state agent))))))
+      (say-to wire '(:sessions))
+      (let ((row (first (second (heard-from server wire :these)))))
+        (is (equal "work" (first row)))
+        (is (eql 1 (sixth row)) "the row was ~S" row))
+      (mux:wire-close wire))))
+
+(test a-server-says-it-holds-every-session-when-knocked-on
+  (with-server (path :command "sleep 30")
+    (is (member :one-server (mux:knocked path 3)))))
+
+(test a-server-with-nothing-yet-waits-for-its-first-session-and-no-longer
+  (with-a-server-here (server path)
+    (let ((now (mux::server-born server)))
+      (is-true (mux::server-wanted-p server now)
+               "a server just started with no session gave up at once")
+      (is (null (mux::server-wanted-p server (+ now mux::+first-session-patience+)))
+          "a server nobody reached went on holding its socket")
+      (mux:add-session server "cat" :name "work" :rows 6 :cols 20)
+      (is-true (mux::server-wanted-p server (+ now (* 2 mux::+first-session-patience+))))
+      (mux::end-the-session server (first (mux:server-sessions server)) :done)
+      (is (null (mux::server-wanted-p server now))
+          "a server whose last session ended went on"))))
+
+(test a-session-name-with-a-directory-in-it-is-not-a-socket-somewhere-else
+  (let ((mux:*server-name* "../../elsewhere"))
+    (is (equal "elsewhere" (file-namestring (mux:socket-path))))
+    (is (search (namestring (mux:mux-dir)) (mux:socket-path)))))
+
+;;; Who typed into a pane, and what it is called.
+
+(test keys-typed-at-a-pane-are-counted-by-who-typed-them-and-not-kept
+  (with-a-server-here (server path)
+    (let* ((session (mux:add-session server "cat" :name "work" :rows 6 :cols 20))
+           (pane (mux:session-focus session))
+           (wire (a-wire-to path)))
+      (say-to wire (list :who "/dev/ttys042") (list :want "work") (list :attach 6 20 t))
+      (is-true (step-until server (lambda () (mux:session-watchers session))))
+      (say-to wire (list :keys "abc"))
+      (is-true (step-until server (lambda () (mux::pane-log pane))))
+      (let ((entry (first (mux::pane-log pane))))
+        (is (eq :keys (third entry)))
+        (is (eql 3 (fourth entry)))
+        (is (eq :client (first (second entry))))
+        (is (equal "/dev/ttys042" (third (second entry))) "~S" entry))
+      (say-to wire (list :keys "de"))
+      (is-true (step-until server (lambda () (eql 5 (fourth (first (mux::pane-log pane)))))))
+      (is (eql 1 (length (mux::pane-log pane)))
+          "keys typed in one breath became ~D entries" (length (mux::pane-log pane)))
+      (is (null (search "abc" (format nil "~S" (mux::pane-log pane))))
+          "what was typed was kept")
+      (mux:wire-close wire))))
+
+(test a-prompt-says-which-pane-sent-it-and-a-refused-one-says-so
+  (with-a-server-here (server path)
+    (let* ((session (mux:add-session server "cat" :name "work" :rows 6 :cols 20))
+           (pane (mux:session-focus session))
+           (id (mux:pane-id pane))
+           (wire (a-wire-to path)))
+      (say-to wire (list :agent-prompt "work" id "run the suite" "todo:4"))
+      (heard-from server wire :agent-prompted)
+      (let ((entry (first (mux::pane-log pane))))
+        (is (equal '(:pane "todo:4") (second entry)))
+        (is (eq :prompt (third entry)))
+        (is (equal "run the suite" (fourth entry)))
+        (is (eq t (fifth entry))))
+      (let ((agent (mux:pane-agent pane)))
+        (step-until server (lambda () (eq :idle (agent:agent-state agent))))
+        (agent:agent-hear agent :blocked)
+        (step-until server (lambda () (eq :blocked (agent:agent-state agent)))))
+      (say-to wire (list :agent-prompt "work" id "STATUS?"))
+      (is (eq :blocked (fourth (heard-from server wire :agent-prompted))))
+      (let ((entry (first (mux::pane-log pane))))
+        (is (equal '(:cli) (second entry)) "~S" entry)
+        (is (eq :refused (fifth entry))))
+      (mux:wire-close wire))))
+
+(test a-pane-log-is-kept-to-a-length
+  (let ((pane (mux:make-pane "cat")))
+    (dotimes (i (* 3 mux::+log-length+))
+      (mux::pane-logged pane (* 10000 i) '(:cli) :say "x"))
+    (is (<= (length (mux::pane-log pane)) mux::+log-length+))))
+
+(test a-pane-is-named-by-whoever-asks-and-named-nothing-by-an-empty-name
+  (with-a-server-here (server path)
+    (let* ((session (mux:add-session server "cat" :name "work" :rows 6 :cols 20))
+           (pane (mux:session-focus session))
+           (id (mux:pane-id pane))
+           (wire (a-wire-to path)))
+      (say-to wire (list :name-pane "work" id "  impl "))
+      (is (equal (list :named "work" id t) (heard-from server wire :named)))
+      (is (equal "impl" (mux::pane-label pane)))
+      (is (equal "impl" (mux::pane-says pane)))
+      (say-to wire (list :name-pane "work" id ""))
+      (heard-from server wire :named)
+      (is (null (mux::pane-label pane)))
+      (say-to wire (list :name-pane "work" 9999 "nobody"))
+      (is (equal (list :named "work" 9999 nil) (heard-from server wire :named)))
+      (mux:wire-close wire))))
+
+(test naming-the-focused-pane-is-asked-of-the-server
+  (with-a-server-here (server path)
+    (let* ((session (mux:add-session server "cat" :name "work" :rows 6 :cols 20))
+           (pane (mux:session-focus session))
+           (wire (a-wire-to path)))
+      (setf (mux::pane-label pane) "arch")
+      (say-to wire (list :want "work") (list :attach 6 20 t) '(:naming))
+      (is (equal (list :name-it "work" (mux:pane-id pane) "arch" nil)
+                 (heard-from server wire :name-it)))
+      (mux:wire-close wire))))
+
+;;; What a client is told about every pane, not just the ones it is looking at.
+
+(defun settled (server pane)
+  (let ((agent (mux:pane-agent pane)))
+    (step-until server (lambda () (member (agent:agent-state agent) '(:idle :blocked))))))
+
+(defun blocked (server pane)
+  (settled server pane)
+  (agent:agent-hear (mux:pane-agent pane) :blocked)
+  (step-until server (lambda () (eq :blocked (agent:agent-state (mux:pane-agent pane))))))
+
+(test every-pane-in-every-session-can-be-asked-for-as-a-plist
+  (with-a-server-here (server path)
+    (let* ((one (mux:add-session server "cat" :name "one" :rows 6 :cols 20))
+           (two (mux:add-session server "cat" :name "two" :rows 6 :cols 20))
+           (wire (a-wire-to path)))
+      (setf (mux::pane-label (mux:session-focus two)) "impl")
+      (settled server (mux:session-focus one))
+      (say-to wire '(:panes))
+      (let ((rows (second (heard-from server wire :panes))))
+        (is (equal '("one" "two") (mapcar (lambda (r) (getf r :session)) rows)))
+        (is (equal "impl" (getf (second rows) :label)))
+        (is (equal "cat" (getf (first rows) :kind)))
+        (is (eq t (getf (first rows) :focus)))
+        (is (integerp (getf (first rows) :for)) "~S" (first rows)))
+      (mux:wire-close wire))))
+
+(test a-client-watching-the-panes-is-told-what-changed-and-what-went
+  (with-a-server-here (server path)
+    (let* ((session (mux:add-session server "cat" :name "work" :rows 6 :cols 20))
+           (first-pane (mux:session-focus session))
+           (wire (a-wire-to path))
+           (heard nil))
+      (flet ((listen-for (test)
+               (step-until server (lambda ()
+                                    (setf heard (append heard (heard-back wire)))
+                                    (find-if test heard)))))
+        (say-to wire '(:watch-panes t))
+        (is-true (listen-for (lambda (f) (eq :pane (first f))))
+                 "watching told nothing about the pane there already")
+        (setf heard nil)
+        (setf (mux::pane-label first-pane) "arch")
+        (is-true (listen-for (lambda (f) (and (eq :pane (first f))
+                                              (equal "arch" (getf (rest f) :label)))))
+                 "a new name was not told")
+        (let ((new (mux:split-the-session session :across)))
+          (setf heard nil)
+          (is-true (listen-for (lambda (f) (and (eq :pane (first f))
+                                                (eql (mux:pane-id new) (getf (rest f) :id)))))
+                   "a new pane was not told")
+          (setf heard nil)
+          (mux:close-the-pane session new)
+          (is-true (listen-for (lambda (f) (equal (list :pane-gone "work" (mux:pane-id new)) f)))
+                   "a pane that went was not told: ~S" heard))
+        (setf heard nil)
+        (step-until server (lambda () (setf heard (append heard (heard-back wire)))) 1/2)
+        (is (null (remove :pane heard :key #'first :test-not #'eq))
+            "a pane that had not changed was told again: ~S" heard))
+      (mux:wire-close wire))))
+
+(test a-panes-screen-comes-as-cells-with-its-faces
+  (with-a-server-here (server path)
+    (let* ((session (mux:add-session server "printf 'one\\n\\033[31mtwo\\033[0m\\n'; sleep 30"
+                                     :name "work" :rows 6 :cols 20))
+           (pane (mux:session-focus session))
+           (wire (a-wire-to path)))
+      (step-until server (lambda () (search "two" (term:term-dump-to-string (mux:pane-term pane)))))
+      (say-to wire (list :pane-screen "work" (mux:pane-id pane) 2))
+      (destructuring-bind (width said faces) (cdddr (heard-from server wire :pane-screen))
+        (is (eql 20 width))
+        (let ((screen (tty:make-screen :width width :height 2)))
+          (mux:said-into-screen screen said faces)
+          (is (equal "one" (shown screen 0)))
+          (is (equal "two" (shown screen 1)))
+          (is (eql 1 (term:face-fg (term:row-face (tty:screen-row screen 1) 0)))
+              "the colour did not come with it")))
+      (mux:wire-close wire))))
+
+(test a-client-watching-screens-is-sent-a-pane-when-it-moves
+  (with-a-server-here (server path)
+    (let* ((session (mux:add-session server "cat" :name "work" :rows 6 :cols 30))
+           (pane (mux:session-focus session))
+           (wire (a-wire-to path))
+           (heard nil))
+      (say-to wire '(:watch-screens 3))
+      (step-until server (lambda ()
+                           (setf heard (append heard (heard-back wire)))
+                           (find :pane-screen heard :key #'first)))
+      (is-true (find :pane-screen heard :key #'first) "watching sent no screen at all")
+      (setf heard nil)
+      (mux:pane-say pane (format nil "moved-it~C" #\Return))
+      (is-true (step-until server
+                           (lambda ()
+                             (setf heard (append heard (heard-back wire)))
+                             (some (lambda (f)
+                                     (and (eq :pane-screen (first f))
+                                          (search "moved-it" (format nil "~S" f))))
+                                   heard)))
+               "the pane moved and its screen was not sent")
+      (mux:wire-close wire))))
+
+(test an-answer-is-typed-only-into-a-pane-that-is-asking
+  (with-a-server-here (server path)
+    (let* ((session (mux:add-session server "cat" :name "work" :rows 6 :cols 30))
+           (pane (mux:session-focus session))
+           (id (mux:pane-id pane))
+           (wire (a-wire-to path)))
+      (settled server pane)
+      (say-to wire (list :answer "work" id 1))
+      (is (equal (list :answered "work" id 1 :not-blocked) (heard-from server wire :answered)))
+      (is (eq :refused (fifth (first (mux::pane-log pane)))))
+      (blocked server pane)
+      (say-to wire (list :answer "work" id 1 "todo:4"))
+      (is (equal (list :answered "work" id 1 t) (heard-from server wire :answered)))
+      (let ((entry (first (mux::pane-log pane))))
+        (is (eq :answer (third entry)))
+        (is (equal '(:pane "todo:4") (second entry))))
+      (is-true (step-until server (lambda () (search "1" (term:term-dump-to-string
+                                                          (mux:pane-term pane)))))
+               "the answer was not typed")
+      (say-to wire (list :answer "work" 9999 1))
+      (is (equal (list :answered "work" 9999 1 :gone) (heard-from server wire :answered)))
+      (mux:wire-close wire))))
+
+(test focusing-a-pane-in-another-session-takes-the-client-there
+  (with-a-server-here (server path)
+    (let* ((one (mux:add-session server "cat" :name "one" :rows 6 :cols 20))
+           (two (mux:add-session server "cat" :name "two" :rows 6 :cols 20))
+           (other (mux:split-the-session two :across))
+           (wire (a-wire-to path)))
+      (setf (mux:session-focus two) (first (mux:session-panes two)))
+      (say-to wire (list :want "one") (list :attach 6 20 t))
+      (is-true (step-until server (lambda () (mux:session-watchers one))))
+      (say-to wire (list :focus-pane "two" (mux:pane-id other)))
+      (is (equal (list :focused "two" (mux:pane-id other) t) (heard-from server wire :focused)))
+      (is (null (mux:session-watchers one)) "the client stayed on the first session")
+      (is (eql 1 (length (mux:session-watchers two))))
+      (is (eq other (mux:session-focus two)))
+      (mux:wire-close wire))))
+
+(test a-panes-history-and-log-come-with-how-long-ago
+  (with-a-server-here (server path)
+    (let* ((session (mux:add-session server "cat" :name "work" :rows 6 :cols 20))
+           (pane (mux:session-focus session))
+           (id (mux:pane-id pane))
+           (wire (a-wire-to path)))
+      (settled server pane)
+      (say-to wire (list :agent-keys "work" id "x" "todo:4"))
+      (step-until server (lambda () (mux::pane-log pane)))
+      (say-to wire (list :pane-history "work" id))
+      (let ((history (fourth (heard-from server wire :pane-history))))
+        (is (plusp (length history)) "no history")
+        (is (every (lambda (h) (and (integerp (first h)) (>= (first h) 0)
+                                    (keywordp (second h))))
+                   history)
+            "~S" history))
+      (say-to wire (list :pane-log "work" id 5))
+      (let ((entry (first (fourth (heard-from server wire :pane-log)))))
+        (is (integerp (first entry)))
+        (is (equal '(:pane "todo:4") (second entry)))
+        (is (eq :say (third entry))))
+      (mux:wire-close wire))))
+
+;;; The frames and the bar, through a real client.
+
+(defun a-dialog-script ()
+  "A script that sets the title a coding agent sets, draws a permission dialog
+under a rule, and then echoes whatever it is answered."
+  (let ((path (format nil "~Aatty-dialog-~D.sh" (uiop:temporary-directory) (sb-posix:getpid))))
+    (with-open-file (out path :direction :output :if-exists :supersede
+                              :external-format :utf-8)
+      (format out "printf '\\033]0;✳ Claude Code\\007'~%")
+      (dolist (line '("────────────────────────────────────"
+                      " Bash command" ""
+                      "   python3 -m pytest -q" ""
+                      " Do you want to proceed?"
+                      " ❯ 1. Yes"
+                      "   2. No, and tell Claude what to do differently (esc)" ""
+                      " Esc to cancel · Tab to amend"))
+        (format out "printf '%s\\n' '~A'~%" line))
+      (format out "stty -echo -icanon min 1; a=$(head -c 1); printf '\\033[2J\\033[H'; echo answered-with-$a; sleep 30~%"))
+    path))
+
+(defun where-on (seer said)
+  "Column and row, from 0, where SAID first is on the seer's screen."
+  (loop :for y :below (term:term-height (seer-host seer))
+        :for x := (search said (term:term-dump-row-string (seer-host seer) y))
+        :when x :do (return (values x y))))
+
+(defun click-at (seer x y)
+  (type-at seer (format nil "~C[<0;~D;~DM~C[<0;~D;~Dm" #\Escape (1+ x) (1+ y)
+                        #\Escape (1+ x) (1+ y))))
+
+(test a-split-frame-says-which-pane-what-it-is-called-and-what-it-is-doing
+  (with-server (path :command "sleep 30" :rows 12 :cols 80)
+    (with-seer (seer path :rows 12 :cols 80)
+      (pump seer :seconds 1/2)
+      (type-at seer (format nil "~C3" mux:+prefix+))
+      (is-true (pump seer :until (lambda () (search "╔" (seen seer))))
+               "no double frame round the focused pane: ~S" (seen seer))
+      (type-at seer (format nil "~C," mux:+prefix+))
+      (is-true (pump seer :want "name ") "the name prompt did not open: ~S" (seen seer))
+      (type-at seer (format nil "impl~C" #\Return))
+      (is-true (pump seer :want " impl sleep")
+               "the frame does not carry the new name and the program: ~S" (seen seer))
+      (is (null (search "idle" (seen seer)))
+          "a frame said what a program nobody knows is doing: ~S" (seen seer)))))
+
+(test a-blocked-pane-is-answered-by-clicking-an-answer-in-its-border
+  (let ((script (a-dialog-script)))
+    (unwind-protect
+         (with-server (path :command "/bin/sh" :rows 16 :cols 90)
+           (with-seer (seer path :rows 16 :cols 90)
+             (pump seer :seconds 1/2)
+             (type-at seer (format nil "~C3" mux:+prefix+))
+             (pump seer :until (lambda () (search "╔" (seen seer))))
+             (pump seer :seconds 1/2)
+             (type-at seer (format nil "sh ~A~C" script #\Return))
+             (is-true (pump seer :want "▲ asks") "the question never reached the border: ~S"
+                      (seen seer))
+             (is-true (pump seer :want " 1 Yes") "the answers are not in the border: ~S" (seen seer))
+             (multiple-value-bind (x y) (where-on seer " 1 Yes")
+               (click-at seer (+ x 1) y))
+             (is-true (pump seer :want "answered-with-1")
+                      "clicking the answer did not type it: ~S" (seen seer))))
+      (ignore-errors (delete-file script)))))
+
+(test zooming-a-pane-gives-it-the-session-and-zooming-again-gives-it-back
+  (with-server (path :command "cat" :rows 12 :cols 80)
+    (with-seer (seer path :rows 12 :cols 80)
+      (type-at seer "in-the-first")
+      (is-true (pump seer :want "in-the-first"))
+      (type-at seer (format nil "~C3" mux:+prefix+))
+      (pump seer :until (lambda () (search "╔" (seen seer))))
+      (type-at seer "in-the-second")
+      (is-true (pump seer :want "in-the-second"))
+      (type-at seer (format nil "~Cz" mux:+prefix+))
+      (is-true (pump seer :until (lambda () (null (search "in-the-first" (seen seer)))))
+               "the other pane still shows while one is zoomed: ~S" (seen seer))
+      (is (search "in-the-second" (seen seer)))
+      (type-at seer (format nil "~Cz" mux:+prefix+))
+      (is-true (pump seer :want "in-the-first") "zooming again did not give it back: ~S"
+               (seen seer)))))
+
+(test going-to-the-blocked-pane-goes-to-it-in-whatever-session-it-is
+  (with-a-server-here (server path)
+    (let* ((here (mux:add-session server "cat" :name "here" :rows 6 :cols 30))
+           (there (mux:add-session server "cat" :name "there" :rows 6 :cols 30))
+           (wire (a-wire-to path)))
+      (blocked server (mux:session-focus there))
+      (say-to wire (list :want "here") (list :attach 6 30 t))
+      (is-true (step-until server (lambda () (mux:session-watchers here))))
+      (say-to wire '(:go-to-blocked))
+      (is (equal (list :focused "there" (mux:pane-id (mux:session-focus there)) t)
+                 (heard-from server wire :focused)))
+      (is (mux:session-watchers there) "the client was not taken to the blocked pane")
+      (agent:agent-hear (mux:pane-agent (mux:session-focus there)) :idle)
+      (step-until server (lambda () (eq :idle (agent:agent-state
+                                               (mux:pane-agent (mux:session-focus there))))))
+      (say-to wire '(:go-to-blocked))
+      (is (equal '(:say "nothing needs you") (heard-from server wire :say)))
+      (mux:wire-close wire))))
+
+;;; Needs you.
+
+(defun a-told-client (&rest rows)
+  "A client that has been told about ROWS, without a server behind it."
+  (let ((client (mux::%make-client)))
+    (dolist (row rows client)
+      (setf (gethash (cons (getf row :session) (getf row :id)) (mux::client-panes client))
+            (list* :heard-at (mux::ms-here)
+                   ;; a row made up here is a known agent unless it says not
+                   (if (member :known row) row (list* :known t row)))))))
+
+(test the-queue-holds-what-is-asking-oldest-first-and-can-be-narrowed
+  (let* ((client (a-told-client
+                  (list :session "todo" :id 2 :says "impl" :kind "claude-code" :state :blocked
+                        :for 42000 :asks '(:subject "Bash command" :options ((1 "Yes"))))
+                  (list :session "lib" :id 1 :says "core" :kind "claude-code" :state :blocked
+                        :for 8000 :asks '(:subject "Fetch" :options ((1 "Yes"))))
+                  (list :session "todo" :id 1 :says "arch" :kind "claude-code" :state :working
+                        :for 41000)))
+         (q (mux::%make-queue)))
+    (is (equal '("todo:2" "lib:1") (mapcar #'mux::row-address (mux::queue-rows q client)))
+        "the queue was not what is blocked, oldest first")
+    (setf (mux::queue-query q) "fetch")
+    (is (equal '("lib:1") (mapcar #'mux::row-address (mux::queue-rows q client))))))
+
+(test the-queue-draws-each-question-with-its-answers-and-the-one-picked-beside-it
+  (let* ((client (a-told-client
+                  (list :session "todo" :id 2 :says "impl" :kind "claude-code" :state :blocked
+                        :for 42000 :asks '(:subject "Bash command"
+                                           :detail ("python3 -m pytest -q")
+                                           :options ((1 "Yes") (2 "No"))))))
+         (q (mux::%make-queue))
+         (screen (tty:make-screen :width 100 :height 20)))
+    (let ((mux::*drawing-for* client))
+      (mux:draw-over q screen))
+    (let ((all (format nil "~{~A~%~}" (loop :for y :below 20 :collect (shown screen y)))))
+      (is (search "needs you" all) "~A" all)
+      (is (search "todo:2" all))
+      (is (search "Bash command" all))
+      (is (search "python3 -m pytest -q" all))
+      (is (search " 1 Yes" all))
+      (is (search "1 waiting · oldest 42s" all) "~A" all))))
+
+(test the-queue-answers-a-pane-in-another-session-without-going-there
+  (let ((script (a-dialog-script)))
+    (unwind-protect
+         (with-server (path :command "/bin/sh" :rows 20 :cols 100)
+           (with-seer (seer path :rows 20 :cols 100)
+             (pump seer :seconds 1/2)
+             (type-at seer (format nil "sh ~A~C" script #\Return))
+             (is-true (pump seer :want "needs you") "the bar never said anything needs you")
+             ;; somewhere else to be while it is answered
+             (type-at seer (format nil "~Cc" mux:+prefix+))
+             (is-true (pump seer :until (lambda () (null (search "Bash command" (seen seer))))))
+             (type-at seer (format nil "~Cn" mux:+prefix+))
+             (is-true (pump seer :want "1 waiting") "the queue did not open: ~S" (seen seer))
+             (is-true (pump seer :want "python3 -m pytest -q"))
+             (type-at seer "1")
+             (is-true (pump seer :want "nothing needs you")
+                      "answering did not take it off the queue: ~S" (seen seer))
+             (is-true (pump seer :want "✓")
+                      "the answer is not among those answered lately: ~S" (seen seer))
+             (is-true (pump seer :want "by you") "~S" (seen seer))
+             (type-at seer (string (code-char 27)))
+             (pump seer :seconds 1/2)
+             (type-at seer (format nil "~Cb" mux:+prefix+))
+             (is-true (pump seer :want "● here"))
+             (type-at seer (format nil "~C[A" #\Escape))
+             (pump seer :seconds 1/4)
+             (type-at seer (string #\Return))
+             (is-true (pump seer :want "answered-with-1")
+                      "the pane was not answered: ~S" (seen seer))))
+      (ignore-errors (delete-file script)))))
+
+;;; The switchboard.
+
+(defun board-client ()
+  (let ((client (a-told-client
+                 (list :session "todo" :order 0 :at 0 :id 1 :says "arch" :kind "claude-code"
+                       :state :working :for 41000 :doing "Recording clarification 9…"
+                       :driven-by "todo:4")
+                 (list :session "todo" :order 0 :at 1 :id 2 :says "impl" :kind "claude-code"
+                       :state :blocked :for 42000
+                       :asks '(:subject "Bash command" :detail ("python3 -m pytest -q")
+                               :options ((1 "Yes") (2 "No"))))
+                 (list :session "todo" :order 0 :at 2 :id 4 :says "ctl" :kind "atty"
+                       :state :working :for 2000 :drives (list "todo:1"))
+                 (list :session "lib" :order 1 :at 0 :id 7 :says "tests" :kind "make"
+                       :state :idle :for 3000
+                       :history '((3000 :idle) (60000 :working))))))
+    (setf (mux::client-session client) "todo")
+    client))
+
+(test the-switchboard-is-a-band-a-session-and-needs-you-first-within-one
+  (let* ((client (board-client))
+         (b (mux::%make-board)))
+    (let ((bands (mux::board-bands b client)))
+      (is (equal '("todo" "lib") (mapcar #'car bands)) "the bands were not in the server's order")
+      (is (equal '(2 1 4) (mapcar (lambda (r) (getf r :id)) (cdr (first bands))))
+          "within a band the one asking did not come first, then the longest working"))
+    (setf (mux::board-sort b) 1)
+    (is (equal '(1 2 4) (mapcar (lambda (r) (getf r :id)) (cdr (first (mux::board-bands b client)))))
+        "laid out was not the order the session has them in")
+    (setf (mux::board-query b) "tests")
+    (is (equal '("lib") (mapcar #'car (mux::board-bands b client))))))
+
+(test the-switchboard-draws-what-each-is-doing-and-who-drives-it
+  (let* ((client (board-client))
+         (b (mux::%make-board :starting "todo"))
+         (screen (tty:make-screen :width 140 :height 30)))
+    (let ((mux::*drawing-for* client))
+      (mux:draw-over b screen))
+    (let ((all (format nil "~{~A~%~}" (loop :for y :below 30 :collect (shown screen y)))))
+      (is (search " todo" all))
+      (is (search "● here" all) "~A" all)
+      (is (search "go there" all) "the other session does not say it can be gone to")
+      (is (search "Recording clarification 9…" all) "what the agent is doing is not on its card")
+      (is (search "▲ Bash command" all))
+      (is (search " 1 Yes" all) "the answers are not on the asking card")
+      (is (search "⌁ driven by todo:4" all))
+      (is (search "drives todo:1" all))
+      (is (search "+ new pane in lib" all))
+      (is (search "needs you first" all)))
+    (is (equal '("todo" . 2) (mux::board-cursor b))
+        "the cursor did not start on the first card of the session this is")))
+
+(test a-cards-strip-says-what-the-pane-was-over-the-last-while
+  (is (eq :idle (mux::state-at '((3000 :idle) (60000 :working)) 0)))
+  (is (eq :working (mux::state-at '((3000 :idle) (60000 :working)) 30000)))
+  (is (null (mux::state-at '((3000 :idle) (60000 :working)) 90000))
+      "a time before anything was known was said to be something"))
+
+(test a-prompt-for-a-busy-pane-waits-until-it-is-idle
+  (with-a-server-here (server path)
+    (let* ((session (mux:add-session server "cat" :name "work" :rows 6 :cols 30))
+           (pane (mux:session-focus session))
+           (agent (mux:pane-agent pane))
+           (wire (a-wire-to path)))
+      (settled server pane)
+      (agent:agent-hear agent :working)
+      (step-until server (lambda () (eq :working (agent:agent-state agent))))
+      (say-to wire (list :prompt-when-idle "work" (mux:pane-id pane) "later-please"))
+      (is (eq :queued (fourth (heard-from server wire :agent-prompted))))
+      (is (equal "later-please" (first (mux::pane-queued pane))))
+      (is (null (search "later-please" (term:term-dump-to-string (mux:pane-term pane))))
+          "it was typed while the pane was busy")
+      (agent:agent-hear agent :idle)
+      (is-true (step-until server (lambda ()
+                                    (search "later-please"
+                                            (term:term-dump-to-string (mux:pane-term pane)))))
+               "it was not sent when the pane went idle")
+      (is (null (mux::pane-queued pane)))
+      (mux:wire-close wire))))
+
+(test the-switchboard-prompts-panes-in-two-sessions-at-once
+  (with-server (path :command "cat" :rows 20 :cols 90)
+    (with-seer (seer path :rows 20 :cols 90)
+      (pump seer :seconds 1/2)
+      (type-at seer (format nil "~Cc" mux:+prefix+))
+      (pump seer :seconds 1)
+      (type-at seer (format nil "~Cw" mux:+prefix+))
+      (is-true (pump seer :want "+ new pane in 1") "the switchboard did not open: ~S" (seen seer))
+      (type-at seer " ")
+      (pump seer :seconds 1/4)
+      (type-at seer (format nil "~C[B" #\Escape))
+      (pump seer :seconds 1/4)
+      (type-at seer " ")
+      (pump seer :seconds 1/4)
+      (type-at seer "p")
+      (is-true (pump seer :want "prompt 2") "the composer is not for the two picked: ~S" (seen seer))
+      (type-at seer "hello-both")
+      (pump seer :seconds 1/4)
+      (type-at seer (string #\Return))
+      (pump seer :seconds 1)
+      (let* ((rows (second (find :panes (mux::asked path '((:panes))
+                                                    :done (lambda (f) (eq :panes (first f))))
+                                 :key #'first)))
+             (read (lambda (row)
+                     (fourth (find :agent-lines
+                                   (mux::asked path (list (list :agent-read (getf row :session)
+                                                                (getf row :id) 5))
+                                               :done (lambda (f) (eq :agent-lines (first f))))
+                                   :key #'first)))))
+        (is (eql 2 (length rows)))
+        (dolist (row rows)
+          (is (some (lambda (l) (search "hello-both" l)) (funcall read row))
+              "~A:~D was not prompted" (getf row :session) (getf row :id)))))))
+
+;;; Why it thinks so, and who typed.
+
+(test the-drawer-says-what-decided-the-state-and-who-typed-there
+  (let* ((client (a-told-client
+                  (list :session "todo" :id 2 :says "impl" :kind "claude-code" :state :blocked
+                        :for 42000 :focus t)))
+         (key (cons "todo" 2))
+         (now (mux::ms-here))
+         (d (mux::%make-drawer :key key :asked now))
+         (screen (tty:make-screen :width 150 :height 36)))
+    (setf (mux::client-session client) "todo"
+          (gethash key (mux::client-about client))
+          (list :agent-explained
+                (list now :blocked :blocked
+                      '(("live-prompt-box" 950 :prompt-box :idle nil "")
+                        ("bash-permission-prompt" 850 :whole :blocked t
+                         "Bash command
+Do you want to proceed?
+❯ 1. Yes")
+                        ("generic-permission-prompt" 840 :after-last-rule :blocked t "x")))
+                :pane-about (list now '(:kind "claude-code" :programs ("claude --resume")
+                                        :group 48213 :command "sh -c \"exec claude\""))
+                :pane-history (list now '((42000 :blocked) (60000 :working)))
+                :pane-log (list now '((50000 (:pane "todo:4") :prompt "STATUS?" :refused)
+                                      (80000 (:pane "todo:4") :prompt "run the suite" t)
+                                      (90000 (:client 7 "/dev/ttys004") :keys 14 t)))))
+    (let ((mux::*drawing-for* client))
+      (mux:draw-over d screen))
+    (let ((all (format nil "~{~A~%~}" (loop :for y :below 36 :collect (shown screen y)))))
+      (is (search "why is todo:2 blocked?" all) "~A" all)
+      (is (search "foreground claude --resume  group 48213" all))
+      (is (search "*  850 blocked bash-permission-prompt" all)
+          "the winning rule is not marked: ~A" all)
+      (is (search "│ Do you want to proceed?" all) "the winning rule's text is not under it")
+      (is (search "+ " all) "another rule that matched is not marked")
+      (is (search "who typed here" all))
+      (is (search "todo:4" all))
+      (is (search "refused" all))
+      (is (search "keys 14 bytes" all))
+      (is (search "last 20 minutes" all)))))
+
+(test the-drawer-follows-the-focus-and-typing-still-reaches-the-pane
+  (with-server (path :command "cat" :rows 24 :cols 150)
+    (with-seer (seer path :rows 24 :cols 150)
+      (pump seer :seconds 1/2)
+      (type-at seer (format nil "~Ce" mux:+prefix+))
+      (is-true (pump seer :want "what is 0:") "the drawer did not open: ~S" (seen seer))
+      (is-true (pump seer :want "not read: no rules know this program"))
+      (type-at seer "typed-past-it")
+      (is-true (pump seer :want "typed-past-it")
+               "what was typed with the drawer open did not reach the pane: ~S" (seen seer))
+      (is-true (pump seer :want "bytes") "the drawer does not say who typed: ~S" (seen seer))
+      (type-at seer (format nil "~Ce" mux:+prefix+))
+      (is-true (pump seer :until (lambda () (null (search "what is" (seen seer)))))
+               "the key that opened it did not close it"))))
+
+;;; The command line does what the UI does.
+
+(test waiting-after-a-prompt-is-done-only-once-the-pane-took-it-up
+  ;; history is newest first, (age state); prompted is how long ago the prompt was
+  (is (null (mux::done-since-prompt-p '(:idle 5000 ((60000 :idle))) '(:idle)))
+      "an idle from before the prompt was taken for it being done")
+  (is (null (mux::done-since-prompt-p '(:idle 5000 ((4000 :idle) (60000 :working))) '(:idle)))
+      "the idle the paste itself made was taken for it being done")
+  (is-true (mux::done-since-prompt-p '(:idle 5000 ((1000 :idle) (4000 :working) (60000 :idle)))
+                                     '(:idle)))
+  (is-true (mux::done-since-prompt-p '(:blocked 5000 ((1000 :blocked) (60000 :idle)))
+                                     '(:blocked :idle))
+           "asking something after the prompt is a change it made")
+  (is (null (mux::done-since-prompt-p '(:idle nil ((1000 :idle))) '(:idle))))
+  ;; what the field test found: the server marks a prompted pane working at the
+  ;; very moment of the prompt, so that entry and the prompt are equally old
+  (is-true (mux::done-since-prompt-p
+            '(:idle 316791 ((310951 :idle) (316791 :working) (333441 :idle)))
+            '(:blocked :idle))
+           "working from the moment of the prompt was not taken for taking it up"))
+
+(test the-command-line-reads-its-flags-and-words-apart
+  (let ((args '("work" "--name" "impl" "--cwd" "/tmp" "--json")))
+    (is (equal "impl" (mux::option args "--name")))
+    (is-true (mux::flag-p args "--json"))
+    (is (equal '("work") (mux::words args "--name" "--cwd")))))
+
+(test what-goes-out-as-json-is-json
+  (is (equal "[{\"address\":\"todo:2\",\"for_ms\":42000,\"state\":\"blocked\",\"asks\":null,\"ok\":true}]"
+             (with-output-to-string (s)
+               (mux::json (list (list :address "todo:2" :for-ms 42000 :state :blocked :asks nil :ok t))
+                          s))))
+  (is (equal "\"a \\\"q\\\"\\nb\"" (with-output-to-string (s) (mux::json (format nil "a \"q\"~%b") s)))))
+
+(test reading-plainly-leaves-out-what-is-drawn-faint
+  (let ((term (a-term :width 60 :height 3)))
+    (say term (format nil "❯ ~C[2madd clarification 8~C[0m~C~Ctyped" #\Escape #\Escape #\Return #\Newline))
+    (let ((lines (mux::plain-lines term 3)))
+      (is (equal "❯" (first lines)) "the faint suggestion was read as typed: ~S" lines)
+      (is (equal "typed" (second lines))))))
+
+(test a-pane-is-spawned-into-a-session-or-makes-the-session
+  (with-a-server-here (server path)
+    (let ((wire (a-wire-to path)))
+      (say-to wire (list :spawn "work" "cat" nil "impl"))
+      (let ((id (third (heard-from server wire :spawned))))
+        (is (integerp id))
+        (let ((session (mux:session-named server "work")))
+          (is-true session "spawning into no session did not make one")
+          (is (equal "impl" (mux::pane-label (mux:session-focus session))))))
+      (say-to wire (list :spawn "work" "cat" nil "test"))
+      (let* ((id (third (heard-from server wire :spawned)))
+             (session (mux:session-named server "work")))
+        (is (eql 2 (length (mux:session-panes session))))
+        (is (equal "test" (mux::pane-label (find id (mux:session-panes session)
+                                                 :key #'mux:pane-id))))
+        (is (equal "impl" (mux::pane-label (mux:session-focus session)))
+            "spawning moved the focus off the pane somebody was in"))
+      (mux:wire-close wire))))
+
+(test since-a-prompt-says-when-it-was-and-what-came-after
+  (with-a-server-here (server path)
+    (let* ((session (mux:add-session server "cat" :name "work" :rows 6 :cols 30))
+           (pane (mux:session-focus session))
+           (wire (a-wire-to path)))
+      (settled server pane)
+      (say-to wire (list :since-prompt "work" (mux:pane-id pane)))
+      (destructuring-bind (state prompted history) (fourth (heard-from server wire :since-prompt))
+        (is (eq :idle state))
+        (is (null prompted) "a pane never prompted said it was")
+        (is (consp history)))
+      (say-to wire (list :agent-prompt "work" (mux:pane-id pane) "go"))
+      (heard-from server wire :agent-prompted)
+      (say-to wire (list :since-prompt "work" (mux:pane-id pane)))
+      (is (integerp (second (fourth (heard-from server wire :since-prompt)))))
+      (mux:wire-close wire))))
+
+(test a-prompt-of-one-line-is-typed-not-pasted
+  ;; the field test: Claude Code declined to act on a request that arrived as
+  ;; a bracketed paste, taking it for text pasted in rather than asked for
+  (with-a-server-here (server path)
+    (let* ((session (mux:add-session server
+                                     (format nil "printf '\\033[?2004h'; stty -echo; cat -v")
+                                     :name "work" :rows 6 :cols 60))
+           (pane (mux:session-focus session))
+           (wire (a-wire-to path)))
+      (step-until server (lambda () (term:term-bracketed-paste (mux:pane-term pane))))
+      (say-to wire (list :agent-prompt "work" (mux:pane-id pane) "hello there"))
+      (heard-from server wire :agent-prompted)
+      (is-true (step-until server (lambda () (search "hello there"
+                                                     (term:term-dump-to-string (mux:pane-term pane))))))
+      (is (null (search "200~" (term:term-dump-to-string (mux:pane-term pane))))
+          "one line was pasted: ~S" (term:term-dump-to-string (mux:pane-term pane)))
+      (mux:wire-close wire))))

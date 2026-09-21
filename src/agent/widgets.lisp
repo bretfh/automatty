@@ -220,3 +220,11 @@
         (list :widget :framed :top top :bottom bottom :left left
               :lines (loop :for y :from (1+ top) :below bottom
                            :collect (string-trim " │" (nth y lines))))))))
+
+(defun said (lines marker)
+  (let ((line (find-if (lambda (l)
+                         (let ((s (string-trim +blank+ l)))
+                           (and (> (length s) (length marker))
+                                (string= marker s :end2 (length marker)))))
+                       (above-prompt-box lines) :from-end t)))
+    (and line (string-trim (append +blank+ (coerce marker 'list)) line))))

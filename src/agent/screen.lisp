@@ -16,6 +16,19 @@
                   :collect (string-right-trim " " (term:term-scrollback-row-string term i)))
             (last screen (min n (length screen))))))
 
+(defun lines-of (text)
+  (loop :with start := 0
+        :for nl := (position #\Newline text :start start)
+        :collect (subseq text start nl)
+        :while nl :do (setf start (1+ nl))))
+
+(defun starts (line &rest heads)
+  (let ((said (string-trim " " line)))
+    (some (lambda (head)
+            (and (>= (length said) (length head))
+                 (string-equal head said :end2 (length head))))
+          heads)))
+
 (defparameter +rule-chars+ "─━═╌╍┄┅┈┉▄▀")
 
 (defun rule-line-p (line)

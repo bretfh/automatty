@@ -33,7 +33,17 @@ silence.")
            (knows +was-known+)
            (mode 'pane-mode)
            (going t :type boolean)
-           (why nil))
+           (why nil)
+           ;; what the server has told this client about every pane, while
+           ;; something on top has asked to be kept told
+           (id nil)
+           (panes (make-hash-table :test 'equal))
+           (screens (make-hash-table :test 'equal))
+           (lately nil)
+           (watching 0 :type fixnum)
+           (ticked 0 :type integer)
+           (session nil)
+           (about (make-hash-table :test 'equal)))
 
 (defun connect-to (path)
   (let ((socket (make-instance 'sb-bsd-sockets:local-socket :type :stream)))
@@ -41,12 +51,52 @@ silence.")
     (values (make-wire (sb-bsd-sockets:socket-file-descriptor socket) socket)
             socket)))
 
-(declaim (ftype function ask))
+(declaim (ftype function ask ask-a-name))
 
-(defun make-client (path &key name (fd tty:+stdin+) (to tty:+stdout+)
-                              (takes (tty:takes-of)))
+(defun ms-here ()
+  (floor (* 1000 (get-internal-real-time)) internal-time-units-per-second))
+
+(defun keep-told (client)
+  "Something on top wants to be told about every pane. Asked for once however
+many want it, and dropped when the last of them goes."
+  (when (= 1 (incf (client-watching client)))
+    (wire-send (client-wire client) '(:watch-panes t))
+    (wire-send (client-wire client) '(:watch-screens 16)))
+  (wire-send (client-wire client) '(:lately 5)))
+
+(defun stop-told (client)
+  (when (zerop (setf (client-watching client) (max 0 (1- (client-watching client)))))
+    (wire-send (client-wire client) '(:watch-panes nil))
+    (wire-send (client-wire client) '(:watch-screens nil))
+    (clrhash (client-panes client))
+    (clrhash (client-screens client))))
+
+(defun tty-name (fd)
+  "What the terminal on FD is called, such as /dev/ttys004, or nil. It is how a
+server tells one person's keys from another's in a pane's log."
+  (and (tty:a-terminal-p fd)
+       (ignore-errors
+        (sb-alien:alien-funcall
+         (sb-alien:extern-alien "ttyname" (function sb-alien:c-string sb-alien:int))
+         fd))))
+
+(defun terminal-size (fd)
+  "How big the terminal on FD is. One that says it has no rows or no columns,
+as a terminal made by a program that never set one does, is taken to be the
+size a terminal is when nobody said: a pane one column wide is no use to
+anybody."
   (multiple-value-bind (rows cols)
-                       (if (tty:a-terminal-p fd) (tty:host-size fd) (values 24 80))
+      (if (tty:a-terminal-p fd) (tty:host-size fd) (values 24 80))
+    (if (or (zerop rows) (zerop cols))
+        (values 24 80)
+        (values rows cols))))
+
+(defun make-client (path &key name open (fd tty:+stdin+) (to tty:+stdout+)
+                              (takes (tty:takes-of)))
+  "A client on the server at PATH, joined to the session called NAME, or the
+first one when NAME is nil. OPEN is (command directory [label]): the session is
+made with them when it is not there, its first pane called LABEL."
+  (multiple-value-bind (rows cols) (terminal-size fd)
                        (multiple-value-bind (wire socket) (connect-to path)
                                             (let ((client (%make-client :wire wire :socket socket :fd fd :to to
                                                                         :takes takes :rows rows :cols cols
@@ -57,9 +107,16 @@ silence.")
                                               ;; about names passes it over and
                                               ;; the attach it does know is the
                                               ;; shape it has always been
-                                              (when name
-                                                (wire-send wire (list :want name)))
-                                              (wire-send wire (list :attach rows cols takes))
+                                              (wire-send wire (list :who (tty-name fd)))
+                                              (if open
+                                                  (destructuring-bind (command directory &optional label)
+                                                      open
+                                                    (wire-send wire (list :open name command directory
+                                                                          rows cols takes label)))
+                                                  (progn
+                                                    (when name
+                                                      (wire-send wire (list :want name)))
+                                                    (wire-send wire (list :attach rows cols takes))))
                                               (wire-flush wire)
                                               client))))
 
@@ -86,6 +143,21 @@ them again."
 This is the seam: anything that can write cells can be put on top, and nothing
 else needs to know about it."))
 
+(defvar *drawing-for* nil
+  "The client whatever is being drawn over its session belongs to. Something on
+top that shows what the server said about the panes reads it from here.")
+
+(defgeneric ticks-p (thing)
+  (:documentation "Whether THING on top says how long something has been, and
+so is drawn again every second whether anything was said or not.")
+  (:method (thing) (declare (ignore thing)) nil))
+
+(defgeneric passes-keys-p (thing)
+  (:documentation "Whether what is typed goes on to the pane while THING is on
+top, as it would with nothing there. Something beside the panes rather than in
+front of them, that only says things, need not take the keyboard away.")
+  (:method (thing) (declare (ignore thing)) nil))
+
 (defgeneric mode-of (thing)
   (:documentation "Which mode a client is in while THING is on top.")
   (:method (thing) (declare (ignore thing)) 'pane-mode))
@@ -105,8 +177,9 @@ not something everybody attached should be shown."
   (let ((work (client-screen client)))
     (when (and work (client-from client) (client-shown client))
       (tty:screen-copy work (client-from client))
-      (dolist (it (reverse (client-over client)))
-        (draw-over it work))
+      (let ((*drawing-for* client))
+        (dolist (it (reverse (client-over client)))
+          (draw-over it work)))
       (let ((runs (tty:screen-diff (client-shown client) work)))
         (host-say client
                   (with-output-to-string (s)
@@ -140,8 +213,8 @@ looks like, not why it happened."
   (case (first form)
         (:hello
          (destructuring-bind (name rows cols &optional knows) (rest form)
-                             (declare (ignore name))
                              (setf (client-greeted client) t
+                                   (client-session client) name
                                    (client-knows client) (or knows +was-known+))
                              (client-fit client rows cols)
                              (host-say client tty:+blanked+)))
@@ -160,9 +233,14 @@ looks like, not why it happened."
         (:these
          (ask client "session"
               (mapcar (lambda (row)
-                        (destructuring-bind (name rows cols panes watching) row
-                          (format nil "~A  ~Dx~D  ~D pane~:P  ~D watching"
-                                  name cols rows panes watching)))
+                        (destructuring-bind (name rows cols panes watching
+                                             &optional (blocked 0))
+                            row
+                          (format nil "~A  ~Dx~D  ~D pane~:P  ~D watching~A"
+                                  name cols rows panes watching
+                                  (if (plusp blocked)
+                                      (format nil "  ▲ ~D blocked" blocked)
+                                      ""))))
                       (second form))
               :kind #\@
               :chose (lambda (said c)
@@ -170,6 +248,68 @@ looks like, not why it happened."
                                   (list :go (subseq said 0 (position #\Space said)))))))
         (:bell (host-say client (string (code-char 7))))
         (:do (run-command (second form) client))
+        (:say (show-note client "atty" (second form) :face :accent))
+        (:you (setf (client-id client) (second form)))
+        (:pane
+         (let ((row (rest form)))
+           (setf (gethash (cons (getf row :session) (getf row :id)) (client-panes client))
+                 (list* :heard-at (ms-here) row)
+                 (client-dirty client) t)))
+        (:pane-gone
+         (remhash (cons (second form) (third form)) (client-panes client))
+         (remhash (cons (second form) (third form)) (client-screens client))
+         (setf (client-dirty client) t))
+        (:pane-screen
+         (destructuring-bind (session id &optional width said faces) (rest form)
+           (when width
+             (setf (gethash (cons session id) (client-screens client))
+                   (let ((screen (tty:make-screen :width width
+                                                  :height (1+ (reduce #'max said
+                                                                      :key #'first
+                                                                      :initial-value 0)))))
+                     (said-into-screen screen said faces)
+                     screen)
+                   (client-dirty client) t))))
+        (:lately (setf (client-lately client) (second form)
+                       (client-dirty client) t))
+        ((:agent-explained :pane-history :pane-log :pane-about)
+         ;; what the drawer asked about a pane, kept by the pane and by what
+         ;; it was, with when it came so ages in it can be brought up to now
+         (destructuring-bind (session id &rest said) (rest form)
+           (let ((key (cons session id)))
+             (setf (getf (gethash key (client-about client)) (first form))
+                   (list* (ms-here) said)
+                   (client-dirty client) t))))
+        (:answered
+         (destructuring-bind (session id n outcome) (rest form)
+           (unless (eq outcome t)
+             (show-note client "not answered"
+                        (format nil "~A:~D was not answered ~D: ~(~A~)."
+                                session id n
+                                (case outcome
+                                  (:not-blocked "it is not asking anything now")
+                                  (:no-such-option "it has no such answer")
+                                  (:gone "it is gone")
+                                  (t outcome)))))
+           (wire-send (client-wire client) '(:lately 5))))
+        (:agent-prompted
+         (destructuring-bind (session id outcome) (rest form)
+           (unless (member outcome '(t :queued))
+             (show-note client "not prompted"
+                        (format nil "~A:~D ~A" session id
+                                (if (eq outcome :blocked)
+                                    "is asking something; answer it, not a prompt."
+                                    "is gone."))))))
+        (:read-it
+         (destructuring-bind (session id lines) (rest form)
+           (show-note client (format nil "~A:~D" session id)
+                      (format nil "~{~A~%~}"
+                              ;; the end of it, which is what is being asked
+                              (last lines (max 1 (- (client-rows client) 3))))
+                      :face :accent)))
+        (:name-it
+         (destructuring-bind (session id label title) (rest form)
+           (ask-a-name client session id label title)))
         (:bye (done-with client (second form)))
         (t nil)))
 
@@ -199,6 +339,16 @@ it."
   (setf (client-partial client)
         (if (> (- n at) +half-said+) "" (subseq said at n))))
 
+(defun client-chord-event (client event)
+  "EVENT, a key or a click as the terminal sent it, to the mode this client is
+in. A click is a key a mode can bind, and says where it landed as *MOUSE-AT*."
+  (if (and (consp event) (eq :mouse (first event)))
+      (let ((key (mouse-key-of event)))
+        (when key
+          (let ((*mouse-at* (cons (getf (rest event) :x) (getf (rest event) :y))))
+            (client-chord client key))))
+      (client-chord client (key-of event))))
+
 (defun client-pressed (client said)
   "Bytes, as keys, to the mode whatever is on top put the client in.
 
@@ -213,7 +363,7 @@ kept until it has."
                   (tty:escape-sequence-to-key-event said at n nil)
                 (when (zerop took) (client-hold client said at n) (return))
                 (incf at took)
-                (when event (client-chord client (key-of event)))))))
+                (when event (client-chord-event client event))))))
 
 (defgeneric unbound (thing chord client)
   (:documentation "What to do with a key the mode has no binding for. A prompt
@@ -248,7 +398,8 @@ mode is written in, and the pane does not see them at all.
 
 A mouse report this build has no name for is forwarded the same way. One it
 does have a name for goes to the mode instead and is not passed on."
-  (when (client-over client)
+  (when (and (client-over client)
+             (not (passes-keys-p (first (client-over client)))))
     (return-from client-typed (client-pressed client said)))
   (let* ((said (client-holding client said))
          (out (make-array (length said) :element-type 'character :fill-pointer 0))
@@ -265,7 +416,7 @@ does have a name for goes to the mode instead and is not passed on."
                         (tty:escape-sequence-to-key-event said at n nil)
                       (when (zerop took) (client-hold client said at n) (return))
                       (incf at took)
-                      (when event (client-chord client (key-of event)))
+                      (when event (client-chord-event client event))
                       (when (client-over client) (return)))
                     (let ((ch (char said at)))
                       (cond
@@ -292,7 +443,7 @@ does have a name for goes to the mode instead and is not passed on."
 (defun client-resized (client)
   (setf tty:*resized* nil)
   (when (tty:a-terminal-p (client-fd client))
-    (multiple-value-bind (rows cols) (tty:host-size (client-fd client))
+    (multiple-value-bind (rows cols) (terminal-size (client-fd client))
                          (unless (and (= rows (client-rows client)) (= cols (client-cols client)))
                            (setf (client-rows client) rows
                                  (client-cols client) cols)
@@ -325,6 +476,10 @@ moment would otherwise answer that question first, and answer it wrongly."
         (if (null said)
             (done-with client :input-gone)
           (client-typed client said))))
+    (when (and (some #'ticks-p (client-over client))
+               (>= (- (ms-here) (client-ticked client)) 1000))
+      (setf (client-ticked client) (ms-here)
+            (client-dirty client) t))
     (when (client-dirty client) (client-show client))
     (wire-flush wire)
     client))
@@ -342,9 +497,9 @@ which end of it is wrong.")
          (* +patience+ internal-time-units-per-second))
       (progn (done-with client :no-answer) nil)))
 
-(defun attach (path &key name (fd tty:+stdin+) (to tty:+stdout+)
+(defun attach (path &key name open (fd tty:+stdin+) (to tty:+stdout+)
                          (takes (tty:takes-of)))
-  (let ((client (make-client path :name name :fd fd :to to :takes takes))
+  (let ((client (make-client path :name name :open open :fd fd :to to :takes takes))
         (since (get-internal-real-time)))
     (unwind-protect
         (tty:with-host (fd :to to)

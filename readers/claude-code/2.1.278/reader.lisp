@@ -5,6 +5,7 @@
   :versions ("2.1.278")
   :launch ("claude" "--permission-mode" "default")
   :submit :typed
+  :said "⏺"
   :scenario
   ((:trust :optional t)
    (:idle :do (:approve))

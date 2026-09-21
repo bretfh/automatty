@@ -7,6 +7,16 @@
    #:agent
    #:make-agent
    #:agent-kind
+   #:agent-asks
+   #:agent-doing
+   #:agent-for
+   #:agent-history
+   #:agent-since
+   #:agent-known-p
+   #:agent-won
+   #:+history-length+
+   #:lines-of
+   #:said
    #:agent-reader
    #:agent-state
    #:agent-reason

@@ -31,12 +31,17 @@ widgets already use, just answering with itself rather than an action to run."
              (<= (atty/ui:left w) col) (< col (atty/ui:right w)))
     w))
 
-;;; A pane sits inside a frame of its own, all four sides, lit one colour when
-;;; it has the focus and another when it does not.
+;;; A pane sits inside a frame of its own, all four sides, coloured by what its
+;;; program is doing and drawn double where the focus is. What the corners say
+;;; is src/mux/frames.lisp's business.
 
-(defun pane-frame (pane focusp)
+(declaim (ftype function pane-titles frame-face))
+
+(defun pane-frame (pane focusp &optional session)
   (atty/ui:framed (pane-view pane)
-                 :face (if focusp :border-active :border-inactive)))
+                  :face (frame-face pane focusp)
+                  :line (if focusp :double :single)
+                  :titles (and session (pane-titles session pane focusp))))
 
 (defun views-in (tree)
   "Every pane-view in TREE, in the order they were put there."
@@ -87,15 +92,18 @@ one part is that part: nobody wants a border around a single pane."
                  (t (setf (split-parts it) kept) it))))
         (t it)))
 
-(defun layout-tree (it &optional focus)
+(defun layout-tree (it &optional focus session zoomed)
   "IT as widgets: a pane alone is a view with nothing around it, since there is
 nothing for a border to tell it apart from. A split is a row or a column of
-panes each in a frame of its own, the one with the focus lit."
-  (if (split-p it) (framed-tree it focus) (pane-view it)))
+panes each in a frame of its own. A ZOOMED pane is the whole of it, framed, so
+what it is doing still shows while the others are out of sight."
+  (cond (zoomed (pane-frame zoomed t session))
+        ((split-p it) (framed-tree it focus session))
+        (t (pane-view it))))
 
-(defun framed-tree (it focus)
+(defun framed-tree (it focus &optional session)
   (if (split-p it)
       (apply (if (eq (split-way it) :across) #'atty/ui:row #'atty/ui:column)
              :align :stretch :spacing 0 :expand 1
-             (mapcar (lambda (part) (framed-tree part focus)) (split-parts it)))
-      (pane-frame it (eql it focus))))
+             (mapcar (lambda (part) (framed-tree part focus session)) (split-parts it)))
+      (pane-frame it (eql it focus) session)))

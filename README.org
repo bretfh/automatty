@@ -64,16 +64,49 @@ A tagged release also carries a Linux AppImage and a macOS tarball.
 
 #+begin_src sh
 atty                    # a shell, in a session called 0, made if it isn't there
-atty <name>             # the same, under another name
-atty attach <name>      # join a session already running
-atty list               # what is running
+atty <name>             # the same, under another name, started where you are
+atty attach [<name>]    # join a session already running
+atty list               # the sessions, and how many panes in them need you
 atty stop <name>        # stop a session, and the programs in it
+atty kill-server        # stop every session
+atty -L <server> ...    # any of these against a server other than your own
 #+end_src
+
+One server holds every session, the way tmux's does.
 
 =^-b= is the prefix for everything else: =^-b d= detaches, =^-b r= redraws,
 =^-b 2= splits below, =^-b 3= splits beside, =^-b o= moves to the next pane,
-=^-b c= starts another session, =^-b b= chooses one, =^-b ?= says what every
-key does.
+=^-b c= starts another session, =^-b ?= says what every key does. Every key
+runs a named command, and =^-b := runs one by name, so any of them can be
+bound to something else.
+
+Every pane's frame is the colour of what its program is doing: working,
+blocked or idle, with how long. A pane that is asking something carries the
+question in its top border and its answers in its bottom one; click one to
+answer. The bar has a chip for every pane and a count of what needs you in
+any session.
+
+#+begin_src sh
+^-b n                   # what needs you: every question, oldest first; a digit answers it
+^-b w                   # every pane in every session, to go to, answer or prompt several at once
+^-b b                   # the same, starting on this session
+^-b a                   # go to whatever has been blocked longest
+^-b e                   # why a pane is what it is: its rules, its last while, who typed there
+^-b z                   # zoom
+^-b ,                   # name a pane
+#+end_src
+
+The same from a shell, for a program driving other panes:
+
+#+begin_src sh
+atty agent spawn work --name impl -- claude    # a pane; prints work:3
+atty agent list --blocked                      # or --json, --session <name>
+atty agent read work:3 --plain                 # its screen, without what is only suggested
+atty agent answer work:3 1                     # exits 3 if it is asking nothing
+atty agent prompt work:3 'run the suite'
+atty agent wait work:3 idle --after-prompt     # only once it has taken the prompt up
+atty agent log work:3                          # who typed into it
+#+end_src
 
 ** Depending on libatty
 

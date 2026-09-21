@@ -322,3 +322,129 @@
     (is (eql 0 (getf it :selected)))
     (is (null (getf it :subject)) "~S" (getf it :subject))
     (is (null (getf it :hint)) "~S" (getf it :hint))))
+
+(test an-agent-knows-since-when-it-has-been-what-it-is
+  (with-probe
+    (let ((a (agent:make-agent :command "cat"))
+          (term (a-term :width 40 :height 5)))
+      (is (null (agent:agent-since a)) "it knew a time before it had been anything")
+      (agent:agent-look a term 100 t)
+      (is (eql 100 (agent:agent-since a)))
+      (agent:agent-look a term 300 t)
+      (is (eql 100 (agent:agent-since a)) "working again moved when it began working")
+      (agent:agent-look a term (+ 400 agent:+hold+) nil)
+      (agent:agent-look a term (+ 1200 agent:+hold+) nil)
+      (is (eq :idle (agent:agent-state a)))
+      (is (eql 2 (length (agent:agent-history a))) "~S" (agent:agent-history a))
+      (is (eq :idle (second (first (agent:agent-history a)))))
+      (is (eql (agent:agent-since a) (first (first (agent:agent-history a)))))
+      (is (eql 500 (agent:agent-for a (+ (agent:agent-since a) 500)))))))
+
+(test an-agents-history-is-kept-to-a-length
+  (with-probe
+    (let ((a (agent:make-agent :command "cat"))
+          (term (a-term :width 40 :height 5)))
+      (dotimes (i (* 3 agent:+history-length+))
+        (agent:agent-hear a (if (evenp i) :blocked :working))
+        (agent:agent-look a term (* 10 i) nil))
+      (is (<= (length (agent:agent-history a)) agent:+history-length+)))))
+
+(defun asks-of-lines (lines)
+  (let ((term (screen-of (cons "────────────" lines) :width 100 :height 30)))
+    (agent:asks-of (agent:choice term (agent:screen-lines term)))))
+
+(defparameter +bash-dialog+
+  '(" Bash command"
+    ""
+    "   python3.13 -m pytest tests/ -q"
+    "   Run the test suite after the store change"
+    ""
+    " Do you want to proceed?"
+    " ❯ 1. Yes"
+    "   2. Yes, and don't ask again for python3.13 -m pytest commands in ~/x"
+    "   3. No, and tell Claude what to do differently (esc)"
+    ""
+    " Esc to cancel · Tab to amend · ctrl+e to explain"))
+
+(test what-a-permission-dialog-asks-is-read-off-it
+  (let ((asks (asks-of-lines +bash-dialog+)))
+    (is (equal "Bash command" (getf asks :subject)))
+    (is (equal '("python3.13 -m pytest tests/ -q" "Run the test suite after the store change")
+               (getf asks :detail)))
+    (is (equal "Do you want to proceed?" (getf asks :question)))
+    (is (equal '(1 2 3) (mapcar #'first (getf asks :options))))
+    (is (equal "Yes" (second (first (getf asks :options)))))
+    (is (eql 1 (getf asks :chosen)))))
+
+(test what-a-fetch-a-trust-and-an-mcp-dialog-ask-is-read-the-same-way
+  (let ((fetch (asks-of-lines
+                '(" Fetch" "" "   the agent wants to fetch content from docs.python.org" ""
+                  " Do you want to allow it to fetch this content?"
+                  " ❯ 1. Yes" "   2. Yes, and don't ask again for docs.python.org"
+                  "   3. No, and say what to do differently (esc)")))
+        (trust (asks-of-lines
+                '(" Accessing workspace:" "" " /somewhere/new-thing" ""
+                  " Do you trust the files in this folder?" ""
+                  " ❯ 1. Yes, proceed" "   2. No, exit" ""
+                  " Enter to confirm · Esc to cancel")))
+        (mcp (asks-of-lines
+              '(" MCP server \"docs\" requests your input" "" " Which index should be searched?"
+                " ❯ 1. Accept" "   2. Decline" "   3. Cancel"))))
+    (is (equal "Fetch" (getf fetch :subject)))
+    (is (eql 3 (length (getf fetch :options))))
+    (is (equal "Do you trust the files in this folder?" (getf trust :question)))
+    (is (equal '((1 "Yes, proceed") (2 "No, exit")) (getf trust :options)))
+    (is (equal "Which index should be searched?" (getf mcp :question)))
+    (is (equal "Accept" (second (first (getf mcp :options)))))))
+
+(test a-tip-above-the-command-is-not-what-is-asked-about
+  (let ((asks (asks-of-lines
+               '(" Bash command" ""
+                 "   Tip: auto mode handles these prompts for you — choose \"switch to auto mode\""
+                 "   below" ""
+                 "   python3 -c 'print(6*7)'"
+                 "   Run Python to print 6 times 7" ""
+                 " This command requires approval" ""
+                 " Do you want to proceed?"
+                 " ❯ 1. Yes"
+                 "   2. Yes, and don't ask again for: python3 *"
+                 "   3. Yes, and switch to auto mode"
+                 "   4. No"))))
+    (is (equal "python3 -c 'print(6*7)'" (first (getf asks :detail)))
+        "the tip was taken for the command: ~S" (getf asks :detail))
+    (is (eql 4 (length (getf asks :options))))))
+
+(test lines-with-no-question-ask-nothing
+  (is (null (asks-of-lines '("❯ " "  ? for shortcuts"))))
+  (is (null (asks-of-lines '(" 1. first step" " 2. second step")))))
+
+(test a-blocked-claude-code-says-what-it-asks-on-the-screen-it-really-drew
+  (multiple-value-bind (expect octets)
+      (agent:load-corpus (asdf:system-relative-pathname :atty "readers/claude-code/2.1.278/"))
+    (let* ((said (nthcdr 2 expect))
+           (step (find :permission (getf said :steps) :key (lambda (s) (getf s :screen))))
+           (term (a-term :width (getf said :width) :height (getf said :height)))
+           (a (agent:make-agent :programs '("claude")
+                                :paths '("/x/claude/versions/2.1.278"))))
+      (say term (term:decode-utf-8 (term:make-decoder)
+                                   (map 'string #'code-char (subseq octets 0 (getf step :at)))))
+      (agent:agent-look a term 0 t)
+      (is (eq :blocked (agent:agent-state a)))
+      (let ((asks (agent:agent-asks a term)))
+        (is (equal "Bash command" (getf asks :subject)) "~S" asks)
+        (is (not (agent::starts (first (getf asks :detail)) "Tip:")) "~S" asks)
+        (is (equal "Do you want to proceed?" (getf asks :question)))
+        (is (eql 4 (length (getf asks :options))))
+        (is (eql 1 (getf asks :chosen)))))))
+
+(test a-pane-is-called-by-what-it-holds
+  (let ((pane (mux:make-pane "/bin/zsh")))
+    (is (equal "shell" (mux::pane-kind pane)))
+    (setf (mux::pane-programs pane) '("-zsh"))
+    (is (equal "shell" (mux::pane-kind pane)) "a login shell was not a shell")
+    (setf (mux::pane-programs pane) '("make FOREIGN=1 test"))
+    (is (equal "make" (mux::pane-kind pane)))
+    (setf (mux::pane-programs pane) '("/opt/homebrew/bin/atty agent wait todo:2 idle"))
+    (is (equal "atty" (mux::pane-kind pane)))
+    (agent:agent-become (mux:pane-agent pane) :title "✳ Claude Code")
+    (is (equal "claude-code" (mux::pane-kind pane)))))

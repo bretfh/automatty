@@ -7,6 +7,7 @@
 (defparameter +still+ 2000)
 (defparameter +trace-length+ 4000)
 (defparameter +unrecognized-kept+ 50)
+(defparameter +history-length+ 512)
 
 (defvar *unrecognized-written* 0)
 
@@ -29,7 +30,11 @@
    (kept :initform nil :accessor agent-kept)
    (events :initform nil :accessor agent-events)
    (trace :initform nil :accessor agent-trace)
-   (traced :initform 0 :accessor agent-traced)))
+   (traced :initform 0 :accessor agent-traced)
+   (since :initform nil :accessor agent-since)
+   (history :initform nil :accessor agent-history)
+   (historied :initform 0 :accessor agent-historied)
+   (told :initform nil :accessor agent-told)))
 
 (defun agent-kind (agent)
   (if (agent-reader agent) (reader-name (agent-reader agent)) "agent"))
@@ -77,7 +82,21 @@
     (begin-turn agent)))
 
 (defun agent-hear (agent state)
-  (setf (agent-heard agent) state))
+  (setf (agent-heard agent) state
+        (agent-told agent) t))
+
+(defun became (agent now state)
+  (setf (agent-since agent) now)
+  (push (list now state) (agent-history agent))
+  (when (> (incf (agent-historied agent)) +history-length+)
+    (setf (agent-history agent) (subseq (agent-history agent) 0 (floor +history-length+ 2))
+          (agent-historied agent) (floor +history-length+ 2))))
+
+(defun agent-for (agent now)
+  (and (agent-since agent) (max 0 (- now (agent-since agent)))))
+
+(defun agent-known-p (agent)
+  (and (or (agent-reader agent) (agent-told agent)) t))
 
 (defun traced (agent now moved said state)
   (push (list now moved said state) (agent-trace agent))
@@ -179,6 +198,8 @@
         (if (agent-reader agent)
             (look-with-reader agent term now moved)
             (look-without-reader agent now moved))
+      (unless (and (eq state (agent-state agent)) (agent-since agent))
+        (became agent now state))
       (setf (agent-state agent) state
             (agent-reason agent) reason)
       (keep-turns agent was now)
@@ -197,3 +218,26 @@
 (defun screen-blocked-p (term)
   (loop :for reader :in *readers*
         :thereis (eq :blocked (getf (observe reader term) :means))))
+
+(defun agent-won (agent term)
+  (and (agent-reader agent) (getf (observe (agent-reader agent) term) :screen)))
+
+(defun agent-asks (agent term)
+  (declare (ignore term))
+  (let ((seen (agent-reason agent)))
+    (when (and (eq :blocked (agent-state agent)) (eq :choice (getf seen :widget)))
+      (let ((about (remove-if (lambda (line) (starts line "Tip:")) (getf seen :subject))))
+        (list :subject (or (first about) (getf seen :question))
+              :detail (rest about)
+              :question (getf seen :question)
+              :options (loop :for option :in (getf seen :options)
+                             :for n :from 1
+                             :collect (list n option))
+              :chosen (and (getf seen :selected) (1+ (getf seen :selected))))))))
+
+(defun agent-doing (agent term)
+  (let* ((lines (screen-lines term))
+         (spinning (spinner lines))
+         (reader (agent-reader agent)))
+    (cond (spinning (getf spinning :label))
+          ((and reader (reader-said reader)) (said lines (reader-said reader))))))
