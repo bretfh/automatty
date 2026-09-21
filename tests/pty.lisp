@@ -174,3 +174,21 @@ until the first quiet moment: a program that is asleep has not finished."
     (pty:pty-close fd)
     (pty:pty-reap pid)
     (is (null (pty:pty-reap pid 1/4)))))
+
+(defun running-lines (fd wanted)
+  (let ((lines nil))
+    (loop :repeat 60
+          :do (setf lines (pty:group-command-lines (pty:pty-foreground fd)))
+          :until (member wanted lines :test #'string=)
+          :do (sleep 0.05))
+    lines))
+
+(test the-foreground-group-says-what-a-shell-became
+  (with-pty (fd pid "cd / && exec sleep 5")
+    (let ((lines (running-lines fd "sleep 5")))
+      (is (member "sleep 5" lines :test #'string=) "~S" lines))))
+
+(test the-foreground-group-says-what-a-shell-is-running
+  (with-pty (fd pid "cd / && sleep 5; true")
+    (let ((lines (running-lines fd "sleep 5")))
+      (is (member "sleep 5" lines :test #'string=) "~S" lines))))

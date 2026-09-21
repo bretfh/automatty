@@ -12,4 +12,6 @@
    #:pty-write-string
    #:pty-close
    #:pty-kill
-   #:pty-reap))
+   #:pty-reap
+   #:pty-foreground
+   #:group-command-lines))

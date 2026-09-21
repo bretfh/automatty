@@ -367,3 +367,109 @@ have it."
                                  (* patience internal-time-units-per-second)))
                (pty-kill pid +sigkill+))
               (t (sleep 0.005)))))))))
+
+(sb-alien:define-alien-routine ("tcgetpgrp" %tcgetpgrp) sb-alien:int
+  (fd sb-alien:int))
+
+(defun pty-foreground (fd)
+  (let ((group (%tcgetpgrp fd)))
+    (and (plusp group) group)))
+
+(defconstant +arguments-room+ 65536)
+
+(defun nul-separated (octets start end count)
+  (loop :with at := start
+        :for n :from 0
+        :for stop := (and (< n count) (< at end)
+                          (or (position 0 octets :start at :end end) end))
+        :while stop
+        :collect (sb-ext:octets-to-string octets :start at :end stop
+                                                 :external-format :utf-8)
+        :do (setf at (1+ stop))))
+
+#+darwin
+(progn
+  (defconstant +proc-pgrp-only+ 2)
+  (defconstant +ctl-kern+ 1)
+  (defconstant +kern-procargs2+ 49)
+
+  (sb-alien:define-alien-routine ("proc_listpids" %proc-listpids) sb-alien:int
+    (type sb-alien:unsigned-int) (info sb-alien:unsigned-int)
+    (buffer sb-alien:system-area-pointer) (size sb-alien:int))
+
+  (sb-alien:define-alien-routine ("sysctl" %sysctl) sb-alien:int
+    (name sb-alien:system-area-pointer) (count sb-alien:unsigned-int)
+    (old sb-alien:system-area-pointer) (size sb-alien:system-area-pointer)
+    (new sb-alien:system-area-pointer) (new-size sb-alien:unsigned-long))
+
+  (defun group-members (group)
+    (let ((pids (make-array 256 :element-type '(signed-byte 32))))
+      (sb-sys:with-pinned-objects (pids)
+        (let ((bytes (%proc-listpids +proc-pgrp-only+ group (sb-sys:vector-sap pids)
+                                     (* 4 (length pids)))))
+          (loop :for i :below (max 0 (floor bytes 4))
+                :for pid := (aref pids i)
+                :when (plusp pid) :collect pid)))))
+
+  (defun command-line (pid)
+    (let ((name (make-array 3 :element-type '(signed-byte 32)
+                              :initial-contents (list +ctl-kern+ +kern-procargs2+ pid)))
+          (size (make-array 1 :element-type '(unsigned-byte 64)
+                              :initial-element +arguments-room+))
+          (room (make-array +arguments-room+ :element-type '(unsigned-byte 8))))
+      (sb-sys:with-pinned-objects (name size room)
+        (when (zerop (%sysctl (sb-sys:vector-sap name) 3 (sb-sys:vector-sap room)
+                              (sb-sys:vector-sap size) (sb-sys:int-sap 0) 0))
+          (let* ((end (min (aref size 0) (length room)))
+                 (count (sb-sys:signed-sap-ref-32 (sb-sys:vector-sap room) 0))
+                 (path-end (position 0 room :start 4 :end end))
+                 (start (and path-end
+                             (position 0 room :start path-end :end end :test-not #'eql))))
+            (and start (nul-separated room start end count))))))))
+
+#+linux
+(progn
+  (defun words-of (line)
+    (loop :with at := 0
+          :for start := (position #\Space line :start at :test-not #'char=)
+          :while start
+          :collect (let ((stop (or (position #\Space line :start start) (length line))))
+                     (prog1 (subseq line start stop) (setf at stop)))))
+
+  (defun group-of (pid)
+    (let* ((line (ignore-errors
+                  (with-open-file (in (format nil "/proc/~D/stat" pid))
+                    (read-line in nil))))
+           (close (and line (position #\) line :from-end t)))
+           (fields (and close (words-of (subseq line (1+ close))))))
+      (and (>= (length fields) 3) (parse-integer (third fields) :junk-allowed t))))
+
+  (defun group-members (group)
+    (loop :for path :in (directory "/proc/*/" :resolve-symlinks nil)
+          :for pid := (parse-integer (first (last (pathname-directory path)))
+                                     :junk-allowed t)
+          :when (and pid (eql group (group-of pid))) :collect pid))
+
+  (defun command-line (pid)
+    (let ((octets (ignore-errors
+                   (with-open-file (in (format nil "/proc/~D/cmdline" pid)
+                                       :element-type '(unsigned-byte 8))
+                     (let ((room (make-array +arguments-room+
+                                             :element-type '(unsigned-byte 8))))
+                       (subseq room 0 (read-sequence room in)))))))
+      (and octets (nul-separated octets 0 (length octets) most-positive-fixnum)))))
+
+#-(or darwin linux)
+(progn
+  (defun group-members (group)
+    (declare (ignore group))
+    nil)
+
+  (defun command-line (pid)
+    (declare (ignore pid))
+    nil))
+
+(defun group-command-lines (group)
+  (loop :for pid :in (group-members group)
+        :for words := (command-line pid)
+        :when words :collect (format nil "~{~A~^ ~}" words)))

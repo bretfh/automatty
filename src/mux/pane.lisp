@@ -15,7 +15,12 @@
   (named nil)
   (command nil)
   (agent nil)
+  (group nil)
+  (programs nil)
+  (programs-at 0)
   (decoder (term:make-decoder)))
+
+(defparameter +programs-every+ 1000)
 
 (defun make-pane (command &key (rows 24) (cols 80))
   "A pane with a terminal that size and no program in it yet.
@@ -33,13 +38,26 @@ room the layout gave it rather than a guess it is corrected out of afterwards."
                         :title-fn (lambda (term title)
                                     (declare (ignore term))
                                     (setf (pane-named pane) title)
-                                    (agent:agent-become (pane-agent pane) title command))
+                                    (agent:agent-become (pane-agent pane) title command
+                                                        (pane-programs pane)))
                         :input-fn (lambda (term said)
                                     (declare (ignore term))
                                     (pane-say pane said))))
     pane))
 
 (defun pane-started (pane) (>= (pane-fd pane) 0))
+
+(defun pane-notice-programs (pane now)
+  (when (and (pane-started pane) (pane-running pane))
+    (let ((group (pty:pty-foreground (pane-fd pane))))
+      (when (or (not (eql group (pane-group pane)))
+                (and (eq 'agent:agent (type-of (pane-agent pane)))
+                     (>= (- now (pane-programs-at pane)) +programs-every+)))
+        (setf (pane-group pane) group
+              (pane-programs-at pane) now
+              (pane-programs pane) (and group (pty:group-command-lines group)))
+        (agent:agent-become (pane-agent pane) (pane-named pane) (pane-command pane)
+                            (pane-programs pane))))))
 
 (defun pane-start (pane &key environment)
   "Run the pane's program on a terminal of its own, the size the pane is now."

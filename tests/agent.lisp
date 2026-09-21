@@ -173,3 +173,68 @@
     (is (equal '("d" "e") (agent:last-lines term 2)))
     (is (equal '("b" "c" "d" "e") (agent:last-lines term 4)))
     (is (equal '("a" "b" "c" "d" "e") (agent:last-lines term 40)))))
+
+(test a-program-is-known-by-what-is-running-when-what-was-started-was-a-shell
+  (is (eq 'agent:agent (type-of (agent:make-agent "" "cd /x && exec claude"))))
+  (is (eq 'agent:claude-code
+          (type-of (agent:make-agent "" "cd /x && exec claude"
+                                     '("claude --permission-mode acceptEdits")))))
+  (is (eq 'agent:claude-code
+          (type-of (agent:make-agent "" "sh" '("sh -c cd /x && claude" "claude")))))
+  (is (eq 'agent:agent (type-of (agent:make-agent "" "sh" '("sh" "claudette"))))))
+
+(test a-title-that-stops-naming-it-does-not-demote-what-is-still-running
+  (let ((a (agent:make-agent "" "cd /x && exec claude" '("claude"))))
+    (agent:agent-become a "⠂ Reading SPEC.md" "cd /x && exec claude" '("claude"))
+    (is (eq 'agent:claude-code (type-of a)))
+    (agent:agent-become a "zsh" "cd /x && exec claude" '("-zsh"))
+    (is (eq 'agent:agent (type-of a)) "it outlived the program it was named for")))
+
+(test a-prompted-agent-is-working-until-its-turn-has-begun-and-ended
+  (let ((a (agent:make-agent "✳ Claude Code" ""))
+        (term (claude-screen "─" "❯ " "─")))
+    (agent:agent-look a term 0 t)
+    (is (eq :idle (agent:agent-state a)))
+    (agent:agent-prompted a 100)
+    (is-true (agent:agent-look a term 200 nil))
+    (is (eq :working (agent:agent-state a)) "the prompt was taken for the turn being over")
+    (agent:agent-look a term 5000 t)
+    (is (eq :working (agent:agent-state a)) "idle before the turn began")
+    (over-again term "✽ Contemplating… (1s · ↓ 10 tokens)" "─" "❯" "─"
+                "  ⏵⏵ auto mode on (shift+tab to cycle) · esc to interrupt")
+    (agent:agent-look a term 6000 t)
+    (is (eq :working (agent:agent-state a)))
+    (is (null (agent:agent-prompted-at a)) "the turn began and it was still held")
+    (over-again term "─" "❯ " "─")
+    (is-true (agent:agent-look a term 9000 t))
+    (is (eq :idle (agent:agent-state a)))))
+
+(test a-prompt-that-never-starts-a-turn-is-let-go-after-a-while
+  (let ((a (agent:make-agent "✳ Claude Code" ""))
+        (term (claude-screen "─" "❯ " "─")))
+    (agent:agent-look a term 0 t)
+    (agent:agent-prompted a 0)
+    (agent:agent-look a term 10 nil)
+    (is (eq :working (agent:agent-state a)))
+    (is-true (agent:agent-look a term (1+ agent:+turn-patience+) nil))
+    (is (eq :idle (agent:agent-state a)))))
+
+(test a-prompt-to-a-program-nobody-knows-holds-nothing
+  (let ((a (agent:make-agent "" "cat")))
+    (agent:agent-prompted a 0)
+    (is (null (agent:agent-prompted-at a)))))
+
+(test a-dialog-on-the-screen-is-blocking-whatever-the-pane-is-taken-for
+  (is-true (agent:screen-blocked-p
+            (claude-screen "  Bash(rm -rf build)"
+                           "  Do you want to proceed?"
+                           "  ❯ 1. Yes"
+                           "    2. Yes, and don't ask again"
+                           "    3. No"
+                           "  Esc to cancel")))
+  (is-true (agent:screen-blocked-p
+            (claude-screen "Quick safety check: Is this a project you trust?"
+                           "❯ No, exit"
+                           "  Yes, I trust this folder"
+                           "Enter to confirm · Esc to cancel")))
+  (is-false (agent:screen-blocked-p (claude-screen "─" "❯ " "─"))))

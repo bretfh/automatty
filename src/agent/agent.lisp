@@ -3,6 +3,7 @@
 (in-package #:atty/agent)
 
 (defparameter +hold+ 700)
+(defparameter +turn-patience+ 60000)
 (defparameter +trace-length+ 4000)
 
 (defclass agent ()
@@ -11,7 +12,8 @@
    (moved :initform nil :accessor agent-moved)
    (heard :initform nil :accessor agent-heard)
    (trace :initform nil :accessor agent-trace)
-   (traced :initform 0 :accessor agent-traced)))
+   (traced :initform 0 :accessor agent-traced)
+   (prompted :initform nil :accessor agent-prompted-at)))
 
 (defstruct rule id state priority region test)
 
@@ -20,12 +22,14 @@
 (defgeneric agent-rules (agent)
   (:method ((agent agent)) nil))
 
-(defun recognized (title command)
+(defun recognized (title command &optional programs)
   (loop :for (class . test) :in *agents*
-        :when (funcall test (or title "") (or command "")) :return class))
+        :when (or (funcall test (or title "") (or command ""))
+                  (some (lambda (line) (funcall test "" line)) programs))
+          :return class))
 
-(defun agent-become (agent title command)
-  (let ((class (or (recognized title command) 'agent)))
+(defun agent-become (agent title command &optional programs)
+  (let ((class (or (recognized title command programs) 'agent)))
     (unless (eq class (type-of agent))
       (change-class agent class)
       (setf (agent-state agent) :unknown
@@ -33,8 +37,12 @@
             (agent-heard agent) nil))
     agent))
 
-(defun make-agent (&optional title command)
-  (agent-become (make-instance 'agent) title command))
+(defun make-agent (&optional title command programs)
+  (agent-become (make-instance 'agent) title command programs))
+
+(defun agent-prompted (agent now)
+  (when (agent-rules agent)
+    (setf (agent-prompted-at agent) now)))
 
 (defun traced (agent now moved said state)
   (push (list now moved said state) (agent-trace agent))
@@ -175,9 +183,17 @@
   (let ((was (agent-state agent))
         (said nil))
     (flet ((publish (state)
+             (let ((asked (agent-prompted-at agent)))
+               (when asked
+                 (cond ((member state '(:working :blocked))
+                        (setf (agent-prompted-at agent) nil))
+                       ((< (- now asked) +turn-patience+)
+                        (setf state :working))
+                       (t (setf (agent-prompted-at agent) nil)))))
              (setf (agent-quiet-since agent) nil
                    (agent-state agent) state)))
       (if (and (not moved) (null (agent-quiet-since agent)) (null (agent-heard agent))
+               (null (agent-prompted-at agent))
                (member was '(:idle :blocked)))
           (setf said :settled)
           (let ((heard (agent-heard agent)))
@@ -211,3 +227,8 @@
                                 (rule-state rule) hit
                                 (subseq text 0 (min 240 (length text))))))
                       rows)))))
+
+(defun screen-blocked-p (term)
+  (loop :for (class . nil) :in *agents*
+        :thereis (let ((won (judged (agent-rules (make-instance class)) term)))
+                   (and won (eq :blocked (rule-state won))))))

@@ -453,9 +453,11 @@ that is about a session is passed on only once it has joined one."
          (let ((pane (pane-called server name id)))
            (cond
              ((null pane) (tell watcher (list :agent-prompted name id :gone)))
-             ((eq :blocked (agent:agent-state (pane-agent pane)))
+             ((or (eq :blocked (agent:agent-state (pane-agent pane)))
+                  (agent:screen-blocked-p (pane-term pane)))
               (tell watcher (list :agent-prompted name id :blocked)))
-             (t (pane-say pane (if (term:term-bracketed-paste (pane-term pane))
+             (t (agent:agent-prompted (pane-agent pane) (floor (nanos) 1000000))
+                (pane-say pane (if (term:term-bracketed-paste (pane-term pane))
                                    (concatenate 'string (string #\Escape) "[200~"
                                                 text (string #\Escape) "[201~")
                                    text))
@@ -562,6 +564,7 @@ session's."
 (defun session-observe (session now)
   (let ((changed nil))
     (dolist (pane (session-panes session))
+      (pane-notice-programs pane (floor now 1000000))
       (when (agent:agent-look (pane-agent pane) (pane-term pane)
                               (floor now 1000000) (pane-dirty pane))
         (push pane changed)))

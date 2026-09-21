@@ -16,6 +16,10 @@
    #:agent-become
    #:agent-explain
    #:agent-trace
+   #:agent-prompted
+   #:agent-prompted-at
+   #:screen-blocked-p
+   #:+turn-patience+
    #:*agents*
    #:+hold+
    #:rule
