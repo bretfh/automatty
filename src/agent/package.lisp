@@ -6,11 +6,17 @@
   (:export
    #:agent
    #:make-agent
+   #:agent-kind
+   #:agent-reader
    #:agent-state
+   #:agent-reason
+   #:agent-turn
+   #:agent-version
+   #:agent-verified
+   #:agent-observation
    #:agent-moved
+   #:agent-still-since
    #:agent-heard
-   #:agent-rules
-   #:agent-signal
    #:agent-look
    #:agent-hear
    #:agent-become
@@ -18,21 +24,52 @@
    #:agent-trace
    #:agent-prompted
    #:agent-prompted-at
+   #:agent-take-events
+   #:agent-submits-typed-p
    #:screen-blocked-p
-   #:+turn-patience+
-   #:*agents*
    #:+hold+
-   #:rule
-   #:make-rule
-   #:rule-id
-   #:rule-state
-   #:rule-priority
-   #:rule-region
-   #:rule-test
-   #:region-text
+   #:+turn-patience+
    #:last-lines
-   #:lines-of
-   #:has
-   #:any-line
-   #:option-line-p
-   #:claude-code))
+   #:screen-lines
+   #:rule-row-p
+   #:left-column
+   #:cell-face
+   #:row-inverse-p
+   #:snapshot
+   #:snapshot-term
+   #:write-snapshot
+   #:read-snapshot
+   #:load-snapshot
+   #:prompt-input
+   #:spinner
+   #:footer
+   #:title
+   #:choice
+   #:framed
+   #:reader
+   #:reader-name
+   #:reader-submit
+   #:reader-form
+   #:*readers*
+   #:defreader
+   #:register-reader
+   #:read-reader
+   #:reader-named
+   #:reader-for
+   #:bad-reader
+   #:version-from
+   #:observe
+   #:observe-explained
+   #:offered
+   #:action-keys
+   #:reader-for-version
+   #:nearest-reader
+   #:step-keys
+   #:press-keys
+   #:load-corpus
+   #:save-corpus
+   #:replay
+   #:verdict-passed-p
+   #:register-reader-texts
+   #:load-catalog
+   #:write-index))

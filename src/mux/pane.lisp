@@ -17,6 +17,7 @@
   (agent nil)
   (group nil)
   (programs nil)
+  (paths nil)
   (programs-at 0)
   (decoder (term:make-decoder)))
 
@@ -29,7 +30,7 @@ Starting it is a second step because the size it is started at is the size it is
 told, once: a shell that asks stty for it on its first line must be told the
 room the layout gave it rather than a guess it is corrected out of afterwards."
   (let ((pane (%make-pane :id (incf *panes-made*) :command command
-                          :agent (agent:make-agent nil command))))
+                          :agent (agent:make-agent :command command))))
     (setf (pane-term pane)
           (term:make-term :width cols :height rows
                         :bell-fn (lambda (term)
@@ -38,8 +39,10 @@ room the layout gave it rather than a guess it is corrected out of afterwards."
                         :title-fn (lambda (term title)
                                     (declare (ignore term))
                                     (setf (pane-named pane) title)
-                                    (agent:agent-become (pane-agent pane) title command
-                                                        (pane-programs pane)))
+                                    (agent:agent-become (pane-agent pane) :title title
+                                                                          :command command
+                                                                          :programs (pane-programs pane)
+                                                                          :paths (pane-paths pane)))
                         :input-fn (lambda (term said)
                                     (declare (ignore term))
                                     (pane-say pane said))))
@@ -53,11 +56,15 @@ room the layout gave it rather than a guess it is corrected out of afterwards."
       (when (or (not (eql group (pane-group pane)))
                 (and (eq 'agent:agent (type-of (pane-agent pane)))
                      (>= (- now (pane-programs-at pane)) +programs-every+)))
-        (setf (pane-group pane) group
-              (pane-programs-at pane) now
-              (pane-programs pane) (and group (pty:group-command-lines group)))
-        (agent:agent-become (pane-agent pane) (pane-named pane) (pane-command pane)
-                            (pane-programs pane))))))
+        (let ((running (and group (pty:group-processes group))))
+          (setf (pane-group pane) group
+                (pane-programs-at pane) now
+                (pane-programs pane) (mapcar (lambda (p) (getf p :line)) running)
+                (pane-paths pane) (mapcar (lambda (p) (getf p :path)) running)))
+        (agent:agent-become (pane-agent pane) :title (pane-named pane)
+                                              :command (pane-command pane)
+                                              :programs (pane-programs pane)
+                                              :paths (pane-paths pane))))))
 
 (defun pane-start (pane &key environment)
   "Run the pane's program on a terminal of its own, the size the pane is now."

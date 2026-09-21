@@ -402,6 +402,15 @@ have it."
     (old sb-alien:system-area-pointer) (size sb-alien:system-area-pointer)
     (new sb-alien:system-area-pointer) (new-size sb-alien:unsigned-long))
 
+  (sb-alien:define-alien-routine ("proc_pidpath" %proc-pidpath) sb-alien:int
+    (pid sb-alien:int) (buffer sb-alien:system-area-pointer) (size sb-alien:unsigned-int))
+
+  (defun process-path (pid)
+    (let ((room (make-array 4096 :element-type '(unsigned-byte 8))))
+      (sb-sys:with-pinned-objects (room)
+        (let ((n (%proc-pidpath pid (sb-sys:vector-sap room) (length room))))
+          (and (plusp n) (sb-ext:octets-to-string room :end n :external-format :utf-8))))))
+
   (defun group-members (group)
     (let ((pids (make-array 256 :element-type '(signed-byte 32))))
       (sb-sys:with-pinned-objects (pids)
@@ -450,6 +459,9 @@ have it."
                                      :junk-allowed t)
           :when (and pid (eql group (group-of pid))) :collect pid))
 
+  (defun process-path (pid)
+    (ignore-errors (namestring (truename (format nil "/proc/~D/exe" pid)))))
+
   (defun command-line (pid)
     (let ((octets (ignore-errors
                    (with-open-file (in (format nil "/proc/~D/cmdline" pid)
@@ -467,9 +479,20 @@ have it."
 
   (defun command-line (pid)
     (declare (ignore pid))
+    nil)
+
+  (defun process-path (pid)
+    (declare (ignore pid))
     nil))
 
 (defun group-command-lines (group)
   (loop :for pid :in (and group (group-members group))
         :for words := (command-line pid)
         :when words :collect (format nil "~{~A~^ ~}" words)))
+
+(defun group-processes (group)
+  (loop :for pid :in (and group (group-members group))
+        :for words := (command-line pid)
+        :when words :collect (list :pid pid
+                                   :line (format nil "~{~A~^ ~}" words)
+                                   :path (process-path pid))))

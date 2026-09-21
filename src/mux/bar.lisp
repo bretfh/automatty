@@ -35,9 +35,14 @@ reads to the end, and its name is the last thing in it."
 
 (defun agent-says (pane)
   (let ((agent (pane-agent pane)))
-    (if (eq 'agent:agent (type-of agent))
+    (if (string= "agent" (agent:agent-kind agent))
         ""
-        (string-downcase (agent:agent-state agent)))))
+        (let ((reason (agent:agent-reason agent)))
+          (cond ((and (eq :blocked (agent:agent-state agent)) (getf reason :question))
+                 (format nil "blocked: ~A" (getf reason :question)))
+                ((and (consp reason) (eq :unrecognized (first reason)))
+                 "unrecognized")
+                (t (string-downcase (agent:agent-state agent))))))))
 
 ;;; A button on the bar is a widget like any other, except a click on it does
 ;;; not run anything itself: the bar is composed once and shared by everyone

@@ -4,6 +4,7 @@
   #:use-module (guix build-system gnu)
   #:use-module ((guix licenses) #:prefix license:)
   #:use-module (gnu packages lisp)
+  #:use-module (gnu packages lisp-xyz)
   #:export (atty))
 
 (define (atty-source-select? file stat)
@@ -19,7 +20,7 @@
     (build-system gnu-build-system)
     ;; sbcl is a build-time tool, not a runtime dependency: save-lisp-and-die
     ;; embeds the runtime it needs into the executable it writes
-    (native-inputs (list sbcl))
+    (native-inputs (list sbcl sbcl-cl-ppcre))
     (arguments
      (list
       #:tests? #f
@@ -28,7 +29,10 @@
           (delete 'configure)
           (replace 'build
             (lambda _
-              (setenv "CL_SOURCE_REGISTRY" (string-append (getcwd) "//"))
+              (setenv "CL_SOURCE_REGISTRY"
+                      (string-append (getcwd) "//:"
+                                     #$(this-package-native-input "sbcl-cl-ppcre")
+                                     "/share/common-lisp//"))
               (setenv "ATTY_OUT" "atty")
               (invoke "sbcl" "--non-interactive" "--load" "build.lisp")))
           (delete 'check)

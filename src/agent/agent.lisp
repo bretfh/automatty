@@ -4,45 +4,80 @@
 
 (defparameter +hold+ 700)
 (defparameter +turn-patience+ 60000)
+(defparameter +still+ 2000)
 (defparameter +trace-length+ 4000)
+(defparameter +unrecognized-kept+ 50)
+
+(defvar *unrecognized-written* 0)
 
 (defclass agent ()
-  ((state :initform :unknown :accessor agent-state)
+  ((reader :initform nil :accessor agent-reader)
+   (version :initform nil :accessor agent-version)
+   (verified :initform nil :accessor agent-verified)
+   (observation :initform nil :accessor agent-observation)
+   (looked :initform nil :accessor agent-looked)
+   (state :initform :unknown :accessor agent-state)
+   (reason :initform nil :accessor agent-reason)
+   (turn :initform 0 :accessor agent-turn)
+   (in-turn :initform nil :accessor agent-in-turn)
+   (idle-since :initform nil :accessor agent-idle-since)
    (quiet-since :initform nil :accessor agent-quiet-since)
+   (still-since :initform nil :accessor agent-still-since)
    (moved :initform nil :accessor agent-moved)
    (heard :initform nil :accessor agent-heard)
+   (prompted :initform nil :accessor agent-prompted-at)
+   (kept :initform nil :accessor agent-kept)
+   (events :initform nil :accessor agent-events)
    (trace :initform nil :accessor agent-trace)
-   (traced :initform 0 :accessor agent-traced)
-   (prompted :initform nil :accessor agent-prompted-at)))
+   (traced :initform 0 :accessor agent-traced)))
 
-(defstruct rule id state priority region test)
+(defun agent-kind (agent)
+  (if (agent-reader agent) (reader-name (agent-reader agent)) "agent"))
 
-(defvar *agents* nil)
+(defun agent-submits-typed-p (agent)
+  (and (agent-reader agent) (eq :typed (reader-submit (agent-reader agent)))))
 
-(defgeneric agent-rules (agent)
-  (:method ((agent agent)) nil))
-
-(defun recognized (title command &optional programs)
-  (loop :for (class . test) :in *agents*
-        :when (or (funcall test (or title "") (or command ""))
-                  (some (lambda (line) (funcall test "" line)) programs))
-          :return class))
-
-(defun agent-become (agent title command &optional programs)
-  (let ((class (or (recognized title command programs) 'agent)))
-    (unless (eq class (type-of agent))
-      (change-class agent class)
-      (setf (agent-state agent) :unknown
+(defun agent-become (agent &key title command programs paths)
+  (let* ((known (reader-for :title title :command command :programs programs))
+         (version (and known (version-from known paths)))
+         (exact (and version (reader-for-version (reader-name known) version)))
+         (reader (or exact (and known version (nearest-reader (reader-name known) version)) known)))
+    (unless (eq reader (agent-reader agent))
+      (setf (agent-reader agent) reader
+            (agent-observation agent) nil
+            (agent-looked agent) nil
+            (agent-state agent) :unknown
+            (agent-reason agent) nil
             (agent-quiet-since agent) nil
+            (agent-still-since agent) nil
             (agent-heard agent) nil))
+    (setf (agent-version agent) version
+          (agent-verified agent) (and exact t))
     agent))
 
-(defun make-agent (&optional title command programs)
-  (agent-become (make-instance 'agent) title command programs))
+(defun make-agent (&key title command programs paths)
+  (agent-become (make-instance 'agent) :title title :command command
+                                       :programs programs :paths paths))
+
+(defun said-event (agent event)
+  (setf (agent-events agent) (append (agent-events agent) (list event))))
+
+(defun agent-take-events (agent)
+  (prog1 (agent-events agent)
+    (setf (agent-events agent) nil)))
+
+(defun begin-turn (agent)
+  (setf (agent-in-turn agent) t
+        (agent-idle-since agent) nil)
+  (said-event agent (list :turn (incf (agent-turn agent)) :began)))
 
 (defun agent-prompted (agent now)
-  (when (agent-rules agent)
-    (setf (agent-prompted-at agent) now)))
+  (when (agent-reader agent)
+    (setf (agent-prompted-at agent) now)
+    (begin-turn agent)))
+
+(defun agent-hear (agent state)
+  (setf (agent-heard agent) state))
 
 (defun traced (agent now moved said state)
   (push (list now moved said state) (agent-trace agent))
@@ -50,185 +85,115 @@
     (setf (agent-trace agent) (subseq (agent-trace agent) 0 (floor +trace-length+ 2))
           (agent-traced agent) (floor +trace-length+ 2))))
 
-(defun screen-lines (term)
-  (let ((lines (loop :for y :below (term:term-height term)
-                     :collect (string-right-trim " " (term:term-dump-row-string term y)))))
-    (subseq lines 0 (1+ (or (position-if (lambda (l) (plusp (length l))) lines :from-end t)
-                            -1)))))
+(defun unrecognized-dir ()
+  (let ((state (uiop:getenv "XDG_STATE_HOME")))
+    (uiop:ensure-directory-pathname
+     (format nil "~A/atty/unrecognized/"
+             (string-right-trim "/" (if (and state (plusp (length state)))
+                                        state
+                                        (format nil "~A.local/state"
+                                                (namestring (user-homedir-pathname)))))))))
 
-(defun last-lines (term n)
-  (let* ((screen (screen-lines term))
-         (above (max 0 (- n (length screen))))
-         (size (term:term-scrollback-size term)))
-    (append (loop :for i :from (max 0 (- size above)) :below size
-                  :collect (string-right-trim " " (term:term-scrollback-row-string term i)))
-            (last screen (min n (length screen))))))
+(defun keep-unrecognized (agent term)
+  (let ((hash (sxhash (term:term-dump-to-string term))))
+    (unless (or (member hash (agent-kept agent))
+                (>= *unrecognized-written* +unrecognized-kept+))
+      (push hash (agent-kept agent))
+      (incf *unrecognized-written*)
+      (ignore-errors
+       (let ((path (merge-pathnames (format nil "~A-~A-~36R.sexp" (agent-kind agent)
+                                            (or (agent-version agent) "unknown") hash)
+                                    (unrecognized-dir))))
+         (ensure-directories-exist path)
+         (with-open-file (out path :direction :output :if-exists :supersede
+                                   :external-format :utf-8)
+           (write-snapshot (snapshot term) out)))))))
 
-(defun rule-line-p (line)
-  (let* ((said (string-trim " " line))
-         (run (or (position #\─ said :test-not #'char=) (length said))))
-    (and (plusp run)
-         (or (= run (length said)) (>= run 3)))))
+(defun held-by-prompt (agent state now)
+  (let ((asked (agent-prompted-at agent)))
+    (cond ((null asked) state)
+          ((member state '(:working :blocked))
+           (setf (agent-prompted-at agent) nil)
+           state)
+          ((< (- now asked) +turn-patience+) :working)
+          (t (setf (agent-prompted-at agent) nil)
+             state))))
 
-(defun bottom-non-empty (lines n)
-  (let ((from (loop :with seen := 0
-                    :for i :from (1- (length lines)) :downto 0
-                    :when (plusp (length (string-trim " " (nth i lines))))
-                      :do (incf seen)
-                          (when (= seen n) (return i))
-                    :finally (return (if (plusp seen) 0 (length lines))))))
-    (nthcdr from lines)))
+(defun look-with-reader (agent term now moved)
+  (when (or moved (not (agent-looked agent)))
+    (setf (agent-observation agent) (observe (agent-reader agent) term)
+          (agent-looked agent) t))
+  (let ((seen (agent-observation agent)))
+    (cond
+      ((and seen (eq :skip (getf seen :means)))
+       (values (agent-state agent) (agent-reason agent) :skip))
+      (seen
+       (values (held-by-prompt agent (getf seen :means) now) seen (getf seen :screen)))
+      ((agent-heard agent)
+       (values (agent-heard agent) (list :signalled (agent-heard agent)) :heard))
+      ((>= (- now (agent-still-since agent)) +still+)
+       (keep-unrecognized agent term)
+       (values (held-by-prompt agent :unknown now)
+               (list :unrecognized :program (agent-kind agent) :version (agent-version agent))
+               :unrecognized))
+      (t (values (agent-state agent) (agent-reason agent) :settling)))))
 
-(defun after-last-rule (lines)
-  (let ((at (position-if #'rule-line-p lines :from-end t)))
-    (if at (nthcdr (1+ at) lines) lines)))
-
-(defun prompt-box-top (lines)
-  (loop :with seen := 0
-        :for i :from (1- (length lines)) :downto 0
-        :when (rule-line-p (nth i lines))
-          :do (incf seen)
-              (when (= seen 2) (return i))))
-
-(defun prompt-box-body (lines)
-  (let ((top (prompt-box-top lines)))
-    (when top
-      (let* ((rest (nthcdr (1+ top) lines))
-             (end (position-if #'rule-line-p rest)))
-        (subseq rest 0 end)))))
-
-(defun above-prompt-box (lines)
-  (let ((top (prompt-box-top lines)))
-    (if top (subseq lines 0 top) lines)))
-
-(defun region-lines (term lines region)
+(defun look-without-reader (agent now moved)
   (cond
-    ((eq region :whole) lines)
-    ((eq region :title) (list (term:term-title term)))
-    ((eq region :after-last-rule) (after-last-rule lines))
-    ((eq region :prompt-box) (prompt-box-body lines))
-    ((eq region :above-prompt-box) (above-prompt-box lines))
-    ((eq region :last-above-prompt-box)
-     (let ((it (find-if (lambda (l) (plusp (length (string-trim " " l))))
-                        (above-prompt-box lines) :from-end t)))
-       (and it (list it))))
-    ((and (consp region) (eq (first region) :bottom))
-     (bottom-non-empty lines (second region)))
-    (t nil)))
+    ((agent-heard agent) (values (agent-heard agent) (list :signalled (agent-heard agent)) :heard))
+    (moved (setf (agent-quiet-since agent) nil)
+           (values :working nil :busy))
+    ((eq :working (agent-state agent))
+     (let ((since (or (agent-quiet-since agent) (setf (agent-quiet-since agent) now))))
+       (if (>= (- now since) +hold+)
+           (values :idle nil :quiet)
+           (values :working nil :quiet))))
+    (t (values :idle nil :quiet))))
 
-(defun region-text (term region)
-  (format nil "~{~A~^~%~}" (region-lines term (screen-lines term) region)))
-
-(defun has (text &rest wanted)
-  (every (lambda (w) (search w text :test #'char-equal)) wanted))
-
-(defun lines-of (text)
-  (loop :with start := 0
-        :for nl := (position #\Newline text :start start)
-        :collect (subseq text start nl)
-        :while nl :do (setf start (1+ nl))))
-
-(defun any-line (text test)
-  (some test (lines-of text)))
-
-(defun starts (line &rest heads)
-  (let ((said (string-trim " " line)))
-    (some (lambda (head)
-            (and (>= (length said) (length head))
-                 (string-equal head said :end2 (length head))))
-          heads)))
-
-(defun option-line-p (line &rest heads)
-  (let ((said (string-left-trim " ❯" (string-trim " " line))))
-    (apply #'starts said heads)))
-
-(defun judged (rules term)
-  (let ((lines (screen-lines term))
-        (texts nil)
-        (rows nil)
-        (won nil))
-    (flet ((text-of (region)
-             (let ((seen (assoc region texts :test #'equal)))
-               (if seen
-                   (cdr seen)
-                   (let ((text (format nil "~{~A~^~%~}" (region-lines term lines region))))
-                     (push (cons region text) texts)
-                     text)))))
-      (dolist (rule rules)
-        (let* ((text (text-of (rule-region rule)))
-               (hit (and (plusp (length text)) (funcall (rule-test rule) text) t)))
-          (push (list rule hit text) rows)
-          (when (and hit (or (null won) (> (rule-priority rule) (rule-priority won))))
-            (setf won rule)))))
-    (values won (nreverse rows))))
-
-(defgeneric agent-signal (agent term)
-  (:method-combination or))
-
-(defmethod agent-signal or ((agent agent) term)
-  (let* ((rules (agent-rules agent))
-         (won (judged rules term)))
-    (cond (won (rule-state won))
-          ((agent-heard agent) (agent-heard agent))
-          (rules :unknown)
-          ((agent-moved agent) :busy)
-          (t :quiet))))
-
-(defun agent-hear (agent state)
-  (setf (agent-heard agent) state))
+(defun keep-turns (agent was now)
+  (let ((state (agent-state agent)))
+    (cond
+      ((and (not (agent-in-turn agent)) (member state '(:working :blocked))
+            (member was '(:idle :unknown)))
+       (begin-turn agent))
+      ((and (agent-in-turn agent) (eq state :idle))
+       (let ((since (or (agent-idle-since agent) (setf (agent-idle-since agent) now))))
+         (when (>= (- now since) +hold+)
+           (setf (agent-in-turn agent) nil
+                 (agent-idle-since agent) nil)
+           (said-event agent (list :turn (agent-turn agent) :ended)))))
+      ((not (eq state :idle))
+       (setf (agent-idle-since agent) nil)))))
 
 (defun agent-look (agent term now moved)
   (setf (agent-moved agent) moved)
-  (when moved (setf (agent-heard agent) nil))
+  (when moved
+    (setf (agent-heard agent) nil
+          (agent-still-since agent) now))
+  (unless (agent-still-since agent)
+    (setf (agent-still-since agent) now))
   (let ((was (agent-state agent))
-        (said nil))
-    (flet ((publish (state)
-             (let ((asked (agent-prompted-at agent)))
-               (when asked
-                 (cond ((member state '(:working :blocked))
-                        (setf (agent-prompted-at agent) nil))
-                       ((< (- now asked) +turn-patience+)
-                        (setf state :working))
-                       (t (setf (agent-prompted-at agent) nil)))))
-             (setf (agent-quiet-since agent) nil
-                   (agent-state agent) state)))
-      (if (and (not moved) (null (agent-quiet-since agent)) (null (agent-heard agent))
-               (null (agent-prompted-at agent))
-               (member was '(:idle :blocked)))
-          (setf said :settled)
-          (let ((heard (agent-heard agent)))
-            (setf said (agent-signal agent term)
-                  (agent-heard agent) nil)
-            (case said
-              (:skip)
-              (:busy (publish :working))
-              (:quiet
-               (if (eq was :working)
-                   (let ((since (or (agent-quiet-since agent)
-                                    (setf (agent-quiet-since agent) now))))
-                     (when (>= (- now since) +hold+) (publish :idle)))
-                   (publish :idle)))
-              (t (publish said)))
-            (when (and heard (eq said heard))
-              (setf said (list :heard said))))))
-    (traced agent now moved said (agent-state agent))
-    (not (eq was (agent-state agent)))))
+        (was-reason (agent-reason agent))
+        (was-events (length (agent-events agent))))
+    (multiple-value-bind (state reason said)
+        (if (agent-reader agent)
+            (look-with-reader agent term now moved)
+            (look-without-reader agent now moved))
+      (setf (agent-state agent) state
+            (agent-reason agent) reason)
+      (keep-turns agent was now)
+      (traced agent now moved said state))
+    (or (not (eq was (agent-state agent)))
+        (not (equal was-reason (agent-reason agent)))
+        (> (length (agent-events agent)) was-events))))
 
 (defun agent-explain (agent term)
-  (let ((rules (agent-rules agent)))
-    (multiple-value-bind (won rows) (judged rules term)
-      (values (cond (won (rule-state won))
-                    (rules :unknown)
-                    ((agent-moved agent) :busy)
-                    (t :quiet))
-              (mapcar (lambda (row)
-                        (destructuring-bind (rule hit text) row
-                          (list (rule-id rule) (rule-priority rule) (rule-region rule)
-                                (rule-state rule) hit
-                                (subseq text 0 (min 240 (length text))))))
-                      rows)))))
+  (let ((reader (agent-reader agent)))
+    (if reader
+        (values (getf (observe reader term) :screen)
+                (observe-explained reader term))
+        (values (if (agent-moved agent) :busy :quiet) nil))))
 
 (defun screen-blocked-p (term)
-  (loop :for (class . nil) :in *agents*
-        :thereis (let ((won (judged (agent-rules (make-instance class)) term)))
-                   (and won (eq :blocked (rule-state won))))))
+  (loop :for reader :in *readers*
+        :thereis (eq :blocked (getf (observe reader term) :means))))

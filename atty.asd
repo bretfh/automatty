@@ -46,12 +46,17 @@
 
 (asdf:defsystem #:atty/agent
                 :description "What the program in a pane is doing"
-                :depends-on (#:libatty)
+                :depends-on (#:libatty #:cl-ppcre)
                 :serial t
                 :pathname "src/agent/"
                 :components ((:file "package")
-                             (:file "agent")
-                             (:file "claude-code")))
+                             (:file "screen")
+                             (:file "snapshot")
+                             (:file "widgets")
+                             (:file "reader")
+                             (:file "corpus")
+                             (:file "catalog")
+                             (:file "agent")))
 
 (asdf:defsystem #:atty
                 :description "A terminal emulator and multiplexer"
@@ -76,6 +81,7 @@
                              (:file "note")
                              (:file "prompt")
                              (:file "keys")
+                             (:file "record")
                              (:file "main")))
 
 (asdf:defsystem #:atty/all
@@ -99,6 +105,7 @@
                              (:file "mux")
                              (:file "cells")
                              (:file "view")
-                             (:file "prompt"))
+                             (:file "prompt")
+                             (:file "readers"))
                 :perform (asdf:test-op (o c)
                                        (uiop:symbol-call :atty/test :run-them)))

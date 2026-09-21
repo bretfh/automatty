@@ -18,7 +18,8 @@ more than the terminal it is sitting inside costs in the first place.")
 (defparameter +understood+
   '(:want :attach :go :new :sessions :knock :detach :stop
     :keys :resize :bar :split :focus :close :only :mouse-at
-    :agents :agent-signal :agent-read :agent-keys :agent-prompt :agent-explain
+    :agents :agent-signal :agent-read :agent-keys :agent-prompt :agent-explain :agent-snapshot
+    :agent-act :agent-observe :readers-load
     :agent-trace)
   "Every message this server knows what to do with.
 
@@ -174,10 +175,57 @@ on it are the whole of who may."
     (dolist (w (session-watchers session)) (setf (watcher-behind w) t))
     new))
 
+(defparameter +act-patience+ 5000)
+(defparameter +act-still+ 400)
+
+(defun act-on-pane (server watcher name id action argument &optional until)
+  (let* ((now (floor (nanos) 1000000))
+         (until (or until (+ now +act-patience+)))
+         (pane (pane-called server name id))
+         (still (and pane (agent:agent-still-since (pane-agent pane)))))
+    (if (and still (not (eq action :interrupt)) (< (- now still) +act-still+) (< now until))
+        (later server 100 (lambda () (act-on-pane server watcher name id action argument until)))
+        (act-now server watcher name id action argument))))
+
+(defun act-now (server watcher name id action argument)
+  (let* ((pane (pane-called server name id))
+         (agent (and pane (pane-agent pane)))
+         (reader (and agent (agent:agent-reader agent)))
+         (seen (and reader (agent:observe reader (pane-term pane))))
+         (keys (and seen (agent:action-keys reader seen action argument))))
+    (cond
+      ((null pane) (tell watcher (list :agent-acted name id action :gone)))
+      ((null reader) (tell watcher (list :agent-acted name id action :no-reader)))
+      ((null keys)
+       (tell watcher (list :agent-acted name id action :not-offered
+                           (and seen (agent:offered reader seen)) (getf seen :screen))))
+      (t
+       (when (eq action :submit)
+         (agent:agent-prompted agent (floor (nanos) 1000000)))
+       (loop :for chunk :in keys
+             :for at :from 0 :by +enter-after+
+             :do (let ((chunk chunk))
+                   (if (zerop at)
+                       (pane-say pane chunk)
+                       (later server at (lambda () (pane-say pane chunk))))))
+       (let ((deadline (+ (floor (nanos) 1000000) +act-patience+
+                          (* +enter-after+ (length keys)))))
+         (labels ((check ()
+                    (let ((now-seen (agent:observe reader (pane-term pane))))
+                      (cond ((not (equal now-seen seen))
+                             (tell watcher (list :agent-acted name id action :done
+                                                 (getf now-seen :screen))))
+                            ((> (floor (nanos) 1000000) deadline)
+                             (tell watcher (list :agent-acted name id action :failed
+                                                 (getf seen :screen))))
+                            (t (later server 100 #'check))))))
+           (later server (+ 100 (* +enter-after+ (1- (length keys)))) #'check)))))))
+
 (defun agent-row (session pane)
   (let ((agent (pane-agent pane)))
     (list (session-name session) (pane-id pane)
-          (string-downcase (type-of agent)) (agent:agent-state agent))))
+          (agent:agent-kind agent) (agent:agent-state agent)
+          (agent:agent-reason agent) (agent:agent-turn agent))))
 
 (defun agent-rows (server &optional session)
   (loop :for s :in (if session (list session) (server-sessions server))
@@ -444,6 +492,11 @@ that is about a session is passed on only once it has joined one."
          (let ((pane (pane-called server name id)))
            (tell watcher (list :agent-lines name id
                                (and pane (agent:last-lines (pane-term pane) n)))))))
+      (:agent-snapshot
+       (destructuring-bind (name id) (rest form)
+         (let ((pane (pane-called server name id)))
+           (tell watcher (list :agent-snapshotted name id
+                               (and pane (agent:snapshot (pane-term pane))))))))
       (:agent-keys
        (destructuring-bind (name id text) (rest form)
          (let ((pane (pane-called server name id)))
@@ -457,13 +510,42 @@ that is about a session is passed on only once it has joined one."
                   (agent:screen-blocked-p (pane-term pane)))
               (tell watcher (list :agent-prompted name id :blocked)))
              (t (agent:agent-prompted (pane-agent pane) (floor (nanos) 1000000))
-                (pane-say pane (if (term:term-bracketed-paste (pane-term pane))
+                (pane-say pane (if (and (term:term-bracketed-paste (pane-term pane))
+                                        (not (agent:agent-submits-typed-p (pane-agent pane))))
                                    (concatenate 'string (string #\Escape) "[200~"
                                                 text (string #\Escape) "[201~")
                                    text))
                 (later server +enter-after+
                        (lambda () (pane-say pane (string #\Return))))
-                (tell watcher (list :agent-prompted name id t)))))))
+                (tell watcher (list :agent-prompted name id t
+                                    (and (agent:agent-reader (pane-agent pane))
+                                         (agent:agent-turn (pane-agent pane))))))))))
+      (:agent-observe
+       (destructuring-bind (name id) (rest form)
+         (let* ((pane (pane-called server name id))
+                (agent (and pane (pane-agent pane)))
+                (reader (and agent (agent:agent-reader agent)))
+                (seen (and reader (agent:observe reader (pane-term pane)))))
+           (tell watcher (list :agent-observed name id
+                               (and agent (list :kind (agent:agent-kind agent)
+                                                :version (agent:agent-version agent)
+                                                :verified (agent:agent-verified agent)
+                                                :state (agent:agent-state agent)
+                                                :offered (and seen (agent:offered reader seen))
+                                                :observation seen)))))))
+      (:agent-act
+       (destructuring-bind (name id action &optional argument) (rest form)
+         (act-on-pane server watcher name id action argument)))
+      (:readers-load
+       (destructuring-bind (texts) (rest form)
+         (multiple-value-bind (loaded refused) (agent:register-reader-texts texts)
+           (dolist (session (server-sessions server))
+             (dolist (pane (session-panes session))
+               (agent:agent-become (pane-agent pane) :title (pane-named pane)
+                                                     :command (pane-command pane)
+                                                     :programs (pane-programs pane)
+                                                     :paths (pane-paths pane))))
+           (tell watcher (list :readers-loaded loaded refused)))))
       (:agent-trace
        (destructuring-bind (name id) (rest form)
          (let ((pane (pane-called server name id)))
@@ -569,10 +651,15 @@ session's."
                               (floor now 1000000) (pane-dirty pane))
         (push pane changed)))
     (dolist (pane changed)
-      (dolist (w (session-watchers session))
-        (setf (watcher-behind w) t)
-        (when (wire-open (watcher-wire w))
-          (tell w (cons :agent (agent-row session pane))))))
+      (let ((events (agent:agent-take-events (pane-agent pane))))
+        (dolist (w (session-watchers session))
+          (setf (watcher-behind w) t)
+          (when (wire-open (watcher-wire w))
+            (tell w (cons :agent (agent-row session pane)))
+            (dolist (event events)
+              (destructuring-bind (kind n what) event
+                (declare (ignore kind))
+                (tell w (list :agent-turn (session-name session) (pane-id pane) n what))))))))
     changed))
 
 (defun session-due-p (session)

@@ -1,0 +1,228 @@
+#+TITLE: atty agent layer: process, reader, session, actions
+
+* Context
+
+** The field test
+
+Three Claude Code sessions were driven through ~atty agent~ to build a todo app. The app got built (105 tests), but the agent layer failed where it matters:
+
+- The panes were launched as ~cd dir && exec claude~. Recognition looked at the first word of the spawn string, so they were never classified as Claude.
+- The generic class has no rules, so a permission dialog read as ~idle~.
+- ~agent prompt~ trusted that ~idle~ and typed into the dialog, which approved it.
+- ~prompt --until idle~ returned before the work had started.
+
+The full write-up is in [[file:AGENT-LAYER-FIELD-TEST.org]].
+
+** Interim fixes
+
+Already landed in ~de45fb3~:
+
+- Recognition from the kernel (~tcgetpgrp~ plus argv).
+- A hold on the prompt.
+- A screen check before ~prompt~ types anything.
+
+The macOS make-target fixes are done but not yet committed:
+
+- the seer drain thread
+- portable pty and poll tests
+- libproc accounting in the bench
+- the ~log-path~ export
+- the nil-group guard
+
+** herdr, read on disk (~/git/rust/herdr)
+
+- 270k lines of Rust.
+- Detection is regex over flattened strings (~region()~ returns ~&str~). It uses 22 per-agent TOML manifests, run by a 1.5k-line interpreter (~src/detect/manifest.rs~).
+- For rich state it writes hook scripts into ~~/.claude/settings.json~ and the Codex and Kimi configs.
+- Plugins are separate node or executable processes talking over a socket.
+- The one idea worth taking: a detection catalog fetched and updated live (~herdr.dev/agent-detection/index.toml~).
+
+** The real problem is atty's architecture
+
+~src/agent/claude-code.lisp~ is a hand port of herdr's ~claude.toml~: same rule ids, priorities and regions, with the regexes rewritten as ~has~ / ~starts~. The pipeline is herdr's too: screen → string → pattern → enum. Specifically:
+
+1. *One CLOS object does three jobs.* Its class is the program kind, the rules hang off that class, and it also holds the state. ~change-class~ swaps the rules and resets the state (~agent-become~ in ~src/agent/agent.lisp~).
+2. *Rules only ever see strings.* ~judged~ joins region lines into text, so faces, positions and the cursor never reach a rule.
+3. *The only output is one keyword.* ~blocked~ carries no reason, and answering means scraping the screen again and sending raw keys (~\e[B\r~, ~2~).
+4. *State is polled on every tick with a 700ms quiet heuristic.* There are no turns and no events. ~prompted-at~ and ~screen-blocked-p~ are patches over the missing turn model.
+
+** Outcome
+
+- ~blocked~ carries what it's blocked on: the question, the subject and the options.
+- Answers are typed intents (~approve~, ~deny~, ~choose 2~), confirmed by watching the screen change.
+- Turns and events replace polling heuristics.
+- Readers are per program, built on shared widget recognizers over the real grid.
+- A broken reader is detected and pinned to a version and a screen.
+- Readers are fetched live from the repo catalog.
+- Every (agent, version) has its own corpus, reader and verdict, so the tests are per version.
+- A new version is recorded and replayed against the nearest reader. If it differs, it gets a reader of its own, written by an agent from the failures.
+- macOS and Linux.
+
+* Decisions
+
+- *Text anchors* use cl-ppcre, as a dependency of ~atty/agent~ only. libatty stays dependency-free.
+- *Readers* are CL now, with moonli later as the user-facing extension syntax over the same format.
+- *The catalog* is the automatty GitHub repo, ~readers/~, fetched over raw HTTPS.
+- *The second agent* is Cursor's agent CLI. Gemini CLI was installed but never signed in, and Cursor was.
+- *Fetched readers are data, never code.* They're read with ~*read-eval* nil~ and validated against a schema. Widgets are code shipped in the binary. The same plist format is used by in-repo ~defreader~ forms and by catalog files.
+- *No agent config files are ever written.*
+- *The unit is (agent, version).* What a version puts on screen is a fact taken from that version, never assumed from another.
+- *A corpus is the pty byte stream* of that version driven through every state. It's recorded in a canonical environment (a fixed scratch folder name, no personal paths) and replays through libatty the same way on any OS, with no agent installed.
+
+* Architecture
+
+1. *Process* (~src/mux/pane.lisp~, ~src/pty/pty.lisp~): what's running, from the kernel. ~pane-notice-programs~ already exists. Add the executable path (darwin ~proc_pidpath~, linux ~readlink /proc/<pid>/exe~) so a reader can take the version from it. Claude's path carries it: ~~/.local/share/claude/versions/2.1.278~.
+2. *Reader* (~src/agent/reader.lisp~, readers as data in ~readers/<agent>/<version>/reader.lisp~): turns a screen view into observations.
+3. *Session* (~src/agent/session.lisp~): turns, state with its reason, and events.
+4. *Actions* (declared in readers, run by ~src/agent/reader.lisp~): typed intents become keys, and are confirmed by the next observation.
+
+** Screen view and widgets (code, shipped)
+
+~src/agent/screen.lisp~ is a view over a libatty term. It uses:
+
+- ~term-grid-row~, ~row-chars~, ~row-faces~
+- the ~face-*~ accessors (inverse, faint, bold, fg and bg)
+- ~term-cursor-x~ / ~y~, ~term-in-alt-screen~, ~term-title~, ~term-scrollback-row~
+
+It absorbs the region helpers that exist today in ~src/agent/agent.lisp~: ~rule-line-p~, ~after-last-rule~, ~prompt-box-body~, ~bottom-non-empty~, ~screen-lines~ and ~last-lines~.
+
+~src/agent/widgets.lisp~ holds the shared recognizers. Each returns a plist or nil:
+
+- ~prompt-input~: the text between two rule lines behind a ~❯~ / ~>~ marker.
+- ~spinner~: a glyph, a label, ~…~, and an optional elapsed time.
+- ~choice~: a question line, the option rows, and the selected index. The selection is found by a marker glyph, by inverse face, or by accent fg. It also returns the subject lines between the question and the options.
+- ~footer~: hint text in the bottom lines.
+- ~framed~: the bounds of a box-drawing dialog, for boxed TUIs.
+
+** Reader format (data)
+
+#+begin_src lisp
+(defreader claude-code
+  :programs ("claude") :title "Claude Code"
+  :version (:exec-path "versions/([0-9.]+)$")
+  :versions ("2.1.278")
+  :screens
+  ((:transcript :widget :footer :match "(?i)showing detailed transcript" :means :skip)
+   (:trust :widget :choice :question "(?i)trust this folder|quick safety check" :means :blocked
+    :actions (:approve (:option "(?i)^yes") :deny (:option "(?i)^no")))
+   (:permission :widget :choice :question "(?i)do you want to proceed\\?" :means :blocked
+    :actions (:approve (:option "^Yes$") :approve-always (:option "(?i)don.t ask again")
+              :deny (:option "(?i)^no")))
+   (:working :widget :spinner :means :working)
+   (:working :widget :footer :match "esc to interrupt" :means :working)
+   (:idle :widget :prompt-input :means :idle)))
+#+end_src
+
+- Order is priority, and the first match wins.
+- An observation is the widget's plist plus ~:screen~ (the entry id). For example: ~(:screen :permission :question "Do you want to proceed?" :subject ("Bash(rm -rf build)") :options ("Yes" …) :selected 0)~.
+- ~choose~ defaults to widget navigation: arrow keys from the selected index to the target, then Return. A reader can override that with digit shortcuts.
+- Readers are keyed by argv program name and aliases. ~recognized~ is replaced by a registry lookup over ~pane-programs~.
+- ~:versions~ lists every version this reader is proven for, each by its own corpus. ~:from~ names the reader it inherits from, and entries it redefines replace that reader's entries with the same id.
+
+** Per version: corpus, reader, verdict
+
+For each (agent, version):
+
+- *Corpus:* that version's real output as a pty byte stream, cut at each state of the scenario.
+- *Reader:* how to read and answer that version. A version that passes the previous reader's replay joins its ~:versions~. One that fails gets its own reader, inheriting with ~:from~.
+- *Verdict:* the reader replayed against the corpus, state by state. It must recognize the expected screen, get the question and every option right, and produce the action keys that actually moved the program to the next state in the recording.
+
+The scenario is data in the agent's entry: the ordered states to reach and how to reach each one. For Claude that's a fresh folder for trust, a submitted prompt for a permission or a question, and ctrl+o for the transcript. Every step names the screen it expects and the action it takes. States that need a model turn cost a model call and can vary, so a step that doesn't reach its state is reported as unreached, separately from a reader being wrong.
+
+The loop that keeps it current:
+
+1. atty meets a version with no verified reader, from the executable path. It uses the nearest earlier reader, marks the pane unverified, and keeps every screen that reader can't read.
+2. ~atty record <agent>~ runs the scenario against the installed version and writes its corpus.
+3. The nearest reader is replayed against it. A pass adds the version to that reader's ~:versions~. On a failure, the failing screens, the ~explain~ output and the previous reader are what an agent needs to write the new version's reader in CL, which goes through the same replay before it's accepted.
+4. The reader is published to the catalog, and running servers load it live.
+
+At runtime, lookup is by exact version and comes out as one of three: verified, nearest but unverified, or none.
+
+** Session
+
+This replaces ~agent-look~, ~publish~, ~prompted-at~ and ~screen-blocked-p~.
+
+- Each pane holds its reader, the latest observation, its state (~:working :blocked :idle :unknown~), the reason (the observation), and a turn number.
+- A turn begins when atty submits a prompt, or when a working observation appears while idle. It ends when ~:idle~ is observed and holds through a settle interval.
+- ~blocked~ is set by any ~:means :blocked~ observation. The answer and the resume are recorded in the turn.
+- *Unrecognized screen:* a reader is selected, the screen has been still for 2s or more, and no entry matches. The state becomes ~:unknown~ with reason ~(:unrecognized :program … :version …)~, and a snapshot is saved once per distinct screen hash to ~$XDG_STATE_HOME/atty/unrecognized/~ (keeping the last 50). The bar flags it.
+- Looks run only when a pane is dirty or a settle timer is due, and consumers get pushed events over the existing watcher push (~session-observe~ in ~src/mux/server.lisp~).
+- The wire already carries plists: ~wire-send~ uses ~prin1~, and ~wire-take~ reads with ~*read-eval* nil~. So no protocol work is needed.
+- The events are:
+  - ~(:agent session id kind state reason turn)~, extending today's ~:agent~ form
+  - ~(:agent-turn session id n :began|:ended)~
+  - ~(:agent-acted session id action :done|:failed)~
+
+** Actions and CLI
+
+In ~src/mux/main.lisp~ and ~src/mux/server.lisp~:
+
+- ~atty agent act <pane> approve|approve-always|deny|choose N|submit TEXT|interrupt~. The server checks the current observation offers that action, sends its keys, and confirms the observation changed. If it didn't, the action is reported as failed.
+- ~atty agent observe <pane>~ prints the structured observation.
+- ~atty agent snapshot <pane> <file>~ writes a grid snapshot as a sexp: size, rows with chars and face runs via libatty ~face-plist~, cursor, title and alt-screen.
+- ~atty agent wait <pane> --turn~ waits for the end of the current or next turn. ~prompt --until idle~ becomes "submit, then wait for that turn to end".
+- ~prompt~ refuses when the current observation means ~:blocked~. The reason is printed with the refusal.
+- ~atty record <agent>~ runs the agent's scenario against the installed version and writes its corpus. ~atty readers verify [<agent> [<version>]]~ replays corpora against readers and prints the verdict per state.
+- ~atty readers list|update~. ~update~ fetches ~readers/index.sexp~ and the changed reader files with ~curl~ (via ~sb-ext:run-program~), validates them, and loads them into every running server through a new ~:readers-load~ wire verb. ~ATTY_READERS_URL~ overrides the catalog.
+- ~list~ shows the reason. ~explain~ shows each screen entry, which widget ran, and what it returned.
+- ~src/mux/bar.lisp~ shows the reason briefly for blocked, and marks unrecognized screens.
+
+* Files
+
+- *New:*
+  - ~src/agent/screen.lisp~, ~src/agent/widgets.lisp~, ~src/agent/reader.lisp~, ~src/agent/session.lisp~, ~src/agent/snapshot.lisp~
+  - ~src/agent/corpus.lisp~: replaying a corpus and the verdict. ~src/mux/record.lisp~: recording a scenario against the installed agent
+  - ~src/agent/catalog.lisp~: loading reader files in version order, and the index
+  - ~readers/index.sexp~, and ~readers/<agent>/<version>/~ holding ~reader.lisp~ (the reader, as data), ~corpus.bytes~ (the whole recorded stream) and ~expect.lisp~ (the size, the renderer, the launch, and each step's byte offset, what was seen and the keys that were sent)
+- *Replaced:* ~src/agent/claude-code.lisp~, and the rule table and ~judged~ in ~src/agent/agent.lisp~.
+- *Modified:*
+  - ~src/agent/package.lisp~, ~src/mux/pane.lisp~, ~src/mux/server.lisp~, ~src/mux/main.lisp~, ~src/mux/bar.lisp~
+  - ~src/pty/pty.lisp~ (executable path)
+  - ~atty.asd~ (~atty/agent~ depends on ~cl-ppcre~)
+  - ~manifest.scm~ (~sbcl-cl-ppcre~)
+  - Makefile: the FOREIGN path bootstraps cl-ppcre through ocicl, with no manual step
+  - the packaging under ~guix/~, ~homebrew/~ and ~roswell/~
+- *Tests:* unit tests cover the engine's mechanics (widgets, reader validation, sessions, actions) on generic screens that don't imitate any agent. The per-version tests are corpus replays: ~make test~ replays every corpus in the catalog against its reader, on any OS, with no agent installed.
+
+* Phases
+
+0. Commit the macOS make-target fixes.
+1. Screen view, widgets, and snapshot record and load. Add cl-ppcre. Unit tests cover the widget mechanics on generic screens.
+2. Reader format, registry, version from the executable path, and the Claude reader on widgets.
+3. Per version: the scenario as data, ~atty record~, corpus replay and the verdict, ~:versions~ and ~:from~. Record Claude 2.1.278's corpus and make ~make test~ replay it.
+4. Session: turns, state with reason, events, and unrecognized-screen detection with auto-snapshot. Remove ~prompted-at~ and ~screen-blocked-p~.
+5. Actions and CLI (~act~, ~observe~, ~snapshot~, ~wait --turn~, the new ~prompt~ semantics, ~readers verify~), plus the bar.
+6. Catalog: ~readers/<agent>/<version>/~ in the repo, the index, ~atty readers update~, and live load into running servers.
+7. Second agent: Cursor. Record its corpus and write its reader on the shared widgets, and document exactly what it needed.
+
+   What it needed, all generic to the widget layer and none of it Cursor-specific:
+   - Choices inside a frame. Gemini's first screen and Cursor's trust dialog are both drawn in a box, so ~choice~ reads inside a frame and bounds its question there.
+   - More selection markers: ~▶~ and ~→~.
+   - Rules drawn with ~▄~ and ~▀~ half-blocks, which is how Cursor bounds its input.
+   - A spinner that is a glyph and a word with no ~…~ (~⠞ Working~).
+   - Actions that press a named key (~(:press "n")~). Cursor's permission dialog ignores arrow keys and names a key for each option.
+   - Screens that take text (~:input t~), so ~submit~ is offered on a prompt that isn't the main input.
+   - A version read from two install layouts: the Nix store path and Cursor's own self-updater.
+   - The Makefile rebuilding ~atty~ when a reader file changes, since the catalog is built into the binary.
+
+   What happened on the way is the reason the model is per version. Cursor updated itself from 2026.06.19 to 2026.09.18 between exploring it and recording it. Recording 2026.09.18 against the 2026.06.19 reader passed idle, working and permission, and failed at the one state that had changed. The reason prompt went from ~Reason for rejection~ to ~Tell the agent what to do instead~, and Esc changed from finishing a rejection to cancelling it. So 2026.09.18 has its own reader: it inherits with ~:from~ and overrides only that screen and the scenario's last step. 2026.06.19 has no corpus, because it updated before it could be recorded. Neither corpus has the trust state, because both recording folders were already trusted.
+8. Rerun the field test (three agents, the todo app), driven only with ~observe~, ~act~ and ~wait --turn~, and zero raw keys.
+
+Later: moonli as the user-facing extension syntax that produces the same reader format.
+
+* Verification
+
+- ~make FOREIGN=1 test~ and ~make FOREIGN=1 test-term~ pass, including the replay of every corpus in the catalog.
+- *Per version:* ~atty record claude-code~ on 2.1.278 reaches every state. ~atty readers verify~ passes every state. A deliberately changed anchor in the reader fails the replay at exactly the states it covers.
+- *New version:* when Claude updates, recording and replaying against the previous reader either extends its ~:versions~ or produces the failing states an agent needs to write the new reader.
+- All make targets still run on macOS, and ~make test~ passes on Linux (Guix).
+- *Live on macOS*, with panes launched as ~cd dir && exec claude~, plain ~claude~, and zsh-then-~claude~:
+  - ~agent list~ shows ~claude-code~ and the correct state.
+  - On a permission dialog, ~agent observe~ returns the question, subject and options.
+  - ~agent act … deny~ clears the dialog and reports ~:done~.
+  - ~agent prompt … --until idle~ returns only at the end of the turn. Time it against a slow prompt.
+  - ~agent prompt~ to a blocked pane is refused, with the reason.
+- *Breakage:* build a changed dialog in memory, or edit a reader's anchor locally. The pane reports ~:unknown~, ~(:unrecognized …)~, with the version, and a snapshot is written.
+- *Catalog:* point ~ATTY_READERS_URL~ at a branch with a bumped reader. ~atty readers update~ loads it into running servers without a restart, and ~agent explain~ shows the new entry.
+- *Gemini:* the same live checks on a Gemini pane. ~act approve~ works identically to Claude.
+- *Field test rerun (phase 8):* the scenario completes with no raw keys, and no dialog is ever answered by a prompt.

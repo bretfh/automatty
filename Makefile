@@ -63,7 +63,7 @@ latency:
 
 # the program. ./atty is the whole of it: run it, put it on PATH, copy it to
 # another machine. Everything it does is its own argument, not a make target.
-atty: build.lisp atty.asd libatty.asd $(wildcard src/*/*.lisp)
+atty: build.lisp atty.asd libatty.asd $(wildcard src/*/*.lisp) $(wildcard readers/*/*/reader.lisp)
 	$(IN) '$(ENV) ATTY_OUT="$$PWD/atty" $(SBCL) --non-interactive --load build.lisp'
 
 # builds atty and puts it on PATH. PREFIX defaults to /usr/local, which usually

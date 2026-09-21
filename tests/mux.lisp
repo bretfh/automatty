@@ -238,6 +238,15 @@ already failing."
   (when (mux:wire-fill wire)
     (loop :for form := (mux:wire-take wire) :while form :collect form)))
 
+(defmacro with-a-server-here ((server path) &body body)
+  "A server stepped by hand, so a test can look at what it holds between steps."
+  `(let ((,path (a-socket-path)))
+     (unwind-protect
+         (let ((,server (mux:make-server ,path)))
+           (unwind-protect (progn ,@body)
+             (mux:server-close ,server)))
+       (ignore-errors (delete-file ,path)))))
+
 (test what-every-pane-is-doing-can-be-asked-and-a-hook-can-say-it
       (with-a-server-here (server path)
                           (let* ((session (mux:add-session server "cat" :rows 6 :cols 20))
@@ -255,7 +264,7 @@ already failing."
                                        "the server never said what the panes are doing")
                               (let ((rows (second (find :agents heard :key #'first))))
                                 (is (eql 1 (length rows)) "the rows came back as ~S" rows)
-                                (is (equal (list "0" (mux:pane-id pane) "agent") (butlast (first rows)))
+                                (is (equal (list "0" (mux:pane-id pane) "agent") (subseq (first rows) 0 3))
                                     "the rows came back as ~S" rows)
                                 (is (member (fourth (first rows)) '(:unknown :working :idle))
                                     "a pane nobody has spoken to is ~S" (fourth (first rows))))
@@ -267,8 +276,9 @@ already failing."
                                                             (setf heard (append heard (heard-back wire)))
                                                             (find :agent heard :key #'first)))
                                        "nobody was told the pane's state changed")
-                              (is (equal (list :agent "0" (mux:pane-id pane) "agent" :blocked)
-                                         (find :agent heard :key #'first)))
+                              (is (equal (list :agent "0" (mux:pane-id pane) "agent" :blocked
+                                               '(:signalled :blocked))
+                                         (subseq (find :agent heard :key #'first) 0 6)))
                               (is (eq :blocked (agent:agent-state (mux:pane-agent pane))))
                               (mux:wire-close wire)))))
 
@@ -315,7 +325,7 @@ already failing."
                                 (mux:wire-flush wire)
                                 (is-true (step-until server (lambda ()
                                                               (eq :idle (agent:agent-state (mux:pane-agent pane))))))
-                                (is (equal (list :agent-prompted "0" id t) (hear :agent-prompted)))
+                                (is (equal (list :agent-prompted "0" id t) (subseq (hear :agent-prompted) 0 4)))
                                 (is-true (step-until server (lambda ()
                                                               (search "more" (term:term-dump-to-string (mux:pane-term pane)))))
                                          "the prompt did not reach the pane")
@@ -619,15 +629,6 @@ not the one clicked on: ~S" (seen seer))
           (when (> (get-internal-real-time) deadline) (return nil))
           :finally (return t))))
 
-(defmacro with-a-server-here ((server path) &body body)
-  "A server stepped by hand, so a test can look at what it holds between steps."
-  `(let ((,path (a-socket-path)))
-     (unwind-protect
-         (let ((,server (mux:make-server ,path)))
-           (unwind-protect (progn ,@body)
-             (mux:server-close ,server)))
-       (ignore-errors (delete-file ,path)))))
-
 (test a-watcher-whose-wire-was-shut-here-is-let-go
       (with-a-server-here (server path)
                           (let ((session (mux:add-session server "cat" :rows 6 :cols 20))
@@ -704,3 +705,67 @@ not the one clicked on: ~S" (seen seer))
                               (type-at seer "still-typing")
                               (is-true (pump seer :want "still-typing")
                                        "the pane that was kept stopped taking keys: ~S" (seen seer)))))
+
+(test an-answer-is-an-action-the-reader-knows-and-it-is-confirmed-on-the-screen
+  (let ((agent:*readers* nil))
+    (agent:register-reader
+     '(probe :programs ("probe") :title "^probe$" :versions ("1.0")
+             :screens ((:asking :widget :choice :question "(?i)proceed\\?" :means :blocked
+                        :choose :digits
+                        :actions (:approve (:option "^Yes$") :deny (:option "^No$")))
+                       (:idle :widget :prompt-input :means :idle))))
+    (with-a-server-here (server path)
+      (let* ((session (mux:add-session
+                       server
+                       "printf '\\033]0;probe\\007────────\\n Proceed?\\n > 1. Yes\\n   2. No\\n'; exec cat"
+                       :rows 8 :cols 30))
+             (pane (first (mux:session-panes session)))
+             (id (mux:pane-id pane))
+             (socket (make-instance 'sb-bsd-sockets:local-socket :type :stream))
+             (heard nil))
+        (sb-bsd-sockets:socket-connect socket path)
+        (let ((wire (mux:make-wire (sb-bsd-sockets:socket-file-descriptor socket) socket)))
+          (flet ((ask (form tag)
+                   (setf heard nil)
+                   (mux:wire-send wire form)
+                   (mux:wire-flush wire)
+                   (step-until server (lambda ()
+                                        (setf heard (append heard (heard-back wire)))
+                                        (find tag heard :key #'first)))
+                   (find tag heard :key #'first)))
+            (is-true (step-until server (lambda () (eq :blocked (agent:agent-state (mux:pane-agent pane)))))
+                     "the pane never read as blocked")
+            (let ((it (fourth (ask (list :agent-observe "0" id) :agent-observed))))
+              (is (equal "probe" (getf it :kind)))
+              (is (equal '("Yes" "No") (getf (getf it :observation) :options)))
+              (is (subsetp '(:approve :deny :choose) (getf it :offered))))
+            (let ((said (ask (list :agent-act "0" id :submit "hello") :agent-acted)))
+              (is (eq :not-offered (fifth said)) "~S" said)
+              (is (member :approve (sixth said))))
+            (let ((said (ask (list :agent-act "0" id :approve nil) :agent-acted)))
+              (is (eq :done (fifth said)) "~S" said))
+            (mux:wire-close wire)))))))
+
+(test readers-loaded-into-a-running-server-are-taken-up-by-its-panes
+  (let ((agent:*readers* nil))
+    (with-a-server-here (server path)
+      (let* ((session (mux:add-session server "printf '\\033]0;latecomer\\007'; exec cat" :rows 6 :cols 20))
+             (pane (first (mux:session-panes session)))
+             (socket (make-instance 'sb-bsd-sockets:local-socket :type :stream))
+             (heard nil))
+        (is-true (step-until server (lambda () (equal "latecomer" (mux::pane-named pane)))))
+        (is (equal "agent" (agent:agent-kind (mux:pane-agent pane))))
+        (sb-bsd-sockets:socket-connect socket path)
+        (let ((wire (mux:make-wire (sb-bsd-sockets:socket-file-descriptor socket) socket)))
+          (mux:wire-send wire (list :readers-load
+                                    (list "(latecomer :programs (\"latecomer\") :title \"^latecomer$\" :versions (\"1\") :screens ((:idle :widget :prompt-input :means :idle)))"
+                                          "(nonsense")))
+          (mux:wire-flush wire)
+          (step-until server (lambda ()
+                               (setf heard (append heard (heard-back wire)))
+                               (find :readers-loaded heard :key #'first)))
+          (let ((said (find :readers-loaded heard :key #'first)))
+            (is (equal '("latecomer 1") (second said)))
+            (is (= 1 (length (third said)))))
+          (is (equal "latecomer" (agent:agent-kind (mux:pane-agent pane))))
+          (mux:wire-close wire))))))

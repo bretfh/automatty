@@ -139,6 +139,9 @@
    #:mux-dir
    #:socket-path
    #:log-path
+   #:record-agent
+   #:verify-corpus
+   #:corpus-dirs
    #:sessions-here
    #:stop-a-server
    #:asked

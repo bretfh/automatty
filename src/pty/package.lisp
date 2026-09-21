@@ -14,4 +14,6 @@
    #:pty-kill
    #:pty-reap
    #:pty-foreground
-   #:group-command-lines))
+   #:group-command-lines
+   #:group-processes
+   #:process-path))

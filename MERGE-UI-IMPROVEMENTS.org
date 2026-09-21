@@ -1,0 +1,73 @@
+#+TITLE: Merging ui-improvements with the agent architecture
+
+* Where the two lines of work stand
+
+Both start from ~0513605~.
+
+- *main, uncommitted:* the agent architecture in [[file:AGENT-ARCHITECTURE.org]]. It covers process recognition from the kernel, readers as versioned data with recorded corpora, sessions with turns and reasons, typed actions confirmed on the screen, the catalog with live update, the Claude 2.1.278 and Cursor 2026.09.18 readers, and the macOS make targets.
+- *ui-improvements, 12 commits:* ~PLAN.org~. That's one server per user, frames coloured by state carrying the question and answers, needs-you, the switchboard, the explain drawer, and a CLI that does what the UI does.
+
+Both reworked the agent layer. The UI branch extended the old rule tables. main replaced them.
+
+* The principle
+
+The UI keeps everything it shows and every command it offers. The agent API it calls is served by the new session layer. Its screen parsing (~asks-of-lines~, the ~agent-doing~ method on ~claude-code~, ~without-spinner-tail~) is superseded by widgets and reader data. Where that parsing does something the widgets don't, the behaviour moves into a widget or a reader rather than being lost.
+
+* The API the UI calls, and what serves it
+
+| UI calls | Uses | Served by after the merge |
+|---+---+---|
+| ~agent-state~ | 16 | unchanged |
+| ~agent-asks~ | frames, panes | the current observation when it means ~:blocked~: ~(:subject (first subject) :detail (rest subject) :question … :options … :chosen selected)~ |
+| ~agent-doing~ | panes | the spinner widget's label while working. When idle, the last line the agent said, from a new ~said~ widget whose marker (Claude's ~⏺~) is reader data |
+| ~agent-for~, ~agent-history~, ~agent-since~ | frames, bar, panes | ~became~ added to the session: every state change stamps ~since~ and pushes history |
+| ~agent-known-p~ | frames, panes | a reader is attached, or the program has signalled |
+| ~agent-won~ | frames | the observation's ~:screen~ id |
+| ~agent-explain~ | server, drawer | rows become ~(id widget means won seen)~; ~explain.lisp~ prints those |
+| ~lines-of~ | main, explain | re-added to ~screen.lisp~ and exported |
+| ~agent-become~, ~make-agent~ | pane | keyword arguments (~:title :command :programs :paths~) |
+| ~agent-look~, ~agent-hear~, ~agent-prompted~, ~agent-trace~, ~last-lines~, ~screen-lines~, ~screen-blocked-p~ | server, panes | exist with the same meaning |
+
+* File by file
+
+- ~src/agent/agent.lisp~: take main's. Add ~since~, history and ~became~, then the adapters in the table.
+- ~src/agent/claude-code.lisp~: deleted on main; the Claude reader is data in ~readers/claude-code/2.1.278/reader.lisp~. The branch's additions move as follows:
+  - its spinner-tail trimming is already the spinner widget's ~:label~
+  - its "last ⏺ line" becomes the ~said~ widget plus a ~:said~ entry in Claude's reader
+- ~src/agent/package.lisp~: the union of both export lists.
+- ~src/agent/widgets.lisp~: add ~said~.
+- ~src/pty/pty.lisp~: both. The branch adds ~:directory~ to ~spawn-pty-process~, and main appends process introspection at the end, so they don't touch the same lines.
+- ~src/mux/server.lisp~: the branch as the base, then re-apply main's changes:
+  - ~pane-notice-programs~ in ~session-observe~
+  - the ~:agent-snapshot~, ~:agent-act~, ~:agent-observe~ and ~:readers-load~ verbs, with ~act-on-pane~ and ~act-now~
+  - turn events
+  - rows carrying reason and turn
+  - submitting by the reader's ~:submit~ style. The branch's rule, one line typed and more pasted, stays for panes with no reader.
+- ~src/mux/main.lisp~: the branch as the base. Add ~snapshot~, ~observe~, ~act~, ~wait --turn~, ~record~, ~readers list|index|update|verify~, and the reason in ~list~.
+  - One way to answer: the branch's ~answer N~ becomes ~act choose N~.
+  - ~update-readers~ talks to the user's one server through ~where-the-server-is~ instead of looping over ~sessions-here~.
+- ~src/mux/pane.lisp~: the branch as the base, plus main's ~programs~ and ~paths~ slots, ~pane-notice-programs~, and the keyword ~agent-become~.
+- ~src/mux/bar.lisp~, ~frames.lisp~, ~panes.lisp~, ~queue.lisp~, ~switchboard.lisp~, ~explain.lisp~: the branch's, calling the API above.
+- ~src/mux/record.lisp~: main's. It uses no server, so one server per user doesn't touch it.
+- ~bench/attached.lisp~: the branch's ~-L~ server per run, plus main's libproc accounting and per-round cleanup. ~socket-path~ now names a server, which is what the ~-L~ run is.
+- ~atty.asd~: the union of components, plus ~cl-ppcre~ on ~atty/agent~.
+- ~tests/agent.lisp~: main's mechanics on the made-up ~probe~ program. The branch's agent tests for the UI API are rewritten onto probe screens.
+- ~tests/mux.lisp~: the union. The row-shape and ~:agent-prompted~ expectations follow main's.
+- ~tests/readers.lisp~, ~readers/~, ~Makefile~, ~manifest.scm~, ~guix/~: main's, since the branch didn't touch them.
+- ~README.org~: the branch's, plus ~record~, ~readers~, ~observe~ and ~act~.
+
+* Where the two found the same things
+
+The branch's ~3b9f2c6~ and main's field rerun found the same two problems independently: a pasted prompt isn't taken as an instruction, and a tip isn't what a dialog asks about. After the merge the reader decides how to submit, with the branch's rule as the fallback. The subject is what the ~choice~ widget reads between the rule and the question.
+
+* Order
+
+1. Commit main's tree as a branch of its own on ~0513605~ (your call).
+2. Merge ~ui-improvements~ into it, resolving by the table above.
+3. ~make FOREIGN=1 test~, and ~atty readers verify~.
+4. Live against Claude:
+   - a frame shows the question and answers from the observation
+   - needs-you answers through ~act~
+   - the drawer explains by reader entry
+   - the switchboard reads ~doing~ and ~for~
+5. Then the multi-signal work that replaces timers: title edges, kernel CPU for the foreground group, confirm and resend, with any windows that remain measured per version by ~atty record~.

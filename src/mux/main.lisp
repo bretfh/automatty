@@ -110,6 +110,7 @@ living server would sit at a screen that never arrives. So it is knocked on."
 
 (defun agent-state-in (form id)
   (case (first form)
+    (:agent-turn (and (eql (third form) id) (eq :ended (fifth form)) :idle))
     (:agent (and (eql (third form) id) (fifth form)))
     (:agents (let ((row (find id (second form) :key #'second)))
                (and row (fourth row))))))
@@ -155,12 +156,12 @@ living server would sit at a screen that never arrives. So it is knocked on."
            (destructuring-bind (published seen rows) (cdddr form)
              (format t "~&~(~A~); the screen says ~(~A~)~%" published seen)
              (dolist (row rows)
-               (destructuring-bind (rid priority region state hit text) row
-                 (format t "~&~A ~4D ~(~8A~) ~A  ~(~S~)~%"
-                         (if hit "*" " ") priority state rid region)
-                 (when hit
-                   (dolist (line (agent:lines-of text))
-                     (format t "~&        ~A~%" line)))))))))
+               (destructuring-bind (id widget means won found) row
+                 (format t "~&~A ~(~12A~) ~(~13A~) ~(~A~)~%" (if won "*" " ") id widget means)
+                 (when won
+                   (loop :for (key value) :on (cddr (cddr (cddr found))) :by #'cddr
+                         :when value
+                           :do (format t "~&        ~(~A~) ~S~%" key value)))))))))
       ((string= what "trace")
        (multiple-value-bind (path session id) (pane-found (second args))
          (let* ((said (asked path (list (list :agent-trace session id))
@@ -173,6 +174,17 @@ living server would sit at a screen that never arrives. So it is knocked on."
                        (- ms first-ms) (if moved "+" " ")
                        (if (consp said) (format nil "~A:~A" (first said) (second said)) said)
                        state))))))
+      ((string= what "snapshot")
+       (multiple-value-bind (path session id) (pane-found (second args))
+         (let* ((said (asked path (list (list :agent-snapshot session id))
+                             :done (lambda (f) (eq :agent-snapshotted (first f)))))
+                (snapshot (fourth (find :agent-snapshotted said :key #'first))))
+           (unless snapshot (error "~A did not say" (second args)))
+           (if (third args)
+               (with-open-file (out (third args) :direction :output :if-exists :supersede
+                                                 :external-format :utf-8)
+                 (agent:write-snapshot snapshot out))
+               (agent:write-snapshot snapshot *standard-output*)))))
       ((string= what "say")
        (unless (third args) (error "atty agent say <session>:<pane> <keys>"))
        (multiple-value-bind (path session id) (pane-found (second args))
@@ -184,14 +196,22 @@ living server would sit at a screen that never arrives. So it is knocked on."
        (multiple-value-bind (path session id) (pane-found (second args))
          (let* ((wanted (mapcar #'a-state
                                 (rest (member "--until" (cdddr args) :test #'string=))))
+                (turn nil)
                 (said (asked path (list (list :go session)
                                         (list :agent-prompt session id (third args)))
                              :patience (if wanted 3600 3)
                              :done (lambda (f)
                                      (case (first f)
-                                       (:agent-prompted (or (null wanted) (not (eq t (fourth f)))))
+                                       (:agent-prompted
+                                        (setf turn (fifth f))
+                                        (or (null wanted) (not (eq t (fourth f)))))
+                                       (:agent-turn (and turn (eql (third f) id)
+                                                         (eql (fourth f) turn)
+                                                         (eq :ended (fifth f))
+                                                         (member :idle wanted)))
                                        (:agent (and (eql (third f) id)
-                                                    (member (fifth f) wanted)))))))
+                                                    (member (fifth f) wanted)
+                                                    (or (null turn) (not (eq :idle (fifth f))))))))))
                 (answer (fourth (find :agent-prompted said :key #'first))))
            (cond
              ((eq answer :blocked)
@@ -210,9 +230,10 @@ living server would sit at a screen that never arrives. So it is knocked on."
        (let ((rows (agents-here)))
          (if rows
              (dolist (row rows)
-               (destructuring-bind (path session id kind state) row
-                 (declare (ignore path))
-                 (format t "~&~A:~D  ~A  ~(~A~)~%" session id kind state)))
+               (destructuring-bind (path session id kind state &optional reason turn) row
+                 (declare (ignore path turn))
+                 (format t "~&~A:~D  ~A  ~(~A~)~@[  ~A~]~%" session id kind state
+                         (reason-said state reason))))
              (format t "~&nothing is running~%"))))
       ((string= what "signal")
        (let ((socket (sb-ext:posix-getenv "ATTY_SOCKET"))
@@ -222,8 +243,79 @@ living server would sit at a screen that never arrives. So it is knocked on."
          (multiple-value-bind (session id) (pane-address pane)
            (asked socket (list (list :agent-signal session id (a-state (second args))))
                   :patience 0))))
+      ((and (string= what "wait") (member "--turn" (cddr args) :test #'string=))
+       (multiple-value-bind (session id) (pane-address (second args))
+         (let ((row (find-if (lambda (r) (and (string= session (second r)) (eql id (third r))))
+                             (agents-here))))
+           (unless row (error "there is no pane called ~A running" (second args)))
+           (let ((said (asked (first row) (list (list :go session) '(:agents))
+                              :patience 3600
+                              :done (lambda (form)
+                                      (and (eq :agent-turn (first form)) (eql (third form) id)
+                                           (eq :ended (fifth form)))))))
+             (if (find :agent-turn said :key #'first)
+                 (format t "~&turn ~D ended~%" (fourth (car (last said))))
+                 (sb-ext:quit :unix-status 1))))))
+      ((string= what "act")
+       (unless (third args)
+         (error "atty agent act <session>:<pane> approve|approve-always|deny|choose <n>|submit <text>|interrupt"))
+       (multiple-value-bind (path session id) (pane-found (second args))
+         (let* ((action (find (third args) '(:approve :approve-always :deny :choose :submit :interrupt)
+                              :test #'string-equal))
+                (argument (case action
+                            (:choose (and (fourth args) (parse-integer (fourth args) :junk-allowed t)))
+                            (:submit (fourth args)))))
+           (unless action
+             (error "~A is not something atty can do: approve, approve-always, deny, choose, submit or interrupt"
+                    (third args)))
+           (let* ((said (asked path (list (list :agent-act session id action argument))
+                               :patience 15
+                               :done (lambda (f) (eq :agent-acted (first f)))))
+                  (form (find :agent-acted said :key #'first)))
+             (unless form (error "~A did not say" (second args)))
+             (destructuring-bind (happened &optional detail screen) (nthcdr 4 form)
+               (case happened
+                 (:done (format t "~&done~@[, now ~(~A~)~]~%" detail))
+                 (:not-offered
+                  (format *error-output* "~&atty: ~A is on ~(~A~), which offers ~:[nothing~;~:*~{~(~A~)~^, ~}~]~%"
+                          (second args) screen detail)
+                  (sb-ext:quit :unix-status 2))
+                 (:failed
+                  (format *error-output* "~&atty: the keys went to ~A and its screen did not change~%"
+                          (second args))
+                  (sb-ext:quit :unix-status 1))
+                 (:no-reader (error "~A is running nothing atty has a reader for" (second args)))
+                 (t (error "~A is gone" (second args)))))))))
+      ((string= what "observe")
+       (multiple-value-bind (path session id) (pane-found (second args))
+         (let* ((said (asked path (list (list :agent-observe session id))
+                             :done (lambda (f) (eq :agent-observed (first f)))))
+                (it (fourth (find :agent-observed said :key #'first)))
+                (seen (getf it :observation)))
+           (unless it (error "~A did not say" (second args)))
+           (format t "~&~A~@[ ~A~]~:[, with no reader of its own for this version~;~]  ~(~A~)~%"
+                   (getf it :kind) (getf it :version)
+                   (or (getf it :verified) (string= "agent" (getf it :kind)))
+                   (getf it :state))
+           (cond
+             ((string= "agent" (getf it :kind)))
+             ((null seen) (format t "~&the screen is nothing its reader knows~%"))
+             (t
+              (format t "~&screen  ~(~A~), which means ~(~A~)~%" (getf seen :screen) (getf seen :means))
+              (when (getf seen :question) (format t "~&asks    ~A~%" (getf seen :question)))
+              (dolist (line (getf seen :subject)) (format t "~&about   ~A~%" line))
+              (loop :for option :in (getf seen :options)
+                    :for n :from 1
+                    :do (format t "~&  ~:[ ~;>~] ~D. ~A~%" (eql (1- n) (getf seen :selected)) n option))
+              (when (eq :prompt-input (getf seen :widget))
+                (format t "~&typed   ~S~:[~; (a suggestion, not typed)~]~%"
+                        (getf seen :text) (getf seen :ghost)))
+              (when (getf seen :label)
+                (format t "~&doing   ~A~@[ for ~Ds~]~%" (getf seen :label) (getf seen :seconds)))
+              (when (getf it :offered)
+                (format t "~&can     ~{~(~A~)~^, ~}~%" (getf it :offered))))))))
       ((string= what "wait")
-       (unless (second args) (error "atty agent wait <session>:<pane> [<state>...]"))
+       (unless (second args) (error "atty agent wait <session>:<pane> [<state>...|--turn]"))
        (multiple-value-bind (session id) (pane-address (second args))
          (let* ((wanted (or (mapcar #'a-state (cddr args)) '(:blocked :idle)))
                 (row (find-if (lambda (r) (and (string= session (second r)) (eql id (third r))))
@@ -237,7 +329,64 @@ living server would sit at a screen that never arrives. So it is knocked on."
              (if (member state wanted)
                  (format t "~&~(~A~)~%" state)
                  (sb-ext:quit :unix-status 1))))))
-      (t (error "atty agent list, wait, read, prompt, say, explain, trace or signal; not ~A" what)))))
+      (t (error "atty agent list, wait, read, prompt, say, explain, trace, snapshot or signal; not ~A" what)))))
+
+(defun reason-said (state reason)
+  (cond ((and (eq state :blocked) (getf reason :question)) (getf reason :question))
+        ((eq state :blocked) (and (getf reason :screen) (string-downcase (getf reason :screen))))
+        ((eq :unrecognized (first reason))
+         (format nil "unrecognized ~A~@[ ~A~]" (getf (rest reason) :program)
+                 (getf (rest reason) :version)))))
+
+(defun readers-verbs (args)
+  (let ((what (first args)))
+    (cond
+      ((or (null what) (string= what "list"))
+       (dolist (reader agent:*readers*)
+         (format t "~&~A~{ ~A~}~%" (agent:reader-name reader) (agent::reader-versions reader))))
+      ((string= what "index")
+       (let ((dir (or (second args) "readers/")))
+         (format t "~&~{~A~%~}" (agent:write-index dir))))
+      ((string= what "update") (update-readers))
+      ((string= what "verify")
+       (let ((dirs (corpus-dirs (or (second args) "readers/"))))
+         (unless dirs (error "no corpora under ~A" (or (second args) "readers/")))
+         (unless (every #'identity (mapcar #'verify-corpus dirs))
+           (sb-ext:quit :unix-status 1))))
+      (t (error "atty readers list, index, update or verify; not ~A" what)))))
+
+(defun catalog-url ()
+  (let ((said (sb-ext:posix-getenv "ATTY_READERS_URL")))
+    (string-right-trim "/" (if (and said (plusp (length said)))
+                               said
+                               "https://raw.githubusercontent.com/bretfh/automatty/main/readers"))))
+
+(defun fetched (url)
+  (let* ((out (make-string-output-stream))
+         (process (sb-ext:run-program "curl" (list "-fsSL" "--max-time" "20" url)
+                                      :search t :output out :error nil)))
+    (unless (eql 0 (sb-ext:process-exit-code process))
+      (error "could not fetch ~A" url))
+    (get-output-stream-string out)))
+
+(defun update-readers ()
+  (let* ((base (catalog-url))
+         (index (with-standard-io-syntax
+                  (let ((*read-eval* nil))
+                    (read-from-string (fetched (format nil "~A/index.sexp" base))))))
+         (entries (getf (nthcdr 2 index) :readers))
+         (texts (mapcar (lambda (entry) (fetched (format nil "~A/~A/reader.lisp" base entry)))
+                        entries)))
+    (multiple-value-bind (loaded refused)
+        (let ((agent:*readers* nil)) (agent:register-reader-texts texts))
+      (dolist (why refused) (format *error-output* "~&atty: refused ~A~%" why))
+      (format t "~&~D from ~A~{~%  ~A~}~%" (length loaded) base loaded)
+      (dolist (path (sessions-here))
+        (let* ((said (asked path (list (list :readers-load texts))
+                            :done (lambda (f) (eq :readers-loaded (first f)))))
+               (answer (find :readers-loaded said :key #'first)))
+          (format t "~&~A ~:[did not answer~;loaded ~:*~D~]~%"
+                  (pathname-name path) (and answer (length (second answer)))))))))
 
 (defun self ()
   "This program, when it is a program.
@@ -344,7 +493,17 @@ something anything else does on your behalf."
   (format s "  atty agent say <session>:<pane> <keys>   an answer: raw keys, \\r for enter~%")
   (format s "  atty agent explain <session>:<pane>      which rule says what it is doing~%")
   (format s "  atty agent trace <session>:<pane>        every look at it: ms, moved, said, state~%")
-  (format s "  atty agent signal <state>   from inside a pane: what its program is doing~%~%")
+  (format s "  atty agent snapshot <session>:<pane> [<file>]   its screen, cells and faces, as data~%")
+  (format s "  atty agent observe <session>:<pane>      what its screen shows, and what can be done~%")
+  (format s "  atty agent act <session>:<pane> <action> [<n>|<text>]   approve, approve-always, deny,~%")
+  (format s "                         choose <n>, submit <text> or interrupt, confirmed on its screen~%")
+  (format s "  atty agent wait <session>:<pane> --turn  until its turn ends~%")
+  (format s "  atty agent signal <state>   from inside a pane: what its program is doing~%")
+  (format s "  atty record <agent> [<dir>]  drive the installed agent through its scenario, keep what it drew~%")
+  (format s "  atty readers list            which readers there are, for which versions~%")
+  (format s "  atty readers index [<dir>]   write the catalog's index of reader files~%")
+  (format s "  atty readers update          fetch the catalog and load it into every running server~%")
+  (format s "  atty readers verify [<dir>]  replay every recorded version against its reader~%~%")
   (format s "  ~C-b d detaches, ~C-b r redraws, ~C-b ~C-b types a ~C-b,~%"
           #\^ #\^ #\^ #\^ #\^)
   (format s "  ~C-b : runs a command by name and ~C-b ? says what every key does.~%"
@@ -396,6 +555,16 @@ something anything else does on your behalf."
            (run :name (or (second args) "0")
                 :command (or (third args) (a-shell))))
           ((string= what "agent") (agent-verbs (rest args)))
+          ((string= what "record")
+           (unless (second args) (error "atty record <agent> [<dir>]"))
+           (multiple-value-bind (dir expect)
+               (record-agent (second args) :into (or (third args) "readers/"))
+             (unless (verify-corpus dir) (sb-ext:quit :unix-status 1))
+             (let ((made (extend-reader dir expect)))
+               (when made
+                 (format t "~&it reads the way the nearest reader says, so ~A joins it: ~A~%"
+                         (getf (nthcdr 2 expect) :version) (namestring made))))))
+          ((string= what "readers") (readers-verbs (rest args)))
           ((or (string= what "-h") (string= what "--help")) (usage *standard-output*))
           (t (run :name what))))
     (stream-error ()
