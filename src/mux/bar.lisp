@@ -168,7 +168,7 @@ it is another bar."
             (list (atty/ui:label " λ " :face :brand)
                   (atty/ui:label (format nil "~A " (session-name session)) :face :strong-accent)
                   (atty/ui:label "│" :face :quiet))
-            (mapcar (lambda (p) (pane-chip session p now)) (session-panes session))
+            (mapcar (lambda (p) (pane-chip session p now)) (window-panes (session-window session)))
             (when (session-zoomed session)
               (list (atty/ui:row :background-color (bar-face :bg-alt)
                                  (atty/ui:label " ⤢ zoomed " :face :strong))))

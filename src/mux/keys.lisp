@@ -57,6 +57,26 @@ instead."
 (defcommand new-session
   (tell-the-server (list :new)))
 
+;;; Windows. Each names the session it is on, since the server takes the same
+;;; forms from a client on another session and from the command line.
+
+(defcommand new-window
+  (tell-the-server (list :new-window (client-session *client*))))
+
+(defcommand next-window
+  (tell-the-server (list :next-window (client-session *client*))))
+
+(defcommand previous-window
+  (tell-the-server (list :previous-window (client-session *client*))))
+
+(defcommand close-window
+  (ask *client* "close this window and every program in it?" (list "y  yes" "n  no")
+       :free t
+       :chose (lambda (typed c)
+                (when (and (plusp (length typed)) (char-equal #\y (char typed 0)))
+                  (let ((*client* c))
+                    (tell-the-server (list :close-window (client-session c))))))))
+
 (defcommand choose-a-session
   ;; the switchboard with nothing picked: its bands are the sessions, and the
   ;; cursor starts on the one this is
@@ -206,10 +226,14 @@ anything is what that server always did, and a note for every notch is worse."
 (atty/mode:define-key 'pane-mode "C-b ," #'name-this-pane)
 (atty/mode:define-key 'pane-mode "C-b a" #'go-to-the-blocked)
 (atty/mode:define-key 'pane-mode "C-b z" #'zoom-this-pane)
-(atty/mode:define-key 'pane-mode "C-b n" #'needs-you)
+(atty/mode:define-key 'pane-mode "C-b N" #'needs-you)
 (atty/mode:define-key 'pane-mode "C-b w" #'switchboard)
 (atty/mode:define-key 'pane-mode "C-b e" #'explain-this-pane)
-(atty/mode:define-key 'pane-mode "C-b c" #'new-session)
+(atty/mode:define-key 'pane-mode "C-b C" #'new-session)
+(atty/mode:define-key 'pane-mode "C-b c" #'new-window)
+(atty/mode:define-key 'pane-mode "C-b n" #'next-window)
+(atty/mode:define-key 'pane-mode "C-b p" #'previous-window)
+(atty/mode:define-key 'pane-mode "C-b &" #'close-window)
 (atty/mode:define-key 'pane-mode "C-b b" #'choose-a-session)
 
 ;;; A click is looked up the same as any other key, unprefixed: a mouse's

@@ -56,6 +56,22 @@
    #:session-layout
    #:session-focus
    #:session-panes
+   #:session-windows
+   #:session-window
+   #:window-panes
+   #:window-label
+   #:window-focus
+   #:window-layout
+   #:window-number
+   #:window-of
+   #:pane-number
+   #:pane-address-of
+   #:add-window
+   #:go-to-window
+   #:step-window
+   #:close-a-window
+   #:name-a-window
+   #:window-called
    #:session-observe
    #:session-socket
    #:agent-rows

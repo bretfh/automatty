@@ -157,7 +157,7 @@ the whole session, and which rule decided it was asking."
          (width (term:term-width term)))
     (list
      :tl (atty/ui:row :spacing 0
-                      (atty/ui:label (format nil " ~D " (pane-id pane))
+                      (atty/ui:label (format nil " ~D " (or (pane-number session pane) (pane-id pane)))
                                      :face (cond ((not focusp) :strong)
                                                  ((known-p pane) (number-face state))
                                                  (t :number-unknown)))

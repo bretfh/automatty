@@ -548,7 +548,7 @@ surface. Each phase ends with the suite green and something to try by hand.
   everything: prompts, chips, cards, buttons.
 - A =+= on the bar opens a window; other sessions fold to =+N= past four.
 
-** Phase 1: windows in the server
+** DONE Phase 1: windows in the server
 - A =window= struct (label, layout, focus, zoomed). A session holds its
   windows in order and the current one. =session-layout=, =session-focus=
   and =session-zoomed= stay as functions with setf onto the current window,
