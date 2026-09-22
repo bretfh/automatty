@@ -395,12 +395,29 @@ to know was just done for them, or by whom."
     (let ((sorted (sort all #'< :key #'third)))
       (subseq sorted 0 (min n (length sorted))))))
 
-(defun spawn-a-pane (server name command directory label)
+(defun spawn-a-pane (server name command directory label &optional window)
   "A pane running COMMAND in the session called NAME, beside the one with the
 focus there, or the first pane of that session when there is no such session
-yet. Answers the pane."
+yet. WINDOW puts it in that window of the session instead, by number, or in a
+new window when it is :new. Answers the pane."
   (let* ((session (session-named server name))
          (pane (if session
+                   (cond
+                     ((eq window :new)
+                      (window-focus (add-window session command directory nil)))
+                     ((and (integerp window) (window-called session window)
+                           (not (eq (window-called session window) (session-window session))))
+                      ;; beside the focus of that window, without showing it
+                      (let* ((w (window-called session window))
+                             (focus (window-focus w))
+                             (it (make-pane command
+                                            :rows (term:term-height (pane-term focus))
+                                            :cols (term:term-width (pane-term focus))
+                                            :directory (or directory (pane-directory focus)))))
+                        (setf (window-layout w) (put-beside (window-layout w) focus :across it))
+                        (pane-start it :environment (pane-environment session it))
+                        it))
+                     (t
                    ;; beside the focus, the way a split puts one, but running
                    ;; what it was asked to; the focus stays where somebody put it
                    (let* ((focus (session-focus session))
@@ -412,7 +429,7 @@ yet. Answers the pane."
                            (put-beside (session-layout session) focus :across it))
                      (session-compose session)
                      (pane-start it :environment (pane-environment session it))
-                     it)
+                     it)))
                    (session-focus (add-session server command :name name
                                                               :directory directory)))))
     (when label (setf (pane-label pane) label))

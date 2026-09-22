@@ -585,6 +585,11 @@ surface. Each phase ends with the suite green and something to try by hand.
   =reading back= chip is clickable, =/= is the key. Keyboard and mouse reach
   everything: prompts, chips, cards, buttons.
 - A =+= on the bar opens a window; other sessions fold to =+N= past four.
+- *The bar is laid out in slots of set width.* What is in a slot changes;
+  where it is does not. A state word growing, a chip lighting up, a count
+  going from 9 to 10, zoom or reading back coming and going, another
+  client arriving: none of it moves the field, the sessions or the clock.
+  Longer than its slot is cut, shorter is padded, empty is still there.
 
 ** DONE Phase 1: windows in the server
 - A =window= struct (label, layout, focus, zoomed). A session holds its
@@ -646,7 +651,7 @@ surface. Each phase ends with the suite green and something to try by hand.
   window=; scrollbars right and bottom; the full path and answers at the
   foot. =+= zooms to one session, =-= back. Keys and mouse for all of it.
 
-** Phase 8: the CLI, the docs, a field check
+** DONE Phase 8: the CLI, the docs, a field check
 - =agent spawn --window n= and =--new-window=; the README's Using atty
   section; benchmarks before and after; a field script walking every board
   against real Claude Code.

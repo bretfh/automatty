@@ -66,101 +66,85 @@ A tagged release also carries a Linux AppImage and a macOS tarball.
 atty                    # a shell, in a session called 0, made if it isn't there
 atty <name>             # the same, under another name, started where you are
 atty attach [<name>]    # join a session already running
-atty list               # the sessions, and how many panes in them need you
+atty list               # the sessions: windows, panes, what needs you, who is attached
+atty clients            # every terminal attached, and what each is looking at
 atty stop <name>        # stop a session, and the programs in it
 atty kill-server        # stop every session
 atty -L <server> ...    # any of these against a server other than your own
 #+end_src
 
-One server holds every session, the way tmux's does.
+One server holds every session, the way tmux's does. A session holds windows,
+a window holds panes in their splits, and each terminal attached is a client
+looking at one window of one session. A pane's address is
+=session:window.pane=, =todo:1.2=: window 1 of todo, its second pane.
 
-=^-b= is the prefix for everything else: =^-b d= detaches, =^-b r= redraws,
-=^-b 2= splits below, =^-b 3= splits beside, =^-b o= moves to the next pane,
-=^-b c= starts another session, =^-b ?= says what every key does. Every key
-runs a named command, and =^-b := runs one by name, so any of them can be
-bound to something else.
+=^-b= is the prefix for everything else. Every key runs a named command, and
+=^-b := lists them all with their keys and a line on each, so any can be bound
+to something else; =^-b ?= is the same list grouped by what they act on.
+
+#+begin_src sh
+^-b c   ^-b n   ^-b p   # a new window; the next; the one before
+^-b '                   # every session › window, the ones asking first; RET goes, C-RET makes a window there, TAB its panes
+^-b ,   ^-b .           # name this window; name this pane (TAB swaps between them)
+^-b &                   # close this window and every program in it, after a yes
+^-b C                   # another session
+^-b 2   ^-b 3   ^-b 0   ^-b 1   ^-b o   # split below; split beside; close this pane; only this pane; the next pane
+^-b d   ^-b D           # detach; who is attached, to go to what they see or detach one
+#+end_src
+
+The bar lists this session's windows, lit where you are, yellow with a count
+where a pane is asking something, and a =+= that opens one. Then the field
+that opens the commands (=:=) or the sessions and windows (=@=), what needs
+you anywhere, the other sessions, who else is attached, and the time.
 
 Every pane's frame is the colour of what its program is doing: working,
 blocked or idle, with how long. A pane that is asking something carries the
 question in its top border and its answers in its bottom one; click one to
-answer. The bar has a chip for every pane and a count of what needs you in
-any session.
+answer.
 
 #+begin_src sh
-^-b n                   # what needs you: every question, oldest first; a digit answers it
-^-b w                   # every pane in every session, to go to, answer or prompt several at once
-^-b b                   # the same, starting on this session
+^-b N                   # what needs you: every question, where it is, who is looking at it; a digit answers
+^-b w                   # the switchboard: the whole server, sessions as rows, windows as boxes, panes inside; + zooms to one session
 ^-b a                   # go to whatever has been blocked longest
-^-b e                   # why a pane is what it is: its rules, its last while, who typed there
-^-b z                   # zoom
-^-b ,                   # name a pane
+^-b e                   # why a pane is what it is: what it is, its state, how it was read, who typed there; answers at the foot
+^-b z                   # zoom a pane
 #+end_src
 
-The mouse works in a pane the way it would with nothing in between. A
-program that asked for it, an editor or an agent, gets the wheel and the
-buttons. One that has the whole screen and did not, =less= say, gets the wheel
-as arrow keys. Anything else has its pane read back: the wheel scrolls what has
-gone off the top, and typing, or the chip that says how far back you are, is
-back to live. With shift or meta held the wheel always reads the pane back.
-
-Every pane has a scrollbar down its right side, in a column of its own: click
-an arrow for a line or hold it to keep going, click the track for a page, drag
-the thumb. =toggle scrollbars= gives the column back to the program.
+The mouse works everywhere: chips on the bar, answers in a frame, rows in a
+prompt, panes and windows on the switchboard, questions on the needs-you
+list, the answers at the foot of the drawer. In a pane it works the way it
+would with nothing in between: a program that asked for it gets the wheel and
+the buttons; one with the whole screen gets the wheel as arrow keys; anything
+else has its pane read back.
 
 #+begin_src sh
 ^-b [                   # read back from the keys: arrows or j k, PageUp PageDown, ^-u ^-d, g G; q leaves
-^-b PageUp              # the same, a page back to begin with
+^-b /                   # find in the pane's history; n and N move between the hits, which are lit
+v  y                    # in reading back: mark the top line; copy from the mark to here (or the screen) to the clipboard
 #+end_src
 
-These are defaults. =~/.config/atty/init.lisp= (or under =$XDG_CONFIG_HOME=)
-is loaded when atty starts, in the client and in the server, from source. It
-binds a key, a button or the wheel to any command by name, defines commands,
-sets settings, and hooks what happens:
+While a pane is read back its frame says how far from live, which hit this is,
+and carries a =⌕ find= button; the bar says somebody is reading back, and a
+click on that is back to live.
+
+These are defaults. =~/.config/atty/init.lisp= is loaded when atty starts, and
+binds a key, a button or the wheel to any command:
 
 #+begin_src lisp
-(define-key 'pane-mode "M-wheel-up" "scroll page up")
-(undefine-key 'pane-mode "C-b t")
-(defcommand say-hello (show-note *client* "hi" "hello"))
-(configure :prefix "C-a" :wheel-rows 6 :theme :ef-dream)
-(add-hook 'pane-started (lambda (session pane) ...))
-#+end_src
-
-=atty help init= lists every setting with what it is now. A file that does not
-load is said in the log and shown as a note to whoever attaches next; atty
-starts anyway. =C-b R= loads it again without restarting.
-
-** What is kept when the server stops
-
-Everything the server holds goes to =~/.local/state/atty/<server>/= (or under
-=$XDG_STATE_HOME=): the sessions, their windows and the splits in them, and
-what every pane holds, screen and scrollback with their colours, its log, what
-it ran and where. The tree is written whenever it changes, each pane when it
-has been quiet a moment, and everything when the server stops, whether asked
-or by a signal.
-
-A server started on the same name brings it all back before it answers
-anybody. What a pane showed is behind a fresh screen, above a rule saying when
-it was brought back; a shell starts again in the directory it was in, and for
-anything else, an agent say, a shell stands in and the rule says what was
-running (=(configure :restore-command :same)= restarts it instead).
-
-#+begin_src sh
-atty restart-server     # stop it and start it from this build, keeping everything; clients wait and come back
-atty save               # write it all now
-atty list               # says what is saved when nothing is running
-atty start --fresh      # start with nothing; what was saved is moved aside, not deleted
+(atty/mode:define-key 'pane-mode "M-wheel-up" #'scroll-page-up)
 #+end_src
 
 The same from a shell, for a program driving other panes:
 
 #+begin_src sh
-atty agent spawn work --name impl -- claude    # a pane; prints work:3
-atty agent list --blocked                      # or --json, --session <name>
-atty agent read work:3 --plain                 # its screen, without what is only suggested
-atty agent answer work:3 1                     # exits 3 if it is asking nothing
-atty agent prompt work:3 'run the suite'
-atty agent wait work:3 idle --after-prompt     # only once it has taken the prompt up
-atty agent log work:3                          # who typed into it
+atty agent spawn work --name impl -- claude    # a pane beside the focus; prints work:1.2
+atty agent spawn work --new-window -- claude   # in a window of its own; --window 2 puts it in that one
+atty agent list --blocked                      # or --json, --session <name>; each with its window
+atty agent read work:1.2 --plain               # its screen, without what is only suggested
+atty agent answer work:1.2 1                   # exits 3 if it is asking nothing
+atty agent prompt work:1.2 'run the suite'
+atty agent wait work:1.2 idle --after-prompt   # only once it has taken the prompt up
+atty agent log work:1.2                        # who typed into it: a client, a pane, the command line
 #+end_src
 
 ** Depending on libatty

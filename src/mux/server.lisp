@@ -303,9 +303,11 @@ panes are fitted to the room when it is next composed."
     (dolist (pane (window-panes window)) (setf (pane-dirty pane) t))
     (dolist (w (session-watchers session)) (setf (watcher-behind w) t))))
 
-(defun add-window (session &optional command directory)
+(defun add-window (session &optional command directory (show t))
   "Another window in SESSION, after the current one, with one pane running
-COMMAND, or what the focus runs, where the focus is. It is the one shown."
+COMMAND, or what the focus runs, where the focus is. It is the one shown,
+unless SHOW says not: a program spawning into a window of its own should not
+take whoever is attached away from what they were looking at."
   (let* ((focus (session-focus session))
          (term (and focus (pane-term focus)))
          (pane (make-pane (or command (and focus (pane-command focus))
@@ -319,8 +321,9 @@ COMMAND, or what the focus runs, where the focus is. It is the one shown."
           (append (subseq (session-windows session) 0 (1+ (or at -1)))
                   (list window)
                   (subseq (session-windows session) (1+ (or at -1)))))
-    (show-window session window)
-    (session-compose session)
+    (if show
+        (progn (show-window session window) (session-compose session))
+        (dolist (w (session-watchers session)) (setf (watcher-behind w) t)))
     (pane-start pane :environment (pane-environment session pane))
     (run-hook 'pane-started session pane)
     window))
@@ -937,8 +940,8 @@ that is about a session is passed on only once it has joined one."
                                (setf (pane-label (session-focus made)) label))
                              made)))))
       (:spawn
-       (destructuring-bind (name command directory label) (rest form)
-         (let* ((pane (spawn-a-pane server name command directory label))
+       (destructuring-bind (name command directory label &optional window) (rest form)
+         (let* ((pane (spawn-a-pane server name command directory label window))
                 (session (and pane (session-named server name))))
            (tell watcher (list :spawned name (and pane (pane-id pane))
                                (and pane (pane-address-of session pane)))))))
