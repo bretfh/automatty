@@ -587,7 +587,7 @@ surface. Each phase ends with the suite green and something to try by hand.
 - =C-b ,= names the window, TAB the pane; =C-b .= the window straight off.
 - =C-b ?= is a prompt grouped by what the keys act on; RET runs one.
 
-** Phase 5: reading back with find, select and copy
+** DONE Phase 5: reading back with find, select and copy
 - =(:find name id query way)= searches scrollback and screen, scrolls to the
   hit, answers =(:found …)=; hits are painted with a =:find-hit= face.
 - The frame's bottom border shows the query and =2 of 11=, the right side

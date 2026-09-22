@@ -7,7 +7,7 @@
 ;;; everything else. Everyone attached sees the same one.
 
 (declaim (special +prompt-toggles+))
-(declaim (ftype function key-in key-for state-glyph state-face known-p shortened-to duration))
+(declaim (ftype function key-in key-for state-glyph state-face known-p shortened-to duration pane-top-row pane-rows-kept))
 
 (defun bar-face (role)
   (atty/ui:unhex (atty/ui:color role)))

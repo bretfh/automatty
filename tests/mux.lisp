@@ -1983,3 +1983,64 @@ something tagged TAG, and answer it."
                                    (dolist (part (atty/ui:parts w)) (walk part))))
                           (walk row))))))
           (is (search "▲1" said) "the chip does not count what is asking: ~S" said)))))
+
+;;; Finding in a pane, and copying lines out of it.
+
+(defun screen-text (screen)
+  "A composed screen's characters, row by row."
+  (format nil "~{~A~%~}"
+          (loop :for y :below (tty:screen-height screen)
+                :collect (let ((row (aref (tty:screen-grid screen) y)))
+                           (coerce (loop :for x :below (tty:screen-width screen)
+                                         :collect (term:row-char row x))
+                                   'string)))))
+
+(test finding-in-a-pane-scrolls-to-the-hit-and-counts-them-and-lines-can-be-copied
+  (with-a-session (session pane server "cat" :rows 6 :cols 70)
+    (let ((wire (a-wire-to (mux::server-path server))))
+      (say-to wire (list :want "work") (list :attach 6 70 t))
+      (heard-from server wire :hello)
+      ;; forty numbered lines, so most are behind the screen
+      (say-to wire (list :keys (format nil "~{line-~D~%~}" (loop :for i :from 1 :to 40 :collect i))))
+      (is-true (step-until server (lambda () (> (mux::pane-history pane) 30))))
+      (say-to wire (list :find nil nil "line-1" :here))
+      (let ((found (heard-from server wire :found)))
+        (is (eql 11 (fourth found)) "line-1, line-10..line-19: ~S" found)
+        (is (eql 1 (fifth found)) "a new find starts from the newest hit: ~S" found)
+        (is (plusp (mux::pane-scrolled pane)) "the pane did not scroll to the hit"))
+      (say-to wire (list :find nil nil nil :next))
+      (is (eql 2 (fifth (heard-from server wire :found))))
+      (say-to wire (list :find nil nil nil :back))
+      (is (eql 1 (fifth (heard-from server wire :found))))
+      ;; the hit is lit where the frame was drawn
+      (mux::session-compose session)
+      (let* ((screen (mux:session-screen session))
+             (lit (loop :for y :below (tty:screen-height screen)
+                        :thereis (loop :for x :below (tty:screen-width screen)
+                                       :for f := (term:row-face (aref (tty:screen-grid screen) y) x)
+                                       :thereis (and f (term:face-bold f) (term:face-bg f))))))
+        (is-true lit "no hit is painted on the screen"))
+      (is (search "⌕ find" (screen-text (mux:session-screen session)))
+          "the frame has no find button while read back")
+      (is (search "/ line-1" (screen-text (mux:session-screen session)))
+          "the frame does not say what was found")
+      ;; nothing found is said too
+      (say-to wire (list :find nil nil "no-such-thing" :here))
+      (is (eql 0 (fourth (heard-from server wire :found))))
+      ;; copying: mark the top row, scroll, copy from the mark to here
+      (say-to wire (list :find nil nil "line-20" :here))
+      (heard-from server wire :found)
+      (say-to wire (list :select :start))
+      (say-to wire (list :scroll 3))
+      (say-to wire (list :select :copy))
+      (let ((copied (second (heard-from server wire :copied))))
+        (is (search "line-20" copied) "the marked line is not in what was copied: ~S" copied)
+        (is (< 6 (1+ (count #\Newline copied))) "the copy is only one screen: ~S" copied))
+      (say-to wire (list :find nil nil nil :clear))
+      (is-true (step-until server (lambda () (null (mux::pane-find pane)))))
+      (mux:wire-close wire))))
+
+(test base64-is-what-osc-52-wants
+  (is (equal "aGVsbG8=" (mux::base64 "hello")))
+  (is (equal "aGk=" (mux::base64 "hi")))
+  (is (equal "YWJj" (mux::base64 "abc"))))

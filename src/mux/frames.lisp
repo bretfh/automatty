@@ -148,6 +148,22 @@ the whole session, and which rule decided it was asking."
   (+ (reduce #'+ extras :key #'columns-in)
      (max 0 (1- (length extras)))))
 
+(defun find-marker (pane)
+  "What was looked for in PANE and which hit this is, with the keys that move
+between them."
+  (let* ((find (pane-find pane))
+         (hits (getf find :hits))
+         (at (getf find :at)))
+    (atty/ui:row :spacing 0
+                 (atty/ui:label (format nil " / ~A " (getf find :query)) :face :chip-scrolled)
+                 (atty/ui:label (if hits
+                                    (format nil " ~D of ~D · ~A next · ~A back "
+                                            (- (length hits) at) (length hits)
+                                            (key-in 'scroll-mode 'find-next)
+                                            (key-in 'scroll-mode 'find-back))
+                                    " nothing ")
+                                :face :quiet))))
+
 (defun pane-titles (session pane focusp)
   "The four corners of PANE's frame."
   (let* ((agent (pane-agent pane))
@@ -172,7 +188,8 @@ the whole session, and which rule decided it was asking."
                 (atty/ui:label (format nil " ~A ~(~A~) ~A " (state-glyph state) state
                                        (duration (agent:agent-for agent now)))
                                :face (state-face state))))
-     :bl (if asks
+     :bl (cond
+           (asks
              (let* ((extras (answer-extras session pane (agent:agent-won agent term)))
                     (room (- width 2 (extras-width extras) 1)))
                ;; what follows the answers gives way before the answers do,
@@ -183,12 +200,20 @@ the whole session, and which rule decided it was asking."
                                room (- width 2 (extras-width extras) 1)))
                (atty/ui:row :spacing 1
                             (option-buttons session pane (getf asks :options) room)
-                            (apply #'atty/ui:row :spacing 1 extras)))
-             (last-input-marker pane now))
+                            (apply #'atty/ui:row :spacing 1 extras))))
+           ((pane-find pane) (find-marker pane))
+           (t (last-input-marker pane now)))
      :br (cond
            ;; being read back says so before anything else does: what is on
-           ;; the screen is not what the program has on it now
-           ((plusp (pane-scrolled pane)) (live-chip pane))
+           ;; the screen is not what the program has on it now, and finding
+           ;; in it is a button beside that
+           ((or (plusp (pane-scrolled pane)) (pane-find pane))
+            (atty/ui:row :spacing 0
+                         (bar-button "find in pane" (atty/ui:label " ⌕ find " :face :quiet))
+                         (if (plusp (pane-scrolled pane)) (live-chip pane) (atty/ui:label ""))
+                         (atty/ui:label (format nil " line ~D of ~D "
+                                                (1+ (pane-top-row pane)) (pane-rows-kept pane))
+                                        :face :quiet)))
            ((and (eq state :blocked) (null asks))
             (let ((answer (key-for 'go-to-the-blocked))
                   (zoom (key-for 'zoom-this-pane)))

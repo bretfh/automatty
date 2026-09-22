@@ -35,6 +35,7 @@ silence.")
            ;; something on top has asked to be kept told
            (id nil)
            (panes (make-hash-table :test 'equal))
+           (find-text nil)
            (screens (make-hash-table :test 'equal))
            (lately nil)
            (watching 0 :type fixnum)
@@ -285,6 +286,16 @@ looks like, not why it happened."
                                 (if (eq outcome :blocked)
                                     "is asking something; answer it, not a prompt."
                                     "is gone."))))))
+        (:found
+         ;; nothing to draw: the frame says it; only nothing found is worth a word
+         (destructuring-bind (session id n at row) (rest form)
+           (declare (ignore session id at row))
+           (when (zerop n) (show-note client "find" "nothing has that in it" :face :warning))))
+        (:copied
+         ;; to the terminal the client sits in, the way a program would ask it
+         (host-say client (format nil "~C]52;c;~A~C" (code-char 27) (base64 (second form)) (code-char 7)))
+         (show-note client "copied" (format nil "~D line~:P" (1+ (count #\Newline (second form))))
+                    :face :accent))
         (:read-it
          (destructuring-bind (session id lines) (rest form)
            (show-note client (format nil "~A:~D" session id)
@@ -300,6 +311,23 @@ looks like, not why it happened."
            (ask-a-window-name client session n label)))
         (:bye (done-with client (second form)))
         (t nil)))
+
+(defun base64 (text)
+  "TEXT as base64, the way OSC 52 wants it."
+  (let* ((bytes (sb-ext:string-to-octets text :external-format :utf-8))
+         (table "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/")
+         (out (make-string-output-stream)))
+    (loop :for i :from 0 :below (length bytes) :by 3
+          :do (let* ((n (min 3 (- (length bytes) i)))
+                     (b0 (aref bytes i))
+                     (b1 (if (> n 1) (aref bytes (+ i 1)) 0))
+                     (b2 (if (> n 2) (aref bytes (+ i 2)) 0))
+                     (word (logior (ash b0 16) (ash b1 8) b2)))
+                (write-char (char table (ldb (byte 6 18) word)) out)
+                (write-char (char table (ldb (byte 6 12) word)) out)
+                (write-char (if (> n 1) (char table (ldb (byte 6 6) word)) #\=) out)
+                (write-char (if (> n 2) (char table (ldb (byte 6 0) word)) #\=) out)))
+    (get-output-stream-string out)))
 
 (defun client-redraw (client)
   (when (client-shown client)

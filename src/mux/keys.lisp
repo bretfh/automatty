@@ -222,7 +222,37 @@ anything is what that server always did, and a note for every notch is worse."
   (let ((r (reading-now)))
     (when r (client-over-drop *client* r)))
   (tell-the-server-if-it-knows (list :reading nil))
+  (tell-the-server-if-it-knows (list :find nil nil nil :clear))
   (scroll-to-bottom))
+
+(defcommand (find-in-pane :group reading)
+  "find in this pane's history; n and N move between the hits"
+  (scroll-mode)
+  (let ((was (car (find-text-of *client*))))
+    (ask *client* "find" (list "RET finds it   n next   N back   C-g cancels")
+         :free t :query (or was "")
+         :chose (lambda (typed c)
+                  (let ((*client* c))
+                    (setf (client-find-text c) typed)
+                    (tell-the-server-if-it-knows (list :find nil nil typed :here)))))))
+
+(defun find-text-of (client) (list (client-find-text client)))
+
+(defcommand (find-next :group reading)
+  "the next older hit of the last find"
+  (tell-the-server-if-it-knows (list :find nil nil nil :next)))
+
+(defcommand (find-back :group reading)
+  "the next newer hit of the last find"
+  (tell-the-server-if-it-knows (list :find nil nil nil :back)))
+
+(defcommand (select-from-here :group reading)
+  "mark the top line shown; y copies from it to wherever you scroll"
+  (tell-the-server-if-it-knows (list :select :start)))
+
+(defcommand (copy-lines :group reading)
+  "copy the lines marked, or the screen, to the clipboard"
+  (tell-the-server-if-it-knows (list :select :copy)))
 
 (defcommand (scroll-mode-page-up :group reading)
   "the same, a page back to begin with"
@@ -299,6 +329,7 @@ anything is what that server always did, and a note for every notch is worse."
     ("'" . choose-a-window)
     ("." . name-this-pane)
     ("[" . scroll-mode)
+    ("/" . find-in-pane)
     ("PageUp" . scroll-mode-page-up)
     ("R" . reload-init)))
 
@@ -354,5 +385,7 @@ behind WAS when the prefix has moved."
                               ("g" ,#'scroll-to-top) ("Home" ,#'scroll-to-top)
                               ("G" ,#'scroll-to-bottom) ("End" ,#'scroll-to-bottom)
                               ("q" ,#'leave-scroll-mode) ("Escape" ,#'leave-scroll-mode)
-                              ("RET" ,#'leave-scroll-mode))
+                              ("RET" ,#'leave-scroll-mode)
+                              ("/" ,#'find-in-pane) ("n" ,#'find-next) ("N" ,#'find-back)
+                              ("v" ,#'select-from-here) ("y" ,#'copy-lines))
       :do (atty/mode:define-key 'scroll-mode chord does))

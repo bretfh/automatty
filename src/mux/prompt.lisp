@@ -2,7 +2,7 @@
 
 (in-package #:atty)
 
-(declaim (ftype function hints key-for keep-told stop-told rows-of))
+(declaim (ftype function hints key-for keep-told stop-told rows-of button-at))
 
 ;;; Reading one thing from a list of things. It is drawn over the session rather
 ;;; than composed into it, because it belongs to whoever opened it: somebody

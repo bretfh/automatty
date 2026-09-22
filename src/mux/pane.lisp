@@ -26,6 +26,8 @@
   (paths nil)
   (programs-at 0)
   (scrolled 0 :type fixnum)
+  (find nil)
+  (selecting nil)
   (pushed-seen 0 :type fixnum)
   (touched 0 :type integer)
   (saved-at 0 :type integer)

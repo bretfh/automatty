@@ -237,6 +237,101 @@ it back when it already has it."
             (if (eq pane (session-zoomed session)) nil pane))
       (dolist (w (session-watchers session)) (setf (watcher-behind w) t)))))
 
+;;; Finding in a pane's history, and copying lines out of it. Rows are numbered
+;;; from the oldest kept, so a hit has one address however far the pane is
+;;; scrolled; the screen's own rows follow the scrollback's.
+
+(defun pane-rows-kept (pane)
+  "How many rows PANE has all told: what is kept behind the screen and the screen."
+  (+ (pane-history pane) (term:term-height (pane-term pane))))
+
+(defun pane-row-text (pane a)
+  "Row A of PANE as a string, oldest kept row first, then the screen's."
+  (let* ((term (pane-term pane))
+         (kept (pane-history pane)))
+    (cond ((< a 0) "")
+          ((< a kept) (or (term:term-scrollback-row-string term a) ""))
+          ((< a (pane-rows-kept pane)) (term:term-dump-row-string term (- a kept)))
+          (t ""))))
+
+(defun pane-top-row (pane)
+  "Which row is at the top of what PANE shows."
+  (- (pane-history pane) (pane-scrolled pane)))
+
+(defun pane-show-row (pane a)
+  "Scroll PANE so row A is on the screen, near the middle."
+  (let ((height (term:term-height (pane-term pane))))
+    (pane-scroll-to pane (- (pane-history pane) a (- (floor height 2))))))
+
+(defun find-hits (pane query)
+  "Every row of PANE with QUERY in it, oldest first: (row start end)."
+  (let ((q (string-downcase query)))
+    (loop :for a :below (pane-rows-kept pane)
+          :for text := (string-downcase (pane-row-text pane a))
+          :for at := (and (plusp (length q)) (search q text))
+          :when at :collect (list a at (+ at (length q))))))
+
+(defun find-in-a-pane (server watcher name id query way)
+  "Find QUERY in the pane called NAME:ID, or the focus's when they are nil.
+:HERE is a new query, found from the newest hit; :NEXT is the next older hit,
+:BACK the next newer; :CLEAR forgets it. The pane scrolls to the hit and the
+watcher is told how many there are and which this is."
+  (let ((pane (or (and name (pane-called server name id))
+                  (and (watcher-session watcher) (session-focus (watcher-session watcher))))))
+    (when pane
+      (let ((find (pane-find pane)))
+        (ecase way
+          (:clear (setf (pane-find pane) nil (pane-selecting pane) nil (pane-dirty pane) t))
+          (:here
+           (let ((hits (find-hits pane query)))
+             (setf (pane-find pane)
+                   (and hits (list :query query :hits hits :at (1- (length hits))))
+                   (pane-dirty pane) t)
+             (when (and (null hits) (plusp (length query)))
+               (setf (pane-find pane) (list :query query :hits nil :at nil)))))
+          ((:next :back)
+           (when (and find (getf find :hits))
+             (let* ((n (length (getf find :hits)))
+                    (at (getf find :at))
+                    (to (+ at (if (eq way :next) -1 1))))
+               (setf (getf (pane-find pane) :at) (mod to n)
+                     (pane-dirty pane) t)))))
+        (let* ((find (pane-find pane))
+               (hits (getf find :hits))
+               (at (getf find :at))
+               (hit (and at (nth at hits))))
+          (when hit (pane-show-row pane (first hit)))
+          (dolist (w (session-watchers (session-of-pane server pane)))
+            (setf (watcher-behind w) t))
+          (tell watcher (list :found (session-name (session-of-pane server pane)) (pane-id pane)
+                              (length hits) (and at (- (length hits) at)) (and hit (first hit)))))))))
+
+(defun session-of-pane (server pane)
+  (find-if (lambda (s) (member pane (session-panes s))) (server-sessions server)))
+
+(defun select-in-a-pane (server watcher what)
+  "Lines out of the pane with WATCHER's focus. :START marks the top row shown
+as one end of a selection; :COPY sends the lines from that mark to the other
+end of what is shown now, or the screen when nothing was marked."
+  (let* ((session (watcher-session watcher))
+         (pane (and session (session-focus session))))
+    (when pane
+      (let ((top (pane-top-row pane))
+            (height (term:term-height (pane-term pane))))
+        (ecase what
+          (:start (setf (pane-selecting pane) top (pane-dirty pane) t))
+          (:copy
+           (let* ((mark (or (pane-selecting pane) top))
+                  (from (min mark top))
+                  (to (+ (max mark top) height)))
+             (tell watcher
+                   (list :copied
+                         (format nil "~{~A~^~%~}"
+                                 (loop :for a :from from :below (min to (pane-rows-kept pane))
+                                       :collect (string-right-trim " " (pane-row-text pane a))))))
+             (setf (pane-selecting pane) nil (pane-dirty pane) t))))
+        (dolist (w (session-watchers session)) (setf (watcher-behind w) t))))))
+
 (defun read-a-pane (server watcher name id)
   "What a pane holds, scrollback and all, for somebody to read in a note."
   (let ((pane (pane-called server name id)))
