@@ -4,10 +4,12 @@
 
 ;;; What the keys do, and which keys do it.
 
-(defcommand detach
+(defcommand (detach :group sessions)
+  "leave the session running and give the terminal back"
   (done-with *client* :detached))
 
-(defcommand redraw
+(defcommand (redraw :group asking)
+  "draw the whole screen again"
   (client-redraw *client*))
 
 (defun tell-the-server (form)
@@ -27,49 +29,63 @@ instead."
                          (first form))
                  :face :warning)))
 
-(defcommand bar-off
+(defcommand (bar-off :group asking)
+  "take the bar off, for everybody on the session"
   (tell-the-server (list :bar nil)))
 
-(defcommand bar-on
+(defcommand (bar-on :group asking)
+  "put the bar back"
   (tell-the-server (list :bar t)))
 
-(defcommand toggle-the-bar
+(defcommand (toggle-the-bar :group asking)
+  "the bar off or on"
   (tell-the-server (list :bar :toggle)))
 
-(defcommand run-a-command
+(defcommand (run-a-command :group asking)
+  "run any command by name"
   (ask-a-command *client*))
 
-(defcommand split-right
+(defcommand (split-right :group panes)
+  "another pane beside this one"
   (tell-the-server (list :split :across)))
 
-(defcommand split-below
+(defcommand (split-below :group panes)
+  "another pane under this one"
   (tell-the-server (list :split :down)))
 
-(defcommand next-pane
+(defcommand (next-pane :group panes)
+  "the focus to the next pane in this window"
   (tell-the-server (list :focus)))
 
-(defcommand close-pane
+(defcommand (close-pane :group panes)
+  "close this pane and let its program go"
   (tell-the-server (list :close)))
 
-(defcommand only-this-pane
+(defcommand (only-this-pane :group panes)
+  "close every other pane in this window"
   (tell-the-server (list :only)))
 
-(defcommand new-session
+(defcommand (new-session :group sessions)
+  "another session, started where this pane is"
   (tell-the-server (list :new)))
 
 ;;; Windows. Each names the session it is on, since the server takes the same
 ;;; forms from a client on another session and from the command line.
 
-(defcommand new-window
+(defcommand (new-window :group windows)
+  "another window in this session, after this one"
   (tell-the-server (list :new-window (client-session *client*))))
 
-(defcommand next-window
+(defcommand (next-window :group windows)
+  "show the next window"
   (tell-the-server (list :next-window (client-session *client*))))
 
-(defcommand previous-window
+(defcommand (previous-window :group windows)
+  "show the window before"
   (tell-the-server (list :previous-window (client-session *client*))))
 
-(defcommand close-window
+(defcommand (close-window :group windows)
+  "close this window and every program in it, after a yes"
   (ask *client* "close this window and every program in it?" (list "y  yes" "n  no")
        :free t
        :chose (lambda (typed c)
@@ -77,21 +93,34 @@ instead."
                   (let ((*client* c))
                     (tell-the-server (list :close-window (client-session c))))))))
 
-(defcommand choose-a-session
+(defcommand (choose-a-session :group sessions)
+  "every session, on the switchboard, starting on this one"
   ;; the switchboard with nothing picked: its bands are the sessions, and the
   ;; cursor starts on the one this is
   (open-the-board *client* :session (client-session *client*)))
 
-(defcommand send-the-prefix
+(defcommand (choose-a-window :group windows)
+  "every session › window, the ones asking first; RET goes, C-RET makes one, TAB its panes"
+  (tell-the-server (list :sessions)))
+
+(defcommand (name-this-window :group windows)
+  "what to call this window; TAB names the pane instead"
+  (tell-the-server (list :naming-window)))
+
+(defcommand (send-the-prefix :group asking)
+  "send the prefix itself to the pane"
   (tell-the-server (list :keys (string +prefix+))))
 
-(defcommand name-this-pane
+(defcommand (name-this-pane :group panes)
+  "what to call this pane; TAB names the window instead"
   (tell-the-server (list :naming)))
 
-(defcommand go-to-the-blocked
+(defcommand (go-to-the-blocked :group agents)
+  "go to whatever has been asking longest, in any session"
   (tell-the-server (list :go-to-blocked)))
 
-(defcommand zoom-this-pane
+(defcommand (zoom-this-pane :group panes)
+  "this pane has the whole window, or gives it back"
   (tell-the-server (list :zoom)))
 
 (defun server-knows-p (what)
@@ -154,7 +183,8 @@ anything is what that server always did, and a note for every notch is worse."
 (defcommand scroll-to-top (scroll-by :top))
 (defcommand scroll-to-bottom (scroll-by :bottom))
 
-(defcommand toggle-scrollbars
+(defcommand (toggle-scrollbars :group reading)
+  "the scrollbar column off or on, for the programs"
   (tell-the-server (list :scrollbars :toggle)))
 
 ;;; Scroll mode: the keys that read back, with no prefix in front of them, for
@@ -182,7 +212,8 @@ anything is what that server always did, and a note for every notch is worse."
 (defun reading-now ()
   (find-if (lambda (it) (typep it 'reading)) (client-over *client*)))
 
-(defcommand scroll-mode
+(defcommand (scroll-mode :group reading)
+  "read this pane back from the keys; q leaves"
   (unless (reading-now)
     (client-over-put *client* (%make-reading))
     (tell-the-server-if-it-knows (list :reading t))))
@@ -193,17 +224,28 @@ anything is what that server always did, and a note for every notch is worse."
   (tell-the-server-if-it-knows (list :reading nil))
   (scroll-to-bottom))
 
-(defcommand scroll-mode-page-up
+(defcommand (scroll-mode-page-up :group reading)
+  "the same, a page back to begin with"
   (scroll-mode)
   (scroll-page-up))
 
-(defcommand what-the-keys-do
-  (show-note *client* "keys"
-             (format nil "~{~A~%~}"
-                     (loop :for (chord . nil) :in (atty/mode:keys-in-force
-                                                   (atty/mode:mode-named 'pane-mode))
-                           :collect (format nil "  ~A" chord)))
-             :face :accent))
+(defparameter +groups+ '(panes windows sessions agents reading asking)
+  "What the keys act on, in the order the help lists them.")
+
+(defun keys-help-rows ()
+  "Every offered command with its key, grouped by what it acts on."
+  (let ((rows (loop :for name :in (command-names)
+                    :collect (list name (key-for (intern (string-upcase (substitute #\- #\Space name)) :atty))
+                                   (or (command-group name) 'other)))))
+    (stable-sort rows #'< :key (lambda (r) (or (position (third r) +groups+) (length +groups+))))))
+
+(defcommand (what-the-keys-do :group asking)
+  "every command, its key and what it acts on; RET runs one"
+  (ask *client* "keys" (keys-help-rows)
+       :text (lambda (r) (format nil "~(~9A~) ~24A ~10A ~@[~A~]"
+                                 (third r) (first r) (or (second r) "") (command-doc (first r))))
+       :foot (hints 'prompt-mode 'prompt-accept "run" 'prompt-cancel "close")
+       :chose (lambda (r client) (run-command (first r) client))))
 
 ;;; A mode holds these, so another mode may be defined on top of this one and
 ;;; change or add to what is here without touching any of it.
@@ -217,7 +259,8 @@ anything is what that server always did, and a note for every notch is worse."
 
 (declaim (ftype function load-user-init init-loaded-note))
 
-(defcommand reload-init
+(defcommand (reload-init :group asking)
+  "read the init file again, here and in the server"
   ;; here and in the server both, since the file is read in both
   (load-user-init)
   (destructuring-bind (text face) (init-loaded-note)
@@ -241,7 +284,7 @@ anything is what that server always did, and a note for every notch is worse."
     ("0" . close-pane)
     ("1" . only-this-pane)
     ("o" . next-pane)
-    ("," . name-this-pane)
+    ("," . name-this-window)
     ("a" . go-to-the-blocked)
     ("z" . zoom-this-pane)
     ("N" . needs-you)
@@ -253,6 +296,8 @@ anything is what that server always did, and a note for every notch is worse."
     ("p" . previous-window)
     ("&" . close-window)
     ("b" . choose-a-session)
+    ("'" . choose-a-window)
+    ("." . name-this-pane)
     ("[" . scroll-mode)
     ("PageUp" . scroll-mode-page-up)
     ("R" . reload-init)))

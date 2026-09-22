@@ -22,7 +22,7 @@ more than the terminal it is sitting inside costs in the first place.")
     :answer :focus-pane :go-to-blocked :zoom :pane-read :lately :prompt-when-idle
     :close-pane :split-in :pane-about :spawn :since-prompt
     :new-window :go-window :next-window :previous-window :close-window :name-window :layouts
-    :clients :detach-client :reading
+    :clients :detach-client :reading :naming-window
     :keys :resize :bar :split :focus :close :only :mouse-at
     :scroll :wheel :pointer :scrollbars :reload-init
     :agents :agent-signal :agent-read :agent-keys :agent-prompt :agent-explain :agent-snapshot
@@ -1007,7 +1007,13 @@ that is about a session is passed on only once it has joined one."
        (let ((pane (and session (session-focus session))))
          (when pane
            (tell watcher (list :name-it (session-name session) (pane-id pane)
-                               (pane-label pane) (pane-named pane))))))
+                               (pane-label pane) (pane-named pane)
+                               (pane-address-of session pane))))))
+      (:naming-window
+       (when session
+         (tell watcher (list :name-window-of (session-name session)
+                             (window-number session (session-window session))
+                             (window-label (session-window session))))))
       (:agent-read
        (destructuring-bind (name id n &optional plain) (rest form)
          (let ((pane (pane-called server name id)))

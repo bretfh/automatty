@@ -189,7 +189,8 @@ is none."
 (defmethod passes-keys-p ((d drawer)) t)
 (defmethod mode-of ((d drawer)) 'pane-mode)
 
-(defcommand explain-this-pane
+(defcommand (explain-this-pane :group agents)
+  "why this pane is what it is, and who typed into it"
   (let ((open (find-if (lambda (it) (typep it 'drawer)) (client-over *client*))))
     (if open
         (progn (client-over-drop *client* open)

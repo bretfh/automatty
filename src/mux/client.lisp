@@ -230,22 +230,7 @@ looks like, not why it happened."
                                      (tty:screen-cursor-visible screen) (and visible t)
                                      (tty:screen-cursor-style screen) style))
                              (setf (client-dirty client) t)))
-        (:these
-         (ask client "session"
-              (mapcar (lambda (row)
-                        (destructuring-bind (name rows cols panes watching
-                                             &optional (blocked 0))
-                            row
-                          (format nil "~A  ~Dx~D  ~D pane~:P  ~D watching~A"
-                                  name cols rows panes watching
-                                  (if (plusp blocked)
-                                      (format nil "  ▲ ~D blocked" blocked)
-                                      ""))))
-                      (second form))
-              :kind #\@
-              :chose (lambda (said c)
-                       (wire-send (client-wire c)
-                                  (list :go (subseq said 0 (position #\Space said)))))))
+        (:these (ask-a-window client (second form)))
         (:bell (host-say client (string (code-char 7))))
         (:do (run-command (second form) client))
         (:say (show-note client "atty" (second form) :face (or (third form) :accent)))
@@ -308,8 +293,11 @@ looks like, not why it happened."
                               (last lines (max 1 (- (client-rows client) 3))))
                       :face :accent)))
         (:name-it
-         (destructuring-bind (session id label title) (rest form)
-           (ask-a-name client session id label title)))
+         (destructuring-bind (session id label title &optional address) (rest form)
+           (ask-a-name client session id label title :address address)))
+        (:name-window-of
+         (destructuring-bind (session n label) (rest form)
+           (ask-a-window-name client session n label)))
         (:bye (done-with client (second form)))
         (t nil)))
 

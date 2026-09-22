@@ -62,6 +62,22 @@ gave itself, else the program."
              (<= (atty/ui:left w) col) (< col (atty/ui:right w)))
     w))
 
+(defun button-at (tree line col)
+  "The innermost bar-button in TREE at LINE, COL, titles of frames included:
+what a click on something drawn client-side lands on."
+  (let ((found nil))
+    (labels ((walk (w)
+               (when (and (typep w 'bar-button)
+                          (<= (atty/ui:top w) line) (< line (atty/ui:bottom w))
+                          (<= (atty/ui:left w) col) (< col (atty/ui:right w)))
+                 (setf found w))
+               (dolist (part (atty/ui:parts w)) (walk part))
+               (when (typep w 'atty/ui:framed)
+                 (loop :for (nil title) :on (atty/ui:titles w) :by #'cddr
+                       :do (walk title)))))
+      (walk tree))
+    found))
+
 (defun search-segment (session)
   "The bar's own way in: one field, styled like a search bar and a shade
 deeper than the bar it sits on, and one button naming what it currently opens.

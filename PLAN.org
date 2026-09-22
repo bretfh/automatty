@@ -577,7 +577,7 @@ surface. Each phase ends with the suite green and something to try by hand.
   other sessions folding to =+N=, =⌨ you + others= (click lists clients),
   the clock. No pane chips, no size. Under 100 columns names go first.
 
-** Phase 4: prompts: =@=, =:=, naming, keys help
+** DONE Phase 4: prompts: =@=, =:=, naming, keys help
 - Clicking a prompt row chooses it; the wheel moves. =tag-at= becomes a
   shared =button-at=.
 - =@= lists every session › window with its state, asking first; RET goes,

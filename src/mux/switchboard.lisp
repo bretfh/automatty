@@ -472,18 +472,7 @@ than the card has would push the cards beside it off the screen."
 (defun tag-at (tree line col)
   "The innermost button in TREE at LINE, COL: an answer on a card rather than
 the card it is on."
-  (let ((found nil))
-    (labels ((walk (w)
-               (when (and (typep w 'bar-button)
-                          (<= (atty/ui:top w) line) (< line (atty/ui:bottom w))
-                          (<= (atty/ui:left w) col) (< col (atty/ui:right w)))
-                 (setf found w))
-               (dolist (part (atty/ui:parts w)) (walk part))
-               (when (typep w 'atty/ui:framed)
-                 (loop :for (nil title) :on (atty/ui:titles w) :by #'cddr
-                       :do (walk title)))))
-      (walk tree))
-    found))
+  (button-at tree line col))
 
 (defcommand (switchboard-click :unlisted)
   (let* ((b (the-board))
@@ -532,5 +521,6 @@ once there are cards, or on the first of all."
   (keep-told client)
   (client-over-put client (%make-board :starting session)))
 
-(defcommand switchboard
+(defcommand (switchboard :group sessions)
+  "the whole server: every session, window and pane"
   (open-the-board *client*))

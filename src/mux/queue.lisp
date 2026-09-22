@@ -353,7 +353,8 @@ typed is the filter."
 (atty/mode:define-key 'queue-filter-mode "Escape" #'queue-drop-filter)
 (atty/mode:define-key 'queue-filter-mode "C-g"    #'queue-drop-filter)
 
-(defcommand needs-you
+(defcommand (needs-you :group agents)
+  "every question anywhere, oldest first; a digit answers it"
   (let ((q (%make-queue)))
     (keep-told *client*)
     (client-over-put *client* q)))

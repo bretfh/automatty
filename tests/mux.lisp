@@ -981,9 +981,46 @@ not the one clicked on: ~S" (seen seer))
            (wire (a-wire-to path)))
       (setf (mux::pane-label pane) "arch")
       (say-to wire (list :want "work") (list :attach 6 20 t) '(:naming))
-      (is (equal (list :name-it "work" (mux:pane-id pane) "arch" nil)
+      (is (equal (list :name-it "work" (mux:pane-id pane) "arch" nil "work:1.1")
                  (heard-from server wire :name-it)))
+      (say-to wire '(:naming-window))
+      (is (equal (list :name-window-of "work" 1 nil) (heard-from server wire :name-window-of)))
       (mux:wire-close wire))))
+
+;;; Prompts: sessions and windows, commands with their keys, a click chooses.
+
+(test the-window-prompt-lists-every-session-and-window-asking-first-and-goes-there
+  (let ((choices (mux::window-choices
+                  '(("todo" 24 80 3 1 1 ((1 "agents" 2 1 t) (2 nil 1 0 nil)))
+                    ("lib" 24 80 1 0 0 ((1 nil 1 0 t)))))))
+    (is (eql 3 (length choices)))
+    (is (equal '("todo" 1) (list (getf (first choices) :session) (getf (first choices) :window)))
+        "the window with a question is not first: ~S" choices)
+    (is (search "▲ 1" (mux::window-choice-line (first choices))))
+    (is (search "● here" (mux::window-choice-line (first choices))))
+    (is (search "lib" (mux::window-choice-line (third choices)))))
+  (with-server (path :command "cat" :rows 12 :cols 80)
+    (with-seer (seer path :rows 12 :cols 80)
+      (type-at seer "in-the-first")
+      (is-true (pump seer :want "in-the-first"))
+      (type-at seer (format nil "~Cc" mux:+prefix+))
+      (is-true (pump seer :until (lambda () (null (search "in-the-first" (seen seer))))))
+      (type-at seer (format nil "~C'" mux:+prefix+))
+      (is-true (pump seer :want "sessions and windows") "the window prompt did not open: ~S" (seen seer))
+      (is-true (pump seer :want "› 2 ") "window 2 is not listed: ~S" (seen seer))
+      ;; the rows are buttons: a click on window 1's row goes there
+      (multiple-value-bind (x y) (where-on seer "› 1 ")
+        (is-true x "no row for window 1: ~S" (seen seer))
+        (when x (click-at seer x y)))
+      (is-true (pump seer :want "in-the-first") "clicking the row did not go there: ~S" (seen seer)))))
+
+(test the-command-prompt-shows-each-commands-key-and-what-it-does
+  (is (search "C-b 3" (mux::command-line "split right")))
+  (is (search "beside" (mux::command-line "split right")))
+  (is (string= "PANES" (symbol-name (mux::command-group "split right"))))
+  (let ((rows (mux::keys-help-rows)))
+    (is (string= "PANES" (symbol-name (third (first rows)))) "the help does not start with the panes: ~S" (first rows))
+    (is (find "needs you" rows :key #'first :test #'equal))))
 
 ;;; What a client is told about every pane, not just the ones it is looking at.
 
@@ -1190,7 +1227,7 @@ under a rule, and then echoes whatever it is answered."
       (type-at seer (format nil "~C3" mux:+prefix+))
       (is-true (pump seer :until (lambda () (search "╔" (seen seer))))
                "no double frame round the focused pane: ~S" (seen seer))
-      (type-at seer (format nil "~C," mux:+prefix+))
+      (type-at seer (format nil "~C." mux:+prefix+))
       (is-true (pump seer :want "name ") "the name prompt did not open: ~S" (seen seer))
       (type-at seer (format nil "impl~C" #\Return))
       (is-true (pump seer :want " impl sleep")
