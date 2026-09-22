@@ -811,7 +811,8 @@ is drawn is what they have just been told they are."
   ;; on its own rather than on the end of the greeting: a client from before
   ;; this takes the greeting apart by its exact shape, and passes over a
   ;; message it has never heard of
-  (tell watcher (list :you (watcher-id watcher))))
+  (tell watcher (list :you (watcher-id watcher)))
+  (tell watcher (list :barp (session-barp session))))
 
 (defun frame-for (session watcher)
   (let* ((screen (session-screen session))
@@ -1255,6 +1256,8 @@ that is about a session is passed on only once it has joined one."
                                       (not (session-barp session))
                                       (and (second form) t)))
      (session-start-over session)
+     (dolist (w (session-watchers session))
+       (tell w (list :barp (session-barp session))))
      t)
     (:split (split-the-session session (or (second form) :across)) t)
     (:focus (focus-the-next session) t)

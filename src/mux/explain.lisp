@@ -218,13 +218,31 @@ is none."
 
 (defmethod ticks-p ((d drawer)) t)
 (defmethod passes-keys-p ((d drawer)) t)
-(defmethod mode-of ((d drawer)) 'pane-mode)
+(defmethod over-name ((d drawer)) "why")
+
+;;; Beside the panes, so typing goes on to the pane; but Escape, alone, and
+;;; C-g close it, as they close everything else on top.
+
+(atty/mode:define-mode drawer-mode (pane-mode))
+(defmethod mode-of ((d drawer)) 'drawer-mode)
+
+(defun close-the-drawer (client)
+  (let ((open (find-if (lambda (it) (typep it 'drawer)) (client-over client))))
+    (when open
+      (client-over-drop client open)
+      (stop-told client))))
+
+(defmethod close-over ((d drawer) client) (close-the-drawer client))
+
+(defcommand (close-drawer :unlisted)
+  (close-the-drawer *client*))
+
+(atty/mode:define-key 'drawer-mode "Escape" #'close-drawer)
+(atty/mode:define-key 'drawer-mode "C-g" #'close-drawer)
 
 (defcommand (explain-this-pane :group agents)
   "why this pane is what it is, and who typed into it"
-  (let ((open (find-if (lambda (it) (typep it 'drawer)) (client-over *client*))))
-    (if open
-        (progn (client-over-drop *client* open)
-               (stop-told *client*))
-        (progn (keep-told *client*)
-               (client-over-put *client* (%make-drawer))))))
+  (if (find-if (lambda (it) (typep it 'drawer)) (client-over *client*))
+      (close-the-drawer *client*)
+      (progn (keep-told *client*)
+             (client-over-put *client* (%make-drawer)))))

@@ -48,6 +48,7 @@
 (atty/mode:define-mode note-mode ())
 
 (defmethod mode-of ((n note)) 'note-mode)
+(defmethod over-name ((n note)) (note-title n))
 
 (defmethod unbound ((n note) chord client)
   "Anything at all puts it away."

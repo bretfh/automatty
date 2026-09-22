@@ -360,8 +360,10 @@ and it is another bar."
             (list (needs-slot server :narrow narrow))
             (other-sessions-folded session :narrow narrow)
             (list (clients-slot session :narrow narrow))
-            (list (atty/ui:label (if (pane-running (session-focus session)) "" "done")
-                                 :face :warning)
+            ;; the popup slot is the client's to paint what it has on top
+            ;; into; the server only says here when the pane is done
+            (list (slot (if (pane-running (session-focus session)) "" " done") +popup-width+
+                        :face :warning)
                   (atty/ui:label " │ " :face :quiet)
                   (atty/ui:label (clock-says))
                   (atty/ui:label " "))))))

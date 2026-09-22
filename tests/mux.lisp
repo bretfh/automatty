@@ -2182,3 +2182,34 @@ something tagged TAG, and answer it."
         (is (eql 1 (mux:window-number session (mux:session-window session)))
             "putting a pane in a window showed that window"))
       (mux:wire-close wire))))
+
+;;; What is on top is said on the bar, and closed from there or by Escape.
+
+(test escape-closes-the-drawer-and-the-bar-says-what-is-on-top-until-it-is-clicked-away
+  (with-server (path :command "cat" :rows 12 :cols 100)
+    (with-seer (seer path :rows 12 :cols 100)
+      (pump seer :seconds 1/2)
+      (type-at seer (format nil "~Ce" mux:+prefix+))
+      (is-true (pump seer :want "what is cat?") "the drawer did not open: ~S" (seen seer))
+      (is-true (pump seer :want "▣ why · esc ✕") "the bar does not say the drawer is up: ~S" (seen seer))
+      (type-at seer (string (code-char 27)))
+      (is-true (pump seer :until (lambda () (null (search "what is cat?" (seen seer)))))
+               "Escape did not close the drawer: ~S" (seen seer))
+      (is (null (search "▣ why" (seen seer))) "the chip stayed after the drawer went")
+      ;; and by a click on the chip
+      (type-at seer (format nil "~Ce" mux:+prefix+))
+      (is-true (pump seer :want "▣ why · esc ✕"))
+      (multiple-value-bind (x y) (where-on seer "esc ✕")
+        (is-true x)
+        (when x (click-at seer (+ x 4) y)))
+      (is-true (pump seer :until (lambda () (null (search "what is cat?" (seen seer)))))
+               "clicking the chip did not close the drawer: ~S" (seen seer))
+      ;; the queue and a prompt say their names too
+      (type-at seer (format nil "~CN" mux:+prefix+))
+      (is-true (pump seer :want "▣ needs you · esc ✕") "~S" (seen seer))
+      (type-at seer (string (code-char 27)))
+      (pump seer :until (lambda () (null (search "▣ needs you" (seen seer)))))
+      (type-at seer (format nil "~C:" mux:+prefix+))
+      (is-true (pump seer :want "▣ run · esc ✕") "~S" (seen seer))
+      (type-at seer (string (code-char 27)))
+      (pump seer :seconds 1/4))))

@@ -105,6 +105,10 @@ screen it was drawn over, and the diff puts it back."
 (atty/mode:define-mode prompt-mode ())
 
 (defmethod mode-of ((p prompt)) 'prompt-mode)
+(defmethod over-name ((p prompt)) (prompt-title p))
+(defmethod close-over ((p prompt) client)
+  (prompt-close p client)
+  (when (prompt-dropped p) (funcall (prompt-dropped p) client)))
 
 (defun the-prompt ()
   (let ((it (first (client-over *client*))))

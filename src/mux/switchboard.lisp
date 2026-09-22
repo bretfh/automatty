@@ -15,6 +15,7 @@
 ;;; session's windows, and who is attached.
 
 (declaim (ftype function short-tty))
+(declaim (special +asked-every+))
 
 (defparameter +side-width+ 30
   "How wide the side panel is: the server, the sessions, the clients.")
@@ -508,6 +509,8 @@ attached: what the board is drawn from beyond the pane rows."
       (tell-the-server-if-it-knows (list :clients)))))
 
 (defmethod ticks-p ((b board)) t)
+(defmethod over-name ((b board)) "switchboard")
+(defmethod close-over ((b board) client) (board-close-it b client))
 
 ;;; What a key or a click does.
 

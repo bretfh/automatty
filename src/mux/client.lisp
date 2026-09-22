@@ -39,6 +39,7 @@ silence.")
            (screens (make-hash-table :test 'equal))
            (lately nil)
            (clients nil)
+           (barp t)
            (layouts (make-hash-table :test 'equal))
            (watching 0 :type fixnum)
            (ticked 0 :type integer)
@@ -51,7 +52,8 @@ silence.")
     (values (make-wire (sb-bsd-sockets:socket-file-descriptor socket) socket)
             socket)))
 
-(declaim (ftype function ask ask-a-name))
+(declaim (ftype function ask ask-a-name shortened-to bar-face))
+(declaim (special +popup-width+ +clock-width+))
 
 (defun ms-here ()
   (floor (* 1000 (get-internal-real-time)) internal-time-units-per-second))
@@ -175,6 +177,52 @@ front of them, that only says things, need not take the keyboard away.")
   (:documentation "Which mode a client is in while THING is on top.")
   (:method (thing) (declare (ignore thing)) 'pane-mode))
 
+(defgeneric over-name (thing)
+  (:documentation "What THING on top is called, for the bar's popup slot: nil
+for something that need not be said.")
+  (:method (thing) (declare (ignore thing)) nil))
+
+(defgeneric close-over (thing client)
+  (:documentation "Take THING off the top of CLIENT, the way its own close key
+would.")
+  (:method (thing client) (client-over-drop client thing)))
+
+(defparameter +popup-width+ 24
+  "The slot at the right of the bar, before the clock, that the client paints
+what is on top into: the server leaves it blank, and knows nothing of what a
+client has on top.")
+
+(defparameter +clock-width+ 9
+  "What is right of the popup slot: the bar's ' │ hh:mm '.")
+
+(defun popup-slot (cols)
+  "Where the popup slot is on a bar COLS wide: its first column, and one past its last."
+  (let ((right (- cols +clock-width+)))
+    (values (max 0 (- right +popup-width+)) right)))
+
+(defun popup-chip (client screen)
+  "Paint what is on top, and that Escape closes it, into the bar's popup slot:
+the bar is the server's and everybody's, this chip is this client's own."
+  (let ((named (find-if #'over-name (client-over client))))
+    (when (and named (client-barp client))
+      (multiple-value-bind (from to) (popup-slot (tty:screen-width screen))
+        (let* ((m (atty/cells:make-cells (tty:screen-grid screen)
+                                         (tty:screen-width screen) (tty:screen-height screen)))
+               (text (shortened-to (format nil " ▣ ~A · esc ✕" (over-name named)) (- to from)))
+               (face (term:make-face :fg (bar-face :bg) :bg (bar-face :magenta) :bold t)))
+          (atty/cells:fill-rect m from 0 (- to from) 1 (term:make-face :bg (bar-face :bg-alt)))
+          (atty/cells:say-at m from 0 text face))))))
+
+(defun popup-clicked-p (client line col)
+  "Whether a click at LINE, COL is on the popup chip: if so the thing on top
+goes, and the click is taken."
+  (let ((named (find-if #'over-name (client-over client))))
+    (when (and named (zerop line) (client-barp client))
+      (multiple-value-bind (from to) (popup-slot (client-cols client))
+        (when (and (<= from col) (< col to))
+          (close-over named client)
+          t)))))
+
 (defun client-fit (client rows cols)
   (setf (client-screen client) (tty:make-screen :width cols :height rows)
         (client-from client) (tty:make-screen :width cols :height rows)
@@ -192,7 +240,8 @@ not something everybody attached should be shown."
       (tty:screen-copy work (client-from client))
       (let ((*drawing-for* client))
         (dolist (it (reverse (client-over client)))
-          (draw-over it work)))
+          (draw-over it work))
+        (popup-chip client work))
       (let ((runs (tty:screen-diff (client-shown client) work)))
         (host-say client
                   (with-output-to-string (s)
@@ -275,6 +324,8 @@ looks like, not why it happened."
                        (client-dirty client) t))
         (:layouts (setf (gethash (second form) (client-layouts client)) (third form)
                         (client-dirty client) t))
+        (:barp (setf (client-barp client) (and (second form) t)
+                     (client-dirty client) t))
         (:clients (setf (client-clients client) (second form)
                         (client-dirty client) t))
         ((:agent-explained :pane-history :pane-log :pane-about)
@@ -465,15 +516,22 @@ does have a name for goes to the mode instead and is not passed on."
                            (let ((key (and (plusp took) (consp event)
                                            (eq (first event) :mouse)
                                            (mouse-key-of event))))
-                             (if key
-                                 (progn
-                                   (send)
-                                   (let ((*mouse-at* (cons (getf (rest event) :x)
-                                                            (getf (rest event) :y)))
-                                         (*mouse-event* (rest event)))
-                                     (client-chord client key))
-                                   (incf at took))
-                                 (progn (vector-push ch out) (incf at))))))
+                             (cond
+                               (key
+                                (send)
+                                (let ((*mouse-at* (cons (getf (rest event) :x)
+                                                         (getf (rest event) :y)))
+                                      (*mouse-event* (rest event)))
+                                  (client-chord client key))
+                                (incf at took))
+                               ;; Escape on its own, with something on top that
+                               ;; lets keys through: the mode's, so it can close
+                               ;; what is on top; a sequence is still the pane's
+                               ((and (client-over client) (<= took 1))
+                                (send)
+                                (client-chord client (key-of ch))
+                                (incf at))
+                               (t (vector-push ch out) (incf at))))))
                         (t (incf at) (vector-push ch out))))))
       (send))))
 

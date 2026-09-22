@@ -263,6 +263,8 @@ it, what it asks, and its answers. The whole of it is a button that picks it."
   (if (queue-filtering q) 'queue-filter-mode 'queue-mode))
 
 (defmethod ticks-p ((q queue)) t)
+(defmethod over-name ((q queue)) "needs you")
+(defmethod close-over ((q queue) client) (queue-close-it q client))
 
 (defun the-queue ()
   (let ((it (first (client-over *client*))))
