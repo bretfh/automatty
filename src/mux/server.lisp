@@ -22,7 +22,7 @@ more than the terminal it is sitting inside costs in the first place.")
     :answer :focus-pane :go-to-blocked :zoom :pane-read :lately :prompt-when-idle
     :close-pane :split-in :pane-about :spawn :since-prompt
     :new-window :go-window :next-window :previous-window :close-window :name-window :layouts
-    :clients :detach-client
+    :clients :detach-client :reading
     :keys :resize :bar :split :focus :close :only :mouse-at
     :scroll :wheel :pointer :scrollbars :reload-init
     :agents :agent-signal :agent-read :agent-keys :agent-prompt :agent-explain :agent-snapshot
@@ -95,6 +95,7 @@ command line."
   (cols 80 :type fixnum)
   (scrollbarsp t)
   (held nil)
+  (readers nil)
   (server nil))
 
 ;;; The layout, the focus and the zoom are the current window's. They read and
@@ -813,6 +814,7 @@ is drawn is what they have just been told they are."
     (when session
       (setf (session-watchers session)
             (remove watcher (session-watchers session))
+            (session-readers session) (remove watcher (session-readers session))
             (watcher-session watcher) nil)
       (session-fit session))
     session))
@@ -1229,6 +1231,14 @@ that is about a session is passed on only once it has joined one."
      (destructuring-bind (amount &optional x y) (rest form)
        (scroll-the-pane (or (and x y (pane-at session x y)) (session-focus session))
                         amount))
+     t)
+    (:reading
+     ;; a client reading a pane back says so, so the bar can say it for everybody
+     (setf (session-readers session)
+           (if (second form)
+               (adjoin watcher (session-readers session))
+               (remove watcher (session-readers session))))
+     (dolist (w (session-watchers session)) (setf (watcher-behind w) t))
      t)
     (:scrollbars
      (setf (session-scrollbarsp session) (if (eq (second form) :toggle)

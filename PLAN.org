@@ -570,7 +570,7 @@ surface. Each phase ends with the suite green and something to try by hand.
   =(:detach-client id)=.
 - =atty clients=; =atty list= says windows, panes, what needs you, clients.
 
-** Phase 3: the bar
+** DONE Phase 3: the bar
 - Window chips (number, name, =▲k= when a pane in it asks, the current one
   lit; click goes), =+=, =⤢ pane zoomed=, =reading back · q leaves= (click
   leaves; the server hears =(:reading …)=), the =:/@= field, needs you,

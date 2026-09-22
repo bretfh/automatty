@@ -184,11 +184,13 @@ anything is what that server always did, and a note for every notch is worse."
 
 (defcommand scroll-mode
   (unless (reading-now)
-    (client-over-put *client* (%make-reading))))
+    (client-over-put *client* (%make-reading))
+    (tell-the-server-if-it-knows (list :reading t))))
 
 (defcommand (leave-scroll-mode :unlisted)
   (let ((r (reading-now)))
     (when r (client-over-drop *client* r)))
+  (tell-the-server-if-it-knows (list :reading nil))
   (scroll-to-bottom))
 
 (defcommand scroll-mode-page-up

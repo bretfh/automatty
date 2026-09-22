@@ -396,7 +396,7 @@ it, and the pane that was acted on can say who by."
                             (wall-clock clock) (who-said-here who) verb
                             (if (eq verb :keys) (format nil "~D bytes" summary) (or summary ""))
                             (eq outcome :refused)))
-          (format t "~&nobody has typed into ~A:~D~%" session id)))))
+          (format t "~&nobody has typed into ~A~%" (second args))))))
 
 (defun done-since-prompt-p (said wanted)
   "Whether what :SINCE-PROMPT SAID shows the pane in a WANTED state it came to
