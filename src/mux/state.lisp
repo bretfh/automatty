@@ -448,11 +448,12 @@ comes back with no file of its own."
 ;;; moment or has gone unsaved long enough, and everything when the server
 ;;; stops.
 
-(defun save-tree (server &optional (dir (server-state-dir server)))
-  "Write the tree if it is not what was last written, and drop the files of
-panes that are in no session any more. Answers whether it was written."
+(defun save-tree (server &optional (dir (server-state-dir server)) force)
+  "Write the tree if it is not what was last written, or when FORCE, and drop
+the files of panes that are in no session any more. Answers whether it was
+written."
   (let ((tree (tree-said server)))
-    (unless (equal tree (server-tree-saved server))
+    (when (or force (not (equal tree (server-tree-saved server))))
       (run-hook 'before-save server)
       (when (write-form-atomically (tree-file dir)
                                    (list* :atty-state +state-version+
@@ -494,9 +495,10 @@ a save, so no turn of the loop stalls on more than one pane's rows."
                  now dir))))
 
 (defun save-everything (server &optional (dir (server-state-dir server)))
-  "The tree and every pane, now."
+  "The tree and every pane, now. The tree is written whether or not it changed,
+so when it says it was saved is when everything was."
   (let ((now (now-ms)))
-    (save-tree server dir)
+    (save-tree server dir t)
     (dolist (session (server-sessions server))
       (dolist (pane (session-panes session))
         (save-pane server pane now dir)))))
@@ -535,6 +537,34 @@ nothing. Answers where it went, or nil when there was none."
       (sb-posix:rename (string-right-trim "/" (namestring dir))
                        (string-right-trim "/" (namestring aside)))
       aside)))
+
+(defun forget-saved-session (session-name &optional (name (server-name)))
+  "Take the session called SESSION-NAME out of what was saved for the server
+called NAME, its panes' files with it. Answers whether it was there."
+  (let ((dir (uiop:ensure-directory-pathname
+              (merge-pathnames (format nil "atty/~A/" (a-name name "a server")) (state-home)))))
+    (multiple-value-bind (tree status) (read-state-file (tree-file dir) :atty-state)
+      (when (eq status :ok)
+        (let* ((sessions (getf (nthcdr 2 tree) :sessions))
+               (gone (find session-name sessions :key (lambda (s) (getf s :name)) :test #'equal)))
+          (when gone
+            (let ((ids nil))
+              (labels ((walk (said)
+                         (cond ((integerp said) (pushnew said ids))
+                               ((consp said) (mapc #'walk (rest said))))))
+                (dolist (w (getf gone :windows)) (walk (getf w :layout))))
+              (dolist (id ids) (ignore-errors (delete-file (pane-file dir id)))))
+            (let ((left (remove gone sessions)))
+              (if left
+                  (write-form-atomically (tree-file dir)
+                                         (list* :atty-state +state-version+
+                                                :saved (get-universal-time)
+                                                (let ((rest (copy-list (cddr tree))))
+                                                  (setf (getf rest :sessions) left)
+                                                  (remf rest :saved)
+                                                  rest)))
+                  (ignore-errors (delete-file (tree-file dir)))))
+            t))))))
 
 (defun saved-sessions (&optional (name (server-name)))
   "What was saved for the server called NAME: (name windows panes saved-at)

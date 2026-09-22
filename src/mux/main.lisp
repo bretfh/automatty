@@ -998,9 +998,12 @@ foreground. With a name it holds that session from the start."
             ((string= what "clients") (list-clients))
             ((string= what "stop")
              (let ((name (or (second args) (error "atty stop <name>: which session?"))))
-               (if (stop-a-session name)
-                   (format t "~&stopped ~A~%" name)
-                   (error "nothing called ~A is running" name))))
+               (cond ((stop-a-session name)
+                      (format t "~&stopped ~A~%" name))
+                     ;; not running, but kept on disk: stopping it is forgetting it
+                     ((forget-saved-session name)
+                      (format t "~&~A was not running; what was saved of it is gone~%" name))
+                     (t (error "nothing called ~A is running or saved" name)))))
             ((string= what "start")
              (if *fresh* (a-fresh-server) (the-server))
              (format t "~&~A~%" (if (the-sessions)
@@ -1015,7 +1018,11 @@ foreground. With a name it holds that session from the start."
                (format t "~&saved~%")))
             ((string= what "kill-server")
              (if (stop-a-server (where-the-server-is))
-                 (format t "~&stopped every session~%")
+                 (let ((saved (saved-sessions)))
+                   (if saved
+                       (format t "~&stopped every session; ~D saved, atty brings ~:[them~;it~] back~%"
+                               (length saved) (= 1 (length saved)))
+                       (format t "~&stopped every session~%")))
                  (error "no server is running")))
             ((string= what "attach")
              (let ((path (where-the-server-is)))

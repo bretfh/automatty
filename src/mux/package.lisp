@@ -112,7 +112,7 @@
    #:bind-prefixed-keys
    #:*init-problem* #:load-user-init #:user-init-file #:config-dir #:init-help
    #:*state-home* #:state-dir #:pane-said #:said-pane #:tree-said #:restore-state
-   #:save-tree #:save-pane #:save-everything #:save-what-is-due #:move-state-aside #:saved-sessions
+   #:save-tree #:save-pane #:save-everything #:save-what-is-due #:move-state-aside #:saved-sessions #:forget-saved-session
    #:write-form-atomically #:read-state-file
    #:+was-known+
    #:client-knows
