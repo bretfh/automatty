@@ -132,6 +132,11 @@ somebody; a click goes there."
   "A terminal narrower than this gets a bar without names: the glyphs and the
 counts say what the names would, in the room there is.")
 
+(defparameter +bar-left-least+ 28
+  "The least room the left of the bar keeps for the session and its windows:
+the brand, the name, the rule, one chip and the plus. The right of the bar is
+folded up until the left has at least this.")
+
 (defparameter +sessions-shown+ 4
   "How many other sessions the bar names before folding the rest to a count.")
 
@@ -304,31 +309,63 @@ as how many more; a click goes to the pane there that most wants somebody."
 where you are; this session's windows and a way to another; what the shown
 window's lone pane is doing; zoomed or reading back; the field for commands
 and sessions; what needs you anywhere; the other sessions; who else is here;
-the one key to learn; the time. Rebind *BAR* to a function of the session
-answering another tree, and it is another bar."
+the one key to learn; the time.
+
+The right of the bar is pinned to the right edge whatever the width, and the
+windows take what is left and are cut there, so nothing on the right is ever
+pushed off or moves as windows come and go. When even the right does not
+leave the windows their least room it is folded up in steps: first to its
+narrow forms without the field, then to the bar a narrow terminal gets.
+Rebind *BAR* to a function of the session answering another tree, and it is
+another bar."
   (let* ((now (now-ms))
          (server (session-server session))
-         (narrow (< (session-cols session) +narrow-bar+)))
+         (cols (session-cols session))
+         (fit (bar-fit session cols))
+         (narrow (eq fit :narrow))
+         (tight (not (eq fit :wide))))
     (apply #'atty/ui:row
            :spacing 0
            :background-color (bar-face :bg-dim)
            (append
-            (list (atty/ui:label " λ " :face :brand)
-                  (atty/ui:label (format nil " ~A " (session-name session)) :face :strong-accent)
-                  (atty/ui:label "│" :face :quiet))
-            (mapcar (lambda (w) (window-chip session w :narrow narrow)) (session-windows session))
-            (list (plus-chip session))
+            (list (squeezed
+                   (apply #'atty/ui:row :spacing 0
+                          (append
+                           (list (atty/ui:label " λ " :face :brand)
+                                 (atty/ui:label (format nil " ~A " (session-name session)) :face :strong-accent)
+                                 (atty/ui:label "│" :face :quiet))
+                           (mapcar (lambda (w) (window-chip session w :narrow narrow)) (session-windows session))
+                           (list (plus-chip session))))))
             (list (focus-slot session now :narrow narrow))
             (unless narrow (list (mode-slot session)))
-            (list (atty/ui:gap))
-            (unless narrow (list (search-segment session) (atty/ui:gap)))
-            (list (needs-slot server :narrow narrow))
-            (other-sessions-folded session :narrow narrow)
-            (list (clients-slot session :narrow narrow))
+            (unless tight (list (search-segment session)))
+            (list (needs-slot server :narrow tight))
+            (other-sessions-folded session :narrow tight)
+            (list (clients-slot session :narrow tight))
             (unless narrow (list (menu-slot)))
             (list (atty/ui:label " │ " :face :quiet)
                   (atty/ui:label (clock-says))
                   (atty/ui:label " "))))))
+
+(defun bar-right-width (session fit)
+  "How many columns the right of the bar takes at FIT: what is pinned to the
+right edge, everything but the session's windows."
+  (let* ((server (session-server session))
+         (others (length (and server (remove session (server-sessions server)))))
+         (shown (min others +sessions-shown+))
+         (more (if (> others shown) 1 0)))
+    (ecase fit
+      (:wide (+ +focus-width+ +mode-width+ 18 +needs-width+ (* 8 shown) (* 5 more) +clients-width+ +menu-width+ 9))
+      (:tight (+ +focus-width+ +mode-width+ 6 (* 3 shown) (* 3 more) 4 +menu-width+ 9))
+      (:narrow (+ 10 6 (* 3 shown) (* 3 more) 4 9)))))
+
+(defun bar-fit (session cols)
+  "How the bar is folded at COLS: :wide when the whole right leaves the
+windows their least room, :tight when its narrow forms do, else :narrow."
+  (cond ((< cols +narrow-bar+) :narrow)
+        ((>= (- cols (bar-right-width session :wide)) +bar-left-least+) :wide)
+        ((>= (- cols (bar-right-width session :tight)) +bar-left-least+) :tight)
+        (t :narrow)))
 (defvar *bar* #'default-bar)
 
 (defun session-bar (session)

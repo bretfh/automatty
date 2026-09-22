@@ -1466,7 +1466,7 @@ from row FROM down."
            (with-seer (seer path :rows 20 :cols 100)
              (pump seer :seconds 1/2)
              (type-at seer (format nil "sh ~A~C" script #\Return))
-             (is-true (pump seer :want "needs you") "the bar never said anything needs you")
+             (is-true (pump seer :want "▲ 1") "the bar never said anything needs you: ~S" (seen seer))
              ;; somewhere else to be while it is answered
              (type-at seer (format nil "~CC" mux:+prefix+))
              (is-true (pump seer :until (lambda () (null (search "Bash command" (seen seer))))))
@@ -2351,9 +2351,9 @@ something tagged TAG, and answer it."
       (is-true (pump seer :want " 3 cat") "clicking + made no window: ~S" (seen seer)))))
 
 (test the-bar-is-where-what-else-who-and-the-one-key-to-learn
-  (with-a-session (session pane server "cat" :rows 8 :cols 120)
+  (with-a-session (session pane server "cat" :rows 8 :cols 160)
     (declare (ignore pane))
-    (let* ((screen (tty:make-screen :width 120 :height 1))
+    (let* ((screen (tty:make-screen :width 160 :height 1))
            (tree (mux::default-bar session)))
       (laid tree screen)
       (let ((line (shown screen 0)))
@@ -2366,6 +2366,30 @@ something tagged TAG, and answer it."
         (is (search " │ " line :from-end t) "the rule before the time is gone: ~S" line)
         (let ((menu (mux::button-at tree 0 (search "C-b menu" line))))
           (is (equal "show the menu" (and menu (mux::bar-button-runs menu)))))))))
+
+(test the-right-of-the-bar-is-pinned-to-the-edge-and-the-windows-are-cut-instead
+  (with-a-session (session pane server "cat" :rows 8 :cols 200)
+    (declare (ignore pane))
+    ;; nine windows: more chips than any of these widths has room for
+    (dotimes (i 8) (mux::add-window session "cat" nil nil))
+    (dolist (cols '(200 160 120 100 79 60))
+      (setf (mux:session-cols session) cols)
+      (let* ((screen (tty:make-screen :width cols :height 1))
+             (tree (mux::default-bar session)))
+        (laid tree screen)
+        (let* ((line (shown screen 0))
+               (clock (mux::clock-says))
+               (tail (format nil "│ ~A" clock)))
+          ;; the last cell is the space after the time, which shown trims
+          (is (<= (length line) cols) "at ~D the bar is ~D wide: ~S" cols (length line) line)
+          (is (eql (- cols 1 (length tail)) (search tail line :from-end t))
+              "at ~D the time is not pinned to the right edge: ~S" cols line)
+          (is (eql 0 (search " λ " line)) "at ~D the brand is gone: ~S" cols line)
+          (is (search (if (>= cols 80) " 1 cat" " 1 ") line) "at ~D the first window is gone: ~S" cols line)
+          (when (>= cols 80)
+            (is (search "C-b menu │" line) "at ~D the menu is not before the time: ~S" cols line))
+          (when (>= cols 80)
+            (is (null (search " 9 cat" line)) "at ~D the ninth window still fits, so nothing was cut: ~S" cols line)))))))
 
 (test the-menu-rises-after-the-prefix-hangs-and-a-click-on-it-runs-the-key
   (with-server (path :command "cat" :rows 24 :cols 100)
