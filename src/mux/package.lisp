@@ -102,6 +102,12 @@
    #:session-bar
 
    #:+prefix+
+   #:defsetting #:configure #:setting #:settings #:after-setting
+   #:defhook #:add-hook #:remove-hook #:run-hook
+   #:+wheel-rows+ #:+max-scrollback+ #:+scrollbars-by-default+ #:+bar-by-default+
+   #:+restore-command+ #:+saved-scrollback+ #:+save-quiet-after+ #:+save-at-most-every+
+   #:bind-prefixed-keys
+   #:*init-problem* #:load-user-init #:user-init-file #:config-dir #:init-help
    #:+was-known+
    #:client-knows
    #:tell-the-server

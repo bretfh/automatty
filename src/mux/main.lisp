@@ -146,10 +146,22 @@ path."
             (second (find :agents said :key #'first)))))
 
 (defun pane-address (said)
-  (let ((colon (position #\: said :from-end t)))
-    (unless (and colon (parse-integer said :start (1+ colon) :junk-allowed t))
-      (error "~S is not a pane: a pane is <session>:<number>, as ATTY_PANE says" said))
-    (values (subseq said 0 colon) (parse-integer said :start (1+ colon)))))
+  "SAID taken apart: the session, and either the window and the pane's number
+in it (todo:1.2) or, from before there were windows, the pane's id (todo:4).
+Answers (values session id window n): id when it was an id, window and n when
+it was those."
+  (let* ((colon (position #\: said :from-end t))
+         (rest (and colon (subseq said (1+ colon))))
+         (dot (and rest (position #\. rest))))
+    (unless (and colon (plusp (length rest))
+                 (parse-integer rest :junk-allowed t :end (or dot (length rest)))
+                 (or (null dot) (parse-integer rest :start (1+ dot) :junk-allowed t)))
+      (error "~S is not a pane: a pane is <session>:<window>.<pane>, as ATTY_PANE says" said))
+    (if dot
+        (values (subseq said 0 colon) nil
+                (parse-integer rest :end dot) (parse-integer rest :start (1+ dot)))
+        (values (subseq said 0 colon) (parse-integer rest) nil nil))))
+
 
 (defun a-state (said)
   (let ((state (intern (string-upcase said) :keyword)))
@@ -165,12 +177,19 @@ path."
                (and row (fourth row))))))
 
 (defun pane-found (address)
-  (unless address (error "which pane? <session>:<number>, as atty agent list says"))
-  (multiple-value-bind (session id) (pane-address address)
-    (let ((row (find-if (lambda (r) (and (string= session (second r)) (eql id (third r))))
-                        (agents-here))))
+  "The pane ADDRESS names: its server's path, its session and its id, and its
+kind. Either form of address finds it."
+  (unless address (error "which pane? <session>:<window>.<pane>, as atty agent list says"))
+  (multiple-value-bind (session id window n) (pane-address address)
+    (let ((row (find-if (lambda (r)
+                          (and (equal session (getf r :session))
+                               (if id
+                                   (eql id (getf r :id))
+                                   (and (eql window (getf r :window))
+                                        (eql (1- n) (getf r :at))))))
+                        (the-panes))))
       (unless row (error "there is no pane called ~A running" address))
-      (values (first row) session id (fifth row)))))
+      (values (where-the-server-is) session (getf row :id) (getf row :kind)))))
 
 (defun caller ()
   "The pane this is running in, as ATTY_PANE says, or nil outside one. It goes
@@ -269,8 +288,9 @@ it, and the pane that was acted on can say who by."
        (format t "[]~%"))
       ((flag-p args "--json")
        (json (mapcar (lambda (r)
-                       (list :address (format nil "~A:~D" (getf r :session) (getf r :id))
+                       (list :address (row-address r)
                              :session (getf r :session) :id (getf r :id)
+                             :window (getf r :window) :window-name (getf r :window-name)
                              :name (getf r :label) :says (getf r :says) :kind (getf r :kind)
                              :state (getf r :state) :for-ms (getf r :for)
                              :asks (let ((asks (getf r :asks)))
@@ -290,7 +310,7 @@ it, and the pane that was acted on can say who by."
        (terpri))
       ((null rows) (format t "~&nothing is running~%"))
       (t
-       (let* ((addresses (mapcar (lambda (r) (format nil "~A:~D" (getf r :session) (getf r :id))) rows))
+       (let* ((addresses (mapcar #'row-address rows))
               (names (mapcar (lambda (r) (or (getf r :label) "-")) rows))
               (wa (reduce #'max addresses :key #'length))
               (wn (reduce #'max names :key #'length))
@@ -318,9 +338,10 @@ it, and the pane that was acted on can say who by."
                                          (or (option before "--cwd") (cwd))
                                          (option before "--name")))
                         :done (lambda (f) (eq :spawned (first f)))))
-           (id (third (find :spawned said :key #'first))))
+           (spawned (find :spawned said :key #'first))
+           (id (third spawned)))
       (unless id (error "no pane was made in ~A" session))
-      (format t "~&~A:~D~%" session id))))
+      (format t "~&~A~%" (or (fourth spawned) (format nil "~A:~D" session id))))))
 
 (defun name-agent (args)
   "atty agent name <pane> <name>, or from inside a pane atty agent name <name>"
@@ -358,6 +379,7 @@ it, and the pane that was acted on can say who by."
   (case (first who)
     (:pane (second who))
     (:client (or (third who) (format nil "client ~D" (second who))))
+    (:atty "atty")
     (t "the command line")))
 
 (defun log-of-agent (args)
@@ -759,17 +781,48 @@ one server held them all is stopped whole, since that is all it holds."
                                      :done (lambda (f) (eq :these (first f))))
                        :key #'first)))))
 
+(defun the-clients ()
+  "Who is attached to this server, as (id tty rows cols session window
+since-ms idle-ms) rows."
+  (let ((path (where-the-server-is)))
+    (and (answering-p path)
+         (second (find :clients (asked path '((:clients))
+                                       :done (lambda (f) (eq :clients (first f))))
+                       :key #'first)))))
+
+(defun client-name (row)
+  "What to call an attached terminal: its tty without the /dev/, else its id."
+  (let ((tty (second row)))
+    (if (and (stringp tty) (plusp (length tty)))
+        (if (and (> (length tty) 5) (string= "/dev/" tty :end2 5)) (subseq tty 5) tty)
+        (format nil "client ~D" (first row)))))
+
+(defun list-clients ()
+  "atty clients: every terminal attached, where it is looking, and for how long."
+  (let ((rows (the-clients)))
+    (if (null rows)
+        (format t "~&nobody is attached~%")
+        (dolist (row rows)
+          (destructuring-bind (id tty rows cols session window since idle) row
+            (declare (ignore id tty))
+            (format t "~&~-10A ~Dx~D  ~A~@[ › ~D~]  attached ~A~@[  idle ~A~]~%"
+                    (client-name row) cols rows (or session "no session") window
+                    (duration since) (and idle (duration idle))))))))
+
 (defun list-sessions ()
   (let ((rows (the-sessions))
+        (clients (the-clients))
         (others (other-servers)))
     (dolist (row rows)
-      (destructuring-bind (name rows cols panes attached &optional (blocked 0)) row
-        (declare (ignore rows cols))
-        (format t "~&~12A ~D pane~:P  ~D attached~A~%"
-                name panes attached
-                (if (plusp blocked)
-                    (format nil "  ▲ ~D need~A you" blocked (if (= blocked 1) "s" ""))
-                    ""))))
+      (destructuring-bind (name rows cols panes attached &optional (blocked 0) windows) row
+        (declare (ignore rows cols attached))
+        (let ((here (remove name clients :key #'fifth :test-not #'equal)))
+          (format t "~&~12A ~D window~:P  ~D pane~:P~A~@[  ~{~A~^, ~}~]~%"
+                  name (max 1 (length windows)) panes
+                  (if (plusp blocked)
+                      (format nil "  ▲ ~D need~A you" blocked (if (= blocked 1) "s" ""))
+                      "")
+                  (mapcar #'client-name here)))))
     (dolist (other others)
       (destructuring-bind (name path legacyp) other
         (declare (ignore path))
@@ -799,6 +852,7 @@ they are not there, its first pane called LABEL."
   (format s "  atty kill-server     stop every session~%")
   (format s "  atty serve           the server itself, in the foreground~%")
   (format s "  atty -L <server> ... any of these, against another server than your own~%")
+  (format s "  atty help init       what ~~/.config/atty/init.lisp can say, and every setting~%")
   (format s "  atty agent list [--blocked] [--session <s>] [--json]   what every pane is doing~%")
   (format s "  atty agent spawn <session> [--name <n>] [--cwd <d>] -- <command>   a new pane~%")
   (format s "  atty agent name <session>:<pane> <name>    what to call it~%")
@@ -867,6 +921,7 @@ foreground. With a name it holds that session from the start."
           (cond
             ((null what) (run))
             ((string= what "list") (list-sessions))
+            ((string= what "clients") (list-clients))
             ((string= what "stop")
              (let ((name (or (second args) (error "atty stop <name>: which session?"))))
                (if (stop-a-session name)
@@ -900,6 +955,10 @@ foreground. With a name it holds that session from the start."
                            (getf (nthcdr 2 expect) :version) (namestring made))))))
             ((string= what "readers") (readers-verbs (rest args)))
             ((or (string= what "-h") (string= what "--help")) (usage *standard-output*))
+            ((string= what "help")
+             (if (equal (second args) "init")
+                 (init-help *standard-output*)
+                 (usage *standard-output*)))
             (t (run :name what)))))
     (stream-error ()
       (sb-ext:quit :unix-status 0 :recklessly-p t))

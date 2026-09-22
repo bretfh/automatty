@@ -68,6 +68,7 @@ command with no key still has its name."
   (case (first who)
     (:pane (second who))
     (:client (or (third who) (format nil "client ~D" (second who))))
+    (:atty "atty")
     (t "the command line")))
 
 (defun last-input-marker (pane now)

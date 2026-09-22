@@ -562,7 +562,7 @@ surface. Each phase ends with the suite green and something to try by hand.
 - =ATTY_PANE= is =session:window.pane= where the pane started.
 - Commands and keys as decided; =close-window= asks y/n.
 
-** Phase 2: addresses, and clients as a thing
+** DONE Phase 2: addresses, and clients as a thing
 - =pane-address= reads =todo:1.2= and still =todo:4=; one =format-address=
   for =agent list=, =--json=, spawn, logs, the queue and the drawer.
 - A watcher knows when it attached and last typed. =(:clients)= answers and

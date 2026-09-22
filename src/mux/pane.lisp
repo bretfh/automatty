@@ -27,21 +27,26 @@
   (programs-at 0)
   (scrolled 0 :type fixnum)
   (pushed-seen 0 :type fixnum)
+  (touched 0 :type integer)
+  (saved-at 0 :type integer)
   (decoder (term:make-decoder)))
 
 (defparameter +programs-every+ 1000)
 
-(defun make-pane (command &key (rows 24) (cols 80) directory)
+(defun make-pane (command &key (rows 24) (cols 80) directory id)
   "A pane with a terminal that size and no program in it yet.
 
 Starting it is a second step because the size it is started at is the size it is
 told, once: a shell that asks stty for it on its first line must be told the
-room the layout gave it rather than a guess it is corrected out of afterwards."
-  (let ((pane (%make-pane :id (incf *panes-made*) :command command
+room the layout gave it rather than a guess it is corrected out of afterwards.
+
+ID is for a pane brought back from disk, which keeps the number it had; one
+made now takes the next."
+  (let ((pane (%make-pane :id (or id (incf *panes-made*)) :command command
                           :directory directory
                           :agent (agent:make-agent :command command))))
     (setf (pane-term pane)
-          (term:make-term :width cols :height rows
+          (term:make-term :width cols :height rows :max-scrollback +max-scrollback+
                         :bell-fn (lambda (term)
                                    (declare (ignore term))
                                    (setf (pane-rang pane) t))
@@ -195,7 +200,6 @@ nothing in front of it, and otherwise the program in the foreground."
 ;;; kept: what is typed at a shell is theirs. What an agent verb sent is kept,
 ;;; since it was said on the record by one program to another.
 
-(defparameter +log-length+ 256)
 (defparameter +keys-run+ 2000
   "Keys from one source this close together, in milliseconds, are one entry.")
 

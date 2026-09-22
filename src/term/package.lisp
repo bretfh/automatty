@@ -130,6 +130,8 @@
    #:term-scrollback-pushed
    #:term-scrollback-row
    #:term-scrollback-row-string
+   #:push-scrollback
+   #:term-main-grid
 
    #:term-render-line
    #:term-render-ansi-line

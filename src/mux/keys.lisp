@@ -206,35 +206,77 @@ anything is what that server always did, and a note for every notch is worse."
 ;;; A mode holds these, so another mode may be defined on top of this one and
 ;;; change or add to what is here without touching any of it.
 
-(atty/mode:define-key 'pane-mode "C-b d" #'detach)
-(atty/mode:define-key 'pane-mode "C-b r" #'redraw)
-(atty/mode:define-key 'pane-mode "C-b :" #'run-a-command)
-(atty/mode:define-key 'pane-mode "C-b ?" #'what-the-keys-do)
-(atty/mode:define-key 'pane-mode "C-b C-b" #'send-the-prefix)
-(atty/mode:define-key 'pane-mode "C-b t" #'toggle-the-bar)
 
 ;;; Panes are windows and the keys for them are the ones an editor uses for
 ;;; windows: 2 splits below, 3 splits beside, 0 closes this one, 1 leaves only
 ;;; this one, o goes to the next.
 
-(atty/mode:define-key 'pane-mode "C-b 2" #'split-below)
-(atty/mode:define-key 'pane-mode "C-b 3" #'split-right)
-(atty/mode:define-key 'pane-mode "C-b 0" #'close-pane)
-(atty/mode:define-key 'pane-mode "C-b 1" #'only-this-pane)
-(atty/mode:define-key 'pane-mode "C-b o" #'next-pane)
 
-(atty/mode:define-key 'pane-mode "C-b ," #'name-this-pane)
-(atty/mode:define-key 'pane-mode "C-b a" #'go-to-the-blocked)
-(atty/mode:define-key 'pane-mode "C-b z" #'zoom-this-pane)
-(atty/mode:define-key 'pane-mode "C-b N" #'needs-you)
-(atty/mode:define-key 'pane-mode "C-b w" #'switchboard)
-(atty/mode:define-key 'pane-mode "C-b e" #'explain-this-pane)
-(atty/mode:define-key 'pane-mode "C-b C" #'new-session)
-(atty/mode:define-key 'pane-mode "C-b c" #'new-window)
-(atty/mode:define-key 'pane-mode "C-b n" #'next-window)
-(atty/mode:define-key 'pane-mode "C-b p" #'previous-window)
-(atty/mode:define-key 'pane-mode "C-b &" #'close-window)
-(atty/mode:define-key 'pane-mode "C-b b" #'choose-a-session)
+
+(declaim (ftype function load-user-init init-loaded-note))
+
+(defcommand reload-init
+  ;; here and in the server both, since the file is read in both
+  (load-user-init)
+  (destructuring-bind (text face) (init-loaded-note)
+    (show-note *client* "init" text :face face))
+  (tell-the-server (list :reload-init)))
+
+;;; Everything behind the prefix, as what follows it. They are bound from
+;;; whatever the prefix is, so setting it in an init file moves every one of
+;;; them; :prefix is the prefix itself, which sends one to the pane.
+
+(defparameter +prefixed-keys+
+  '(
+    ("d" . detach)
+    ("r" . redraw)
+    (":" . run-a-command)
+    ("?" . what-the-keys-do)
+    (:prefix . send-the-prefix)
+    ("t" . toggle-the-bar)
+    ("2" . split-below)
+    ("3" . split-right)
+    ("0" . close-pane)
+    ("1" . only-this-pane)
+    ("o" . next-pane)
+    ("," . name-this-pane)
+    ("a" . go-to-the-blocked)
+    ("z" . zoom-this-pane)
+    ("N" . needs-you)
+    ("w" . switchboard)
+    ("e" . explain-this-pane)
+    ("C" . new-session)
+    ("c" . new-window)
+    ("n" . next-window)
+    ("p" . previous-window)
+    ("&" . close-window)
+    ("b" . choose-a-session)
+    ("[" . scroll-mode)
+    ("PageUp" . scroll-mode-page-up)
+    ("R" . reload-init)))
+
+(defun prefix-spelled (&optional (prefix +prefix+))
+  (atty/mode:spelled (key-of prefix)))
+
+(defun bind-prefixed-keys (&optional (prefix +prefix+) was)
+  "Bind everything in +PREFIXED-KEYS+ behind PREFIX, first unbinding it from
+behind WAS when the prefix has moved."
+  (flet ((chord (prefix tail)
+           (format nil "~A ~A" (prefix-spelled prefix)
+                   (if (eq tail :prefix) (prefix-spelled prefix) tail))))
+    (when (and was (not (eql was prefix)))
+      (loop :for (tail . nil) :in +prefixed-keys+
+            :do (atty/mode:undefine-key 'pane-mode (chord was tail))))
+    (loop :for (tail . command) :in +prefixed-keys+
+          :do (atty/mode:define-key 'pane-mode (chord prefix tail) (symbol-function command)))
+    prefix))
+
+(bind-prefixed-keys)
+
+(let ((was +prefix+))
+  (after-setting '+prefix+ (lambda (prefix)
+                             (bind-prefixed-keys prefix was)
+                             (setf was prefix))))
 
 ;;; A click is looked up the same as any other key, unprefixed: a mouse's
 ;;; buttons are always the multiplexer's, the way a keyboard's letters are
@@ -256,8 +298,6 @@ anything is what that server always did, and a note for every notch is worse."
 (atty/mode:define-key 'pane-mode "M-wheel-up" #'scroll-up-a-little)
 (atty/mode:define-key 'pane-mode "M-wheel-down" #'scroll-down-a-little)
 
-(atty/mode:define-key 'pane-mode "C-b [" #'scroll-mode)
-(atty/mode:define-key 'pane-mode "C-b PageUp" #'scroll-mode-page-up)
 
 (loop :for (chord does) :in `(("Up" ,#'scroll-up) ("k" ,#'scroll-up)
                               ("Down" ,#'scroll-down) ("j" ,#'scroll-down)
@@ -269,25 +309,3 @@ anything is what that server always did, and a note for every notch is worse."
                               ("q" ,#'leave-scroll-mode) ("Escape" ,#'leave-scroll-mode)
                               ("RET" ,#'leave-scroll-mode))
       :do (atty/mode:define-key 'scroll-mode chord does))
-
-;;; Everything above is a default. Whoever wants another key for a command, or
-;;; another command for a key or a button, says so in a file of their own, read
-;;; when atty starts: (atty/mode:define-key 'pane-mode "M-wheel-up" #'scroll-page-up)
-
-(defun user-init-file ()
-  (let ((config (sb-ext:posix-getenv "XDG_CONFIG_HOME")))
-    (merge-pathnames "atty/init.lisp"
-                     (if (and config (plusp (length config)))
-                         (concatenate 'string (string-right-trim "/" config) "/")
-                         (merge-pathnames ".config/" (user-homedir-pathname))))))
-
-(defun load-user-init (&optional (file (user-init-file)))
-  "Load FILE if there is one, in this package. One that does not load is said
-and passed over: a slip in somebody's own keys is not a reason not to start."
-  (when (probe-file file)
-    (handler-case (let ((*package* (find-package '#:atty)))
-                    (load file)
-                    t)
-      (error (e)
-        (format *error-output* "~&atty: ~A did not load: ~A~%" file e)
-        nil))))

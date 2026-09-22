@@ -10,9 +10,6 @@ A server that says nothing about what it can do is one from before it said, and
 these are what it had then. A client assuming more of it would send keys into
 silence.")
 
-(defparameter +prefix+ (code-char 2)
-              "What says the next byte is for the multiplexer rather than for the pane.")
-
 (defstruct (client (:constructor %make-client))
            (wire nil)
            (socket nil)
@@ -217,7 +214,10 @@ looks like, not why it happened."
                                    (client-session client) name
                                    (client-knows client) (or knows +was-known+))
                              (client-fit client rows cols)
-                             (host-say client tty:+blanked+)))
+                             (host-say client tty:+blanked+)
+                             (when *init-problem*
+                               (show-note client "init" *init-problem* :face :warning))
+                             (let ((*client* client)) (run-hook 'client-attached client))))
         (:frame
          (destructuring-bind (said faces) (rest form)
                              (said-into-screen (client-from client) said faces)
@@ -248,7 +248,7 @@ looks like, not why it happened."
                                   (list :go (subseq said 0 (position #\Space said)))))))
         (:bell (host-say client (string (code-char 7))))
         (:do (run-command (second form) client))
-        (:say (show-note client "atty" (second form) :face :accent))
+        (:say (show-note client "atty" (second form) :face (or (third form) :accent)))
         (:you (setf (client-id client) (second form)))
         (:pane
          (let ((row (rest form)))

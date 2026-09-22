@@ -50,7 +50,18 @@ time since it said it."
     (and for (+ for (max 0 (- now (getf row :heard-at)))))))
 
 (defun row-address (row)
-  (format nil "~A:~D" (getf row :session) (getf row :id)))
+  "A pane's address as a person says it: session:window.pane, or session:id
+from a server that has no windows."
+  (if (and (getf row :window) (getf row :at))
+      (format nil "~A:~D.~D" (getf row :session) (getf row :window) (1+ (getf row :at)))
+      (format nil "~A:~D" (getf row :session) (getf row :id))))
+
+(defun row-path (row)
+  "Where a pane is, as the queue and the drawer say it: session › window › pane."
+  (format nil "~A › ~@[~D ~]~@[~A~] › ~A"
+          (getf row :session) (getf row :window)
+          (or (getf row :window-name) "")
+          (or (getf row :label) (getf row :says) (getf row :id))))
 
 (defun row-text (row)
   "What a filter is matched against: everything a person might type to mean it."

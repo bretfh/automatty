@@ -10,7 +10,7 @@ answered the moment a byte arrives, and only a client already being fed faster
 than this waits. A tick would add half its length to every keystroke, which is
 more than the terminal it is sitting inside costs in the first place.")
 
-(declaim (ftype function session-bar session-compose greet tell))
+(declaim (ftype function session-bar session-compose greet tell load-user-init init-loaded-note))
 (declaim (special +prompt-toggles+))
 
 (defparameter +biggest-pane+ 1000)
@@ -22,8 +22,9 @@ more than the terminal it is sitting inside costs in the first place.")
     :answer :focus-pane :go-to-blocked :zoom :pane-read :lately :prompt-when-idle
     :close-pane :split-in :pane-about :spawn :since-prompt
     :new-window :go-window :next-window :previous-window :close-window :name-window :layouts
+    :clients :detach-client
     :keys :resize :bar :split :focus :close :only :mouse-at
-    :scroll :wheel :pointer :scrollbars
+    :scroll :wheel :pointer :scrollbars :reload-init
     :agents :agent-signal :agent-read :agent-keys :agent-prompt :agent-explain :agent-snapshot
     :agent-act :agent-observe :readers-load
     :agent-trace)
@@ -61,6 +62,8 @@ command line."
   (here nil :type boolean)
   (id (incf *watchers-made*) :type fixnum)
   (tty nil)
+  (since 0 :type integer)
+  (typed-at 0 :type integer)
   (watch-panes nil)
   (panes-told (make-hash-table :test 'equal))
   (screen-rows nil)
@@ -152,6 +155,7 @@ anything actually moved.")
   (later nil)
   (born 0 :type integer)
   (had-sessions nil :type boolean)
+  (notes nil)
   (going t :type boolean))
 
 (defparameter +first-session-patience+ 10000000000
@@ -241,6 +245,8 @@ either."
          (window (%make-window :layout pane :focus pane))
          (session (%make-session :name name :rows rows :cols cols
                                  :socket (server-path server)
+                                 :barp +bar-by-default+
+                                 :scrollbarsp +scrollbars-by-default+
                                  :windows (list window) :window window :server server
                                  :screen (tty:make-screen :width cols
                                                           :height rows))))
@@ -248,6 +254,8 @@ either."
     (pane-start pane :environment (pane-environment session pane))
     (setf (server-sessions server) (append (server-sessions server) (list session))
           (server-had-sessions server) t)
+    (run-hook 'pane-started session pane)
+    (run-hook 'session-made session)
     session))
 
 (defun session-named (server name)
@@ -296,6 +304,7 @@ COMMAND, or what the focus runs, where the focus is. It is the one shown."
     (show-window session window)
     (session-compose session)
     (pane-start pane :environment (pane-environment session pane))
+    (run-hook 'pane-started session pane)
     window))
 
 (defun window-called (session n)
@@ -371,6 +380,7 @@ many of them are asking, and whether it is the one shown."
     (session-compose session)
     (pane-start new :environment (pane-environment session new))
     (dolist (w (session-watchers session)) (setf (watcher-behind w) t))
+    (run-hook 'pane-started session new)
     new))
 
 (defparameter +act-patience+ 5000)
@@ -445,6 +455,7 @@ session that is over."
     (when (eq pane (second (session-held session)))
       (setf (session-held session) nil))
     (pane-close pane)
+    (run-hook 'pane-ended session pane)
     (let ((left (window-panes window)))
       (when (eq (window-focus window) pane)
         (setf (window-focus window) (first left)))
@@ -487,15 +498,6 @@ landed on a rule, does nothing."
 ;;; for that is a key, a wheel, or the scrollbar down the pane's right side. The
 ;;; wheel and the buttons are the program's when it asked for them, the way they
 ;;; would be with no multiplexer in between, and the multiplexer's otherwise.
-
-(defparameter +wheel-rows+ 3
-  "How many rows one notch of a wheel is.")
-
-(defparameter +hold-after+ 350
-  "How long, in milliseconds, an arrow or the track is held before it repeats.")
-
-(defparameter +hold-every+ 50
-  "How long between repeats once it does.")
 
 (defun thing-at (session x y)
   (and x y (session-geometry session)
@@ -821,7 +823,8 @@ is drawn is what they have just been told they are."
                    (wire-flush (watcher-wire watcher))))
   (wire-close (watcher-wire watcher))
   (setf (server-knocking server) (remove watcher (server-knocking server)))
-  (leave-session watcher))
+  (leave-session watcher)
+  (when (watcher-here watcher) (tell-the-clients server)))
 
 (defun join-session (server watcher session)
   "Put WATCHER on SESSION and tell it what it is looking at."
@@ -838,13 +841,52 @@ is drawn is what they have just been told they are."
           (watcher-told watcher) nil
           (watcher-behind watcher) t)
     (greet watcher session))
+  ;; what the server has had to say since anybody was here to hear it: the
+  ;; first to arrive is told, and it is said once
+  (when (server-notes server)
+    (dolist (note (reverse (server-notes server)))
+      (tell watcher (list* :say note)))
+    (setf (server-notes server) nil))
+  (tell-the-clients server)
   session)
 
 (defun watcher-sized (watcher rows cols takes)
   (setf (watcher-rows watcher) (max 1 (min +biggest-pane+ rows))
         (watcher-cols watcher) (max 1 (min +biggest-pane+ cols))
         (watcher-takes watcher) takes
-        (watcher-here watcher) t))
+        (watcher-here watcher) t)
+  (when (zerop (watcher-since watcher))
+    (setf (watcher-since watcher) (now-ms))))
+
+;;; Clients: the terminals attached to this server. Each is a watcher that is
+;;; here, on a session, looking at the window it shows.
+
+(defun client-said (server watcher now)
+  "One attached terminal as anybody is told of it: its id, its tty, its size,
+where it is looking, how long it has been attached and how long since it
+typed."
+  (declare (ignore server))
+  (let ((session (watcher-session watcher)))
+    (list (watcher-id watcher) (watcher-tty watcher)
+          (watcher-rows watcher) (watcher-cols watcher)
+          (and session (session-name session))
+          (and session (window-number session (session-window session)))
+          (max 0 (- now (watcher-since watcher)))
+          (if (plusp (watcher-typed-at watcher)) (max 0 (- now (watcher-typed-at watcher))) nil))))
+
+(defun clients-said (server now)
+  (loop :for w :in (every-watcher server)
+        :when (and (watcher-here w) (wire-open (watcher-wire w)))
+          :collect (client-said server w now)))
+
+(defun tell-the-clients (server)
+  "Everybody keeping up with the panes is told who is attached now: the same
+watchers that hear about panes, since what they draw from one they draw
+from the other."
+  (let ((rows (clients-said server (now-ms))))
+    (dolist (w (every-watcher server))
+      (when (and (watcher-watch-panes w) (wire-open (watcher-wire w)))
+        (tell w (list :clients rows))))))
 
 (defun heard (server watcher form)
   "What a client said. Which session it is on is the watcher's own; anything
@@ -877,8 +919,10 @@ that is about a session is passed on only once it has joined one."
                              made)))))
       (:spawn
        (destructuring-bind (name command directory label) (rest form)
-         (let ((pane (spawn-a-pane server name command directory label)))
-           (tell watcher (list :spawned name (and pane (pane-id pane)))))))
+         (let* ((pane (spawn-a-pane server name command directory label))
+                (session (and pane (session-named server name))))
+           (tell watcher (list :spawned name (and pane (pane-id pane))
+                               (and pane (pane-address-of session pane)))))))
       (:since-prompt
        (destructuring-bind (name id) (rest form)
          (let ((pane (pane-called server name id))
@@ -924,8 +968,20 @@ that is about a session is passed on only once it has joined one."
       ;; :one-server is how a client tells this server from one made before a
       ;; server held every session, which held only the session it was named
       (:knock (tell watcher (list :here (server-path server) :one-server)))
+      (:reload-init
+       (load-user-init)
+       (tell watcher (list* :say (init-loaded-note))))
       (:agents (tell watcher (list :agents (agent-rows server session))))
-      (:who (setf (watcher-tty watcher) (and (stringp (second form)) (second form))))
+      (:who (setf (watcher-tty watcher) (and (stringp (second form)) (second form)))
+            ;; a tty said after attaching is a change to what is listed; one
+            ;; said before is told with the attaching
+            (when (watcher-here watcher) (tell-the-clients server)))
+      (:clients (tell watcher (list :clients (clients-said server (now-ms)))))
+      (:detach-client
+       (let ((it (find (second form) (every-watcher server) :key #'watcher-id)))
+         (when (and it (watcher-here it))
+           (drop-watcher server it :detached)
+           (tell-the-clients server))))
       (:agent-signal
        (destructuring-bind (name id state &optional caller) (rest form)
          (let ((pane (pane-called server name id)))
@@ -1133,6 +1189,7 @@ that is about a session is passed on only once it has joined one."
     (:keys
      (let ((pane (session-focus session))
            (said (second form)))
+       (setf (watcher-typed-at watcher) (now-ms))
        (pane-logged pane (now-ms) (who-of watcher) :keys (length said))
        ;; somebody typing wants to see what they are typing at
        (pane-scroll-to pane 0)
@@ -1142,7 +1199,8 @@ that is about a session is passed on only once it has joined one."
      (destructuring-bind (rows cols) (rest form)
        (setf (watcher-rows watcher) (max 1 (min +biggest-pane+ rows))
              (watcher-cols watcher) (max 1 (min +biggest-pane+ cols)))
-       (session-fit session))
+       (session-fit session)
+       (tell-the-clients (session-server session)))
      t)
     (:bar
      ;; the bar is the session's, not the client's: whoever asked, everybody
@@ -1392,6 +1450,9 @@ that does end it."
   (let ((server (make-server path))
         (faults 0))
     (setf (server-command server) command)
+    (when *init-problem*
+      (push (list (format nil "in the server, ~A" *init-problem*) :warning)
+            (server-notes server)))
     (unwind-protect
          (progn
            (when name

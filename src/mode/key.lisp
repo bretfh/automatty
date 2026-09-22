@@ -7,7 +7,7 @@
              #:mode #:define-mode #:modes #:mode-named #:current-mode #:with-mode
              #:global-map #:global-set-key #:global-unset-key
              #:define-key #:undefine-key #:lookup-key #:keys-in-force #:as-handler
-             #:press #:pending #:prefixp #:*unbound* #:*run* #:*pending*
+             #:press #:pending #:prefixp #:*unbound* #:*run* #:*pending* #:*named*
              #:mode-value #:setq-mode #:setq-default))
 (in-package #:atty/mode)
 

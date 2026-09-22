@@ -43,11 +43,18 @@
 (defmacro with-mode (it &body body)
   `(let ((*current* (and ,it (as-mode ,it)))) ,@body))
 
+(defvar *named* nil
+  "How a command asked for by name is run: a function of the name, set by
+whatever defines the commands.")
+
 (defun as-handler (does)
-  "What a key does, as something to call: a function, or a form to evaluate."
+  "What a key does, as something to call: a function, a command's name, or a
+form to evaluate."
   (typecase does
     (null nil)
     (function does)
+    (string (lambda () (if *named* (funcall *named* does)
+                           (error "nothing knows a command called ~S" does))))
     (cons (lambda () (eval does)))
     (t (error "~s is not something a press can do." does))))
 

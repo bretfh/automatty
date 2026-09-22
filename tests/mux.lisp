@@ -1750,23 +1750,6 @@ column."
                "a key did not bring it back to live: ~S" (seen seer))
       (is (null (search "to live" (seen seer)))))))
 
-(test a-file-of-ones-own-binds-the-wheel-and-a-broken-one-is-passed-over
-  (let ((file (format nil "/tmp/atty-init-~D.lisp" (random 1000000))))
-    (unwind-protect
-         (progn
-           (with-open-file (s file :direction :output :if-exists :supersede)
-             (format s "(atty/mode:define-key 'scroll-mode \"C-wheel-up\" #'scroll-to-top)~%"))
-           (is-true (mux::load-user-init file))
-           (is (eq #'mux::scroll-to-top
-                   (atty/mode:lookup-key "C-wheel-up" (atty/mode:mode-named 'mux::scroll-mode))))
-           (atty/mode:undefine-key 'mux::scroll-mode "C-wheel-up")
-           (with-open-file (s file :direction :output :if-exists :supersede)
-             (format s "(this-is-not-anything)~%"))
-           (is (null (let ((*error-output* (make-broadcast-stream)))
-                       (mux::load-user-init file))))
-           (is (null (mux::load-user-init "/tmp/atty-there-is-no-such-file.lisp"))))
-      (ignore-errors (delete-file file)))))
-
 ;;; Windows: a session shows one of several layouts at a time.
 
 (defun heard-from-wire (wire tag &optional (seconds 5))
@@ -1854,3 +1837,55 @@ something tagged TAG, and answer it."
         (say-to wire (list :close-window "0" 2))
         (is-true (pump seer :want "in-the-first") "closing the window did not show the other")
         (mux:wire-close wire)))))
+
+;;; Addresses, and the clients attached.
+
+(test an-address-is-read-either-way-and-said-by-window-and-pane
+  (multiple-value-bind (session id window n) (mux::pane-address "todo:1.2")
+    (is (equal "todo" session)) (is (null id)) (is (eql 1 window)) (is (eql 2 n)))
+  (multiple-value-bind (session id window n) (mux::pane-address "todo:4")
+    (is (equal "todo" session)) (is (eql 4 id)) (is (null window)) (is (null n)))
+  (signals error (mux::pane-address "todo"))
+  (signals error (mux::pane-address "todo:1."))
+  (is (equal "todo:1.2" (mux::row-address '(:session "todo" :id 9 :window 1 :at 1))))
+  (is (equal "todo:9" (mux::row-address '(:session "todo" :id 9)))
+      "a row from a server without windows is still said by its id")
+  (is (equal "todo › 1 agents › impl"
+             (mux::row-path '(:session "todo" :id 9 :window 1 :window-name "agents" :label "impl")))))
+
+(test whoever-is-attached-is-listed-and-pushed-to-whoever-watches-the-panes
+  (with-a-server-here (server path)
+    (let ((session (mux:add-session server "cat" :name "work" :rows 6 :cols 20))
+          (looking (a-wire-to path))
+          (asking (a-wire-to path)))
+      (declare (ignorable session))
+      (say-to asking '(:watch-panes t))
+      (is-true (step-until server (lambda () (some #'mux::watcher-watch-panes (mux::every-watcher server)))))
+      (say-to looking '(:who "/dev/ttys042") '(:attach 6 20 t))
+      (let ((told (heard-from server asking :clients)))
+        ;; the push that came with the attaching: the one naming the tty
+        (until 5 (lambda ()
+                   (or (find "/dev/ttys042" (second told) :key #'second :test #'equal)
+                       (progn (say-to asking '(:clients))
+                              (setf told (heard-from server asking :clients))
+                              nil))))
+        (is-true told "a client joining was not pushed to the watcher")
+        (let ((row (find "/dev/ttys042" (second told) :key #'second :test #'equal)))
+          (is-true row "the joined client is not among them: ~S" told)
+          (when row
+            (is (equal "work" (fifth row)))
+            (is (eql 1 (sixth row)) "it is not said to be looking at window 1: ~S" row)
+            (is (integerp (seventh row)))
+            (is (null (eighth row)) "it has not typed, so has no idle time: ~S" row))))
+      (say-to looking '(:keys "hi"))
+      (is-true (step-until server (lambda () (some (lambda (w) (plusp (mux::watcher-typed-at w)))
+                                                   (mux::every-watcher server)))))
+      (say-to asking '(:clients))
+      (let* ((said (heard-from server asking :clients))
+             (row (find "/dev/ttys042" (second said) :key #'second :test #'equal)))
+        (is (integerp (eighth row)) "typing was not noted: ~S" row)
+        (say-to asking (list :detach-client (first row))))
+      ;; the far end going is a read of nothing
+      (is-true (step-until server (lambda () (null (mux:wire-fill looking))))
+               "detaching a client did not close its wire")
+      (mux:wire-close asking))))

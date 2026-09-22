@@ -70,6 +70,7 @@
                 :serial t
                 :pathname "src/mux/"
                 :components ((:file "package")
+                             (:file "settings")
                              (:file "wire")
                              (:file "pane")
                              (:file "view")
@@ -86,6 +87,7 @@
                              (:file "switchboard")
                              (:file "explain")
                              (:file "keys")
+                             (:file "user")
                              (:file "record")
                              (:file "main")))
 
@@ -111,6 +113,8 @@
                              (:file "cells")
                              (:file "view")
                              (:file "prompt")
-                             (:file "readers"))
+                             (:file "readers")
+                             (:file "settings")
+                             (:file "init"))
                 :perform (asdf:test-op (o c)
                                        (uiop:symbol-call :atty/test :run-them)))

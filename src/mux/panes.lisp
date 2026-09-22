@@ -88,13 +88,15 @@ goes out with it."
   (let* ((all (every-pane server))
          (drivers (mapcar (lambda (it) (driver-of (cdr it))) all)))
     (mapcar (lambda (it)
-              (let ((address (format nil "~A:~D" (session-name (car it)) (pane-id (cdr it)))))
+              ;; a driver names the pane it was started in as ATTY_PANE said
+              ;; then: by window and number now, by id on a pane from before
+              (let ((address (pane-address-of (car it) (cdr it)))
+                    (old (format nil "~A:~D" (session-name (car it)) (pane-id (cdr it)))))
                 (pane-row (car it) (cdr it) now
                           (loop :for other :in all
                                 :for driver :in drivers
-                                :when (equal driver address)
-                                  :collect (format nil "~A:~D" (session-name (car other))
-                                                   (pane-id (cdr other)))))))
+                                :when (or (equal driver address) (equal driver old))
+                                  :collect (pane-address-of (car other) (cdr other))))))
             all)))
 
 (defun every-watcher (server)
