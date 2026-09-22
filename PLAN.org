@@ -522,3 +522,93 @@ session chooser is its lighter form, not a separate thing.
 ** TODO Benchmarks
 - =make mux-bench= and =make attached= before and after. The chips, titles
   and log must not show up in frame cost.
+
+* Round 2: windows, clients, and the whole UI as the canvas has it
+
+The canvas "atty: the whole experience, server to pane" (fifteen boards,
+A1 to E1) is the design. It shows what a multiplexer manages, server ›
+session › window › pane and the clients looking at them, and reworks every
+surface. Each phase ends with the suite green and something to try by hand.
+
+** Decisions
+
+- *Addresses become =session:window.pane=*, =todo:1.2=: the window's number
+  then the pane's number within it, both from 1, as the frames show them.
+  Pane ids stay server-wide inside; the wire keeps sending =(session id)=.
+  =session:id= is still accepted on input for old scripts.
+- *tmux-style window keys*: =C-b c= new window, =C-b C= new session,
+  =C-b n= and =C-b p= next and previous window, =C-b '= choose a window
+  (the =@= prompt), =C-b &= close a window, =C-b .= name a window,
+  =C-b ,= names the window and =TAB= switches to the pane. Needs-you moves
+  to =C-b N=. =C-b [= stays reading back. =C-b D= is the clients. All are
+  defaults; every action is a =defcommand= first.
+- *Find is built into the UI, not only a key*: a =⌕ find= button in the
+  frame's bottom border whenever a pane is read back, the bar's
+  =reading back= chip is clickable, =/= is the key. Keyboard and mouse reach
+  everything: prompts, chips, cards, buttons.
+- A =+= on the bar opens a window; other sessions fold to =+N= past four.
+
+** Phase 1: windows in the server
+- A =window= struct (label, layout, focus, zoomed). A session holds its
+  windows in order and the current one. =session-layout=, =session-focus=
+  and =session-zoomed= stay as functions with setf onto the current window,
+  so the ~105 places that use them keep working.
+- =session-panes= is every pane in every window; =window-panes= is what is
+  on screen. A window's last pane closing closes the window; the last
+  window closing ends the session.
+- Wire: =:new-window= =:go-window= =:close-window= =:name-window=
+  =:layouts=; =:these= rows carry the windows; pane rows carry =:window=,
+  =:window-name=, and =:at= within the window.
+- =ATTY_PANE= is =session:window.pane= where the pane started.
+- Commands and keys as decided; =close-window= asks y/n.
+
+** Phase 2: addresses, and clients as a thing
+- =pane-address= reads =todo:1.2= and still =todo:4=; one =format-address=
+  for =agent list=, =--json=, spawn, logs, the queue and the drawer.
+- A watcher knows when it attached and last typed. =(:clients)= answers and
+  is pushed to pane watchers when one joins, leaves, moves or resizes.
+  =(:detach-client id)=.
+- =atty clients=; =atty list= says windows, panes, what needs you, clients.
+
+** Phase 3: the bar
+- Window chips (number, name, =▲k= when a pane in it asks, the current one
+  lit; click goes), =+=, =⤢ pane zoomed=, =reading back · q leaves= (click
+  leaves; the server hears =(:reading …)=), the =:/@= field, needs you,
+  other sessions folding to =+N=, =⌨ you + others= (click lists clients),
+  the clock. No pane chips, no size. Under 100 columns names go first.
+
+** Phase 4: prompts: =@=, =:=, naming, keys help
+- Clicking a prompt row chooses it; the wheel moves. =tag-at= becomes a
+  shared =button-at=.
+- =@= lists every session › window with its state, asking first; RET goes,
+  C-RET makes a window there, TAB narrows to the window's panes.
+- =:= shows each command with its key and a one-line doc; =defcommand=
+  takes a docstring.
+- =C-b ,= names the window, TAB the pane; =C-b .= the window straight off.
+- =C-b ?= is a prompt grouped by what the keys act on; RET runs one.
+
+** Phase 5: reading back with find, select and copy
+- =(:find name id query way)= searches scrollback and screen, scrolls to the
+  hit, answers =(:found …)=; hits are painted with a =:find-hit= face.
+- The frame's bottom border shows the query and =2 of 11=, the right side
+  the line, and a =⌕ find= button whenever the pane is read back.
+- In scroll mode: =/= finds, =n= =N=, =v= selects lines, =y= copies (OSC 52).
+
+** Phase 6: needs you, zoom, the drawer
+- Queue items lead with =session › n window › pane=, say when a client is
+  looking at that pane, and who answered: client or pane. =e= opens the
+  drawer. Clicks select and answer.
+- The drawer in sections: what it is (kind, version, reader, pid, size,
+  cwd), state, how it was read, who typed; answers at its foot.
+
+** Phase 7: the switchboard as the server
+- Side panel: the server, the sessions with counts and =⌨= dots and a
+  scrollbar, the clients. Main: a window ruler; a row per session; each
+  window a box with its clients and its panes in their real splits; =+
+  window=; scrollbars right and bottom; the full path and answers at the
+  foot. =+= zooms to one session, =-= back. Keys and mouse for all of it.
+
+** Phase 8: the CLI, the docs, a field check
+- =agent spawn --window n= and =--new-window=; the README's Using atty
+  section; benchmarks before and after; a field script walking every board
+  against real Claude Code.
