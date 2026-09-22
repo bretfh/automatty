@@ -112,8 +112,9 @@
 (defun start-rig (command &key (rows 24) (cols 80) (interval 8))
   (let ((path (a-path)))
     (let ((thread (sb-thread:make-thread
+                   ;; nothing kept on disk: a bench server is not anybody's
                    (lambda () (mux:serve path command :rows rows :cols cols
-                                         :interval interval))
+                                         :interval interval :persist nil))
                    :name "a bench server")))
       (loop repeat 500 until (probe-file path) do (sleep 0.01))
       (multiple-value-bind (in-read in-write) (sb-posix:pipe)

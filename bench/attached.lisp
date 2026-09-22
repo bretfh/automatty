@@ -277,11 +277,17 @@ running program, and only one of them is what this is measuring against tmux.")
          (name (format nil "bench-~D-~D" (sb-posix:getpid) (incf *ours-run*)))
          ;; a server of its own, as tmux -L gives tmux one: a run measured
          ;; inside the user's own server would be measuring their sessions too
+         ;; its state kept somewhere of its own and thrown away, not beside
+         ;; the user's
+         (state (format nil "~Aatty-bench-state-~D/" (uiop:temporary-directory)
+                        (sb-posix:getpid)))
          (run (script "ours"
-                      (format nil "exec ~A -L ~A run bench 'sh ~A'~%" +atty-bin+ name pane))))
+                      (format nil "exec env XDG_STATE_HOME=~A ~A -L ~A run bench 'sh ~A'~%"
+                              state +atty-bin+ name pane))))
     (multiple-value-prog1 (watch-one (format nil "sh ~A" run))
       (ignore-errors (delete-file (mux:socket-path name)))
-      (ignore-errors (delete-file (mux:log-path name))))))
+      (ignore-errors (delete-file (mux:log-path name)))
+      (ignore-errors (uiop:delete-directory-tree (pathname state) :validate t)))))
 
 (defun tmux-there-p ()
   (ignore-errors

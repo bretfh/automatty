@@ -112,11 +112,43 @@ the thumb. =toggle scrollbars= gives the column back to the program.
 ^-b PageUp              # the same, a page back to begin with
 #+end_src
 
-These are defaults. =~/.config/atty/init.lisp= is loaded when atty starts, and
-binds a key, a button or the wheel to any command:
+These are defaults. =~/.config/atty/init.lisp= (or under =$XDG_CONFIG_HOME=)
+is loaded when atty starts, in the client and in the server, from source. It
+binds a key, a button or the wheel to any command by name, defines commands,
+sets settings, and hooks what happens:
 
 #+begin_src lisp
-(atty/mode:define-key 'pane-mode "M-wheel-up" #'scroll-page-up)
+(define-key 'pane-mode "M-wheel-up" "scroll page up")
+(undefine-key 'pane-mode "C-b t")
+(defcommand say-hello (show-note *client* "hi" "hello"))
+(configure :prefix "C-a" :wheel-rows 6 :theme :ef-dream)
+(add-hook 'pane-started (lambda (session pane) ...))
+#+end_src
+
+=atty help init= lists every setting with what it is now. A file that does not
+load is said in the log and shown as a note to whoever attaches next; atty
+starts anyway. =C-b R= loads it again without restarting.
+
+** What is kept when the server stops
+
+Everything the server holds goes to =~/.local/state/atty/<server>/= (or under
+=$XDG_STATE_HOME=): the sessions, their windows and the splits in them, and
+what every pane holds, screen and scrollback with their colours, its log, what
+it ran and where. The tree is written whenever it changes, each pane when it
+has been quiet a moment, and everything when the server stops, whether asked
+or by a signal.
+
+A server started on the same name brings it all back before it answers
+anybody. What a pane showed is behind a fresh screen, above a rule saying when
+it was brought back; a shell starts again in the directory it was in, and for
+anything else, an agent say, a shell stands in and the rule says what was
+running (=(configure :restore-command :same)= restarts it instead).
+
+#+begin_src sh
+atty restart-server     # stop it and start it from this build, keeping everything; clients wait and come back
+atty save               # write it all now
+atty list               # says what is saved when nothing is running
+atty start --fresh      # start with nothing; what was saved is moved aside, not deleted
 #+end_src
 
 The same from a shell, for a program driving other panes:

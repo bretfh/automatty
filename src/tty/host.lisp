@@ -106,9 +106,13 @@ terminal that has it on scrolls the screen out from under everything.")
 
 (defvar *asked-to-stop* nil)
 
-(defun hear-the-end ()
+(defun hear-the-end (&optional interrupt-too)
+  "From here on a term or a hangup is a request to stop, heard as *ASKED-TO-STOP*
+rather than the end: whoever is looping checks it and leaves properly. With
+INTERRUPT-TOO an interrupt is one as well, for a server in the foreground."
   (setf *asked-to-stop* nil)
-  (dolist (signal (list sb-unix:sigterm sb-unix:sighup))
+  (dolist (signal (list* sb-unix:sigterm sb-unix:sighup
+                         (and interrupt-too (list sb-unix:sigint))))
     (sb-sys:enable-interrupt signal
                              (lambda (signal info context)
                                (declare (ignore signal info context))

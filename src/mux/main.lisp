@@ -16,6 +16,10 @@ carry no idea of who is asking."
     (ignore-errors (sb-posix:chmod (namestring dir) #o700))
     dir))
 
+(defvar *fresh* nil
+  "Whether --fresh was said: the server starts with nothing, what it had on
+disk put aside.")
+
 (defvar *server-name* nil
   "Which server, when -L said. One server holds every session, the way tmux's
 does; a second one is for somebody who asks for it by name.")
@@ -711,10 +715,59 @@ opens the first session. Answers its path."
                  "--eval" form
                  "--quit")
            :output (log-path))))
-    (loop repeat 400
+    ;; a server with a lot to bring back from disk takes a while before it
+    ;; takes its name; a minute is longer than any restore should be
+    (loop repeat 6000
           until (answering-p path)
           do (sleep 0.01))
     path))
+
+(defun a-fresh-server ()
+  "Start this user's server with nothing in it: what it had on disk is put
+aside first. It cannot be done to a server that is running."
+  (let ((path (where-the-server-is)))
+    (when (answering-p path)
+      (error "a server is running; atty kill-server or atty restart-server first"))
+    (ignore-errors (delete-file path))
+    (let ((aside (move-state-aside)))
+      (when aside (format t "~&what was saved is in ~A~%" aside)))
+    (start-a-server)))
+
+(defun restart-the-server ()
+  "Stop this user's server, keeping everything, and start it again from
+whatever atty is now: how a new build takes over. Whoever is attached is told,
+waits, and comes back. Answers how many sessions came back."
+  (let ((path (where-the-server-is)))
+    (unless (answering-p path)
+      (error "no server is running"))
+    (asked path '((:restart)) :patience 0)
+    (loop repeat 3000
+          while (probe-file path)
+          do (sleep 0.01)
+          finally (when (probe-file path)
+                    (error "the server did not stop; ~A says why" (log-path))))
+    (start-a-server)
+    (unless (answering-p path)
+      (error "no server came back. ~A says why." (log-path)))
+    (length (the-sessions))))
+
+(defun server-back-p (path)
+  "Wait for the server at PATH to go and come back, as a restart does: first
+until its name is gone, then until it answers again. Answers whether it did."
+  (loop repeat 3000 while (probe-file path) do (sleep 0.01))
+  (loop repeat 6000
+        until (answering-p path 1)
+        do (sleep 0.01)
+        finally (return (answering-p path 1))))
+
+(defun attach-through-restarts (path &rest args)
+  "ATTACH, and when the server says it is restarting, wait for it and attach
+again to the same session, so a restart is a pause rather than an end."
+  (loop
+    (let ((why (apply #'attach path args)))
+      (unless (eq why :restarting) (return why))
+      (format t "~&the server is restarting; waiting for it…~%")
+      (unless (server-back-p path) (return :no-server-back)))))
 
 (defun the-server ()
   "This user's server, started when it is not running."
@@ -730,6 +783,9 @@ opens the first session. Answers its path."
   (case why
     (:detached (format t "~&detached from ~A~%" name))
     (:done nil)
+    (:restarting nil)
+    (:no-server-back
+     (format *error-output* "~&atty: the server did not come back. ~A says why.~%" (log-path)))
     (:asked-to-stop nil)
     (:stopped (format t "~&~A was stopped~%" name))
     (:no-answer
@@ -831,7 +887,12 @@ since-ms idle-ms) rows."
                     name name)
             (format t "~&~12A another server; atty -L ~A list~%" name name))))
     (unless (or rows others)
-      (format t "~&nothing is running~%"))))
+      (let ((saved (saved-sessions)))
+        (if saved
+            (loop :for (name windows panes at) :in saved
+                  :do (format t "~&~12A ~D window~:P  ~D pane~:P  saved ~A; not running, atty ~A brings it back~%"
+                              name windows panes (day-and-time at) name))
+            (format t "~&nothing is running~%"))))))
 
 (defun cwd ()
   (ignore-errors (sb-posix:getcwd)))
@@ -839,7 +900,8 @@ since-ms idle-ms) rows."
 (defun run (&key (name "0") (command (a-shell)) label)
   "Join NAME in this user's server, making the server and the session when
 they are not there, its first pane called LABEL."
-  (say-why name (attach (the-server) :name name :open (list command (cwd) label))))
+  (say-why name (attach-through-restarts (if *fresh* (a-fresh-server) (the-server))
+                                         :name name :open (list command (cwd) label))))
 
 (defun usage (s)
   (format s "~&atty: many terminals inside one~%~%")
@@ -850,6 +912,9 @@ they are not there, its first pane called LABEL."
   (format s "  atty list            the sessions, and how many need you~%")
   (format s "  atty stop <name>     stop a session, and the programs in it~%")
   (format s "  atty kill-server     stop every session~%")
+  (format s "  atty restart-server  stop it and start it again from this build, keeping everything~%")
+  (format s "  atty start [--fresh] the server, without attaching; --fresh puts what it had on disk aside~%")
+  (format s "  atty save            what every session holds, to disk, now~%")
   (format s "  atty serve           the server itself, in the foreground~%")
   (format s "  atty -L <server> ... any of these, against another server than your own~%")
   (format s "  atty help init       what ~~/.config/atty/init.lisp can say, and every setting~%")
@@ -907,11 +972,14 @@ foreground. With a name it holds that session from the start."
         (serve path (or (second args) (a-shell))
                :name (first args)
                :rows (or said-rows rows)
-               :cols (or said-cols cols))))))
+               :cols (or said-cols cols)
+               :fresh *fresh*)))))
 
 (defun main (&optional (args (rest sb-ext:*posix-argv*)))
   (handler-case
-      (let ((*server-name* *server-name*))
+      (let ((*server-name* *server-name*)
+            (*fresh* (and (member "--fresh" args :test #'string=) t))
+            (args (remove "--fresh" args :test #'string=)))
         (load-user-init)
         (loop :while (and (first args) (string= (first args) "-L"))
               :do (unless (second args) (error "-L wants the name of a server"))
@@ -927,6 +995,18 @@ foreground. With a name it holds that session from the start."
                (if (stop-a-session name)
                    (format t "~&stopped ~A~%" name)
                    (error "nothing called ~A is running" name))))
+            ((string= what "start")
+             (if *fresh* (a-fresh-server) (the-server))
+             (format t "~&~A~%" (if (the-sessions)
+                                    (format nil "~D session~:P" (length (the-sessions)))
+                                    "the server is up, holding nothing yet")))
+            ((string= what "restart-server")
+             (format t "~&the server is back with ~D session~:P~%" (restart-the-server)))
+            ((string= what "save")
+             (let ((path (where-the-server-is)))
+               (unless (answering-p path) (error "no server is running"))
+               (asked path '((:save)) :done (lambda (f) (eq :saved (first f))))
+               (format t "~&saved~%")))
             ((string= what "kill-server")
              (if (stop-a-server (where-the-server-is))
                  (format t "~&stopped every session~%")
@@ -936,7 +1016,7 @@ foreground. With a name it holds that session from the start."
                (unless (answering-p path)
                  (error "nothing is running"))
                (say-why (or (second args) "the first session")
-                        (attach path :name (second args)))))
+                        (attach-through-restarts path :name (second args)))))
             ((string= what "serve") (serve-here (rest args)))
             ((string= what "run")
              (let ((words (words (rest args) "--name")))

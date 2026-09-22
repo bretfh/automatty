@@ -60,9 +60,13 @@ not a reason not to start."
   (format s "  (configure :wheel-rows 6 :prefix \"C-a\")                 a setting~%")
   (format s "  (add-hook 'pane-started (lambda (session pane) ...))~%~%")
   (format s "Settings, with what they are now:~%")
-  (loop :for (key value default doc) :in (settings)
-        :do (format s "~%  :~(~A~) ~S~@[  (default ~S)~]~%      ~A~%"
-                    key value (and (not (equal value default)) default) doc))
+  (flet ((shown (key value)
+           ;; the prefix as a key is spelt, not as a character is printed
+           (if (eq key :prefix) (prefix-spelled value) (prin1-to-string value))))
+    (loop :for (key value default doc) :in (settings)
+          :do (format s "~%  :~(~A~) ~A~@[  (default ~A)~]~%      ~A~%"
+                      key (shown key value)
+                      (and (not (equal value default)) (shown key default)) doc)))
   (format s "~%Hooks:~%")
   (loop :for (name nil doc) :in *hooks*
         :do (format s "  ~(~A~)  ~A~%" name doc))
