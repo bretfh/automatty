@@ -147,7 +147,12 @@ anything is what that server always did, and a note for every notch is worse."
 
 (defun pointer-did (what)
   (let ((button (or (getf *mouse-event* :button) :left)))
-    (cond ((server-knows-p :pointer)
+    (cond ((and (eq what :press) (eq button :left)
+                (some (lambda (over) (clicked-over over (cdr *mouse-at*) (car *mouse-at*) *client*))
+                      (client-over *client*)))
+           ;; something drawn over the session took the click: the drawer's answers, say
+           nil)
+          ((server-knows-p :pointer)
            (wire-send (client-wire *client*)
                       (list :pointer what button (car *mouse-at*) (cdr *mouse-at*)
                             (mouse-held))))

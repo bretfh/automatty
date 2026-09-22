@@ -446,11 +446,18 @@ the greyed suggestion in a prompt box is not something anybody typed."
 
 (defun pane-about (pane)
   "What PANE is running and how it was started: what its kind was decided from."
-  (list :kind (pane-kind pane)
-        :programs (pane-programs pane)
-        :group (pane-group pane)
-        :command (pane-command pane)
-        :directory (pane-directory pane)))
+  (let* ((agent (pane-agent pane))
+         (reader (agent:agent-reader agent))
+         (term (pane-term pane)))
+    (list :kind (pane-kind pane)
+          :programs (pane-programs pane)
+          :group (pane-group pane)
+          :command (pane-command pane)
+          :directory (pane-directory pane)
+          :pid (and (plusp (pane-pid pane)) (pane-pid pane))
+          :size (list (term:term-width term) (term:term-height term))
+          :version (agent:agent-version agent)
+          :reader (and reader (agent:reader-name reader)))))
 
 (defun history-said (agent now)
   (mapcar (lambda (it) (list (max 0 (- now (first it))) (second it)))

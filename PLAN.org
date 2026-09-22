@@ -523,6 +523,44 @@ session chooser is its lighter form, not a separate thing.
 - =make mux-bench= and =make attached= before and after. The chips, titles
   and log must not show up in frame cost.
 
+* Phase 12: an init file, and the server kept on disk
+
+** DONE Settings and hooks
+- =src/mux/settings.lisp=: =defsetting= keeps the =+name+= symbols and gives
+  each a keyword; =(configure :wheel-rows 6 :prefix "C-a" :theme ...)= checks
+  the value and moves every prefixed key; =(settings)= is what =atty help
+  init= prints. Hooks =session-made= =pane-started= =pane-ended=
+  =client-attached= =before-save= =server-restored=; one that comes apart is
+  shown, the rest run.
+
+** DONE init.lisp
+- Read in =atty/user= (=cl=, =atty/mode=, the commands, settings and hooks),
+  from source, by the client and the server. A key binds to a command by
+  name. A file that does not load is =*init-problem*=, said in the log and
+  as a note to the first client; =C-b R= reloads in both.
+
+** DONE What the server holds, on disk
+- =src/mux/state.lisp=: =tree.sexp= (sessions › windows › layouts, focus,
+  zoom, shown window) and =panes/<id>.sexp= (command, directory, names, log
+  and agent history as ages, every row behind and on the screen as
+  =(width spans)= with the faces said once). Written whole and renamed into
+  place; a version this build does not know is moved aside, never deleted.
+- The tree is written when it differs from what was last written; a pane
+  when quiet for =+save-quiet-after+= or unsaved for =+save-at-most-every+=,
+  one a tick; everything in =server-close=, after the name is gone and before
+  the programs are. A term, hangup or interrupt is heard as a request to stop.
+- =serve= restores before it takes its name. A restored pane's rows go
+  behind a fresh screen under a rule saying when and, when a shell stands in
+  for what ran, what that was; =+restore-command+= says whether it stands in.
+- =atty restart-server=, =atty save=, =atty start [--fresh]=, =atty list= of
+  what is saved; a client told =(:bye :restarting)= waits and attaches again.
+
+** TODO Check by hand
+- A real server with two sessions, a claude pane and a less pane;
+  =atty restart-server= from a third terminal; =kill -TERM= the server;
+  =atty --fresh=; a broken init.lisp; =C-b R=.
+- =make mux-bench= and =make attached= before and after.
+
 * Round 2: windows, clients, and the whole UI as the canvas has it
 
 The canvas "atty: the whole experience, server to pane" (fifteen boards,
@@ -594,7 +632,7 @@ surface. Each phase ends with the suite green and something to try by hand.
   the line, and a =⌕ find= button whenever the pane is read back.
 - In scroll mode: =/= finds, =n= =N=, =v= selects lines, =y= copies (OSC 52).
 
-** Phase 6: needs you, zoom, the drawer
+** DONE Phase 6: needs you, zoom, the drawer
 - Queue items lead with =session › n window › pane=, say when a client is
   looking at that pane, and who answered: client or pane. =e= opens the
   drawer. Clicks select and answer.

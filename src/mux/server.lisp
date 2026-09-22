@@ -24,7 +24,7 @@ more than the terminal it is sitting inside costs in the first place.")
     :new-window :go-window :next-window :previous-window :close-window :name-window :layouts
     :clients :detach-client :reading :naming-window :find :select
     :keys :resize :bar :split :focus :close :only :mouse-at
-    :scroll :wheel :pointer :scrollbars :reload-init
+    :scroll :wheel :pointer :scrollbars :reload-init :save :restart
     :agents :agent-signal :agent-read :agent-keys :agent-prompt :agent-explain :agent-snapshot
     :agent-act :agent-observe :readers-load
     :agent-trace)
@@ -157,6 +157,8 @@ anything actually moved.")
   (born 0 :type integer)
   (had-sessions nil :type boolean)
   (notes nil)
+  (saving nil :type boolean)
+  (tree-saved nil)
   (going t :type boolean))
 
 (defparameter +first-session-patience+ 10000000000
@@ -202,14 +204,24 @@ on it are the whole of who may."
     (sb-bsd-sockets:socket-listen socket 8)
     socket))
 
-(defun make-server (path)
-  (let ((socket (listen-on path)))
-    (let ((fd (sb-bsd-sockets:socket-file-descriptor socket)))
-      (sb-posix:fcntl fd sb-posix:f-setfl
-                      (logior (sb-posix:fcntl fd sb-posix:f-getfl)
-                              sb-posix:o-nonblock))
-      (%make-server :path path :socket socket :fd fd :born (nanos)
-                    :waiting (tty:make-waiting 16)))))
+(defun server-listen (server)
+  "Take the server's name: from here on a client can reach it."
+  (let* ((socket (listen-on (server-path server)))
+         (fd (sb-bsd-sockets:socket-file-descriptor socket)))
+    (sb-posix:fcntl fd sb-posix:f-setfl
+                    (logior (sb-posix:fcntl fd sb-posix:f-getfl)
+                            sb-posix:o-nonblock))
+    (setf (server-socket server) socket
+          (server-fd server) fd)
+    server))
+
+(defun make-server (path &key (listening t))
+  "A server on PATH. With LISTENING nil it is not yet reachable: what it
+brings back from disk is put in place first, so nobody sees half of it."
+  (let ((server (%make-server :path path :born (nanos)
+                              :waiting (tty:make-waiting 16))))
+    (when listening (server-listen server))
+    server))
 
 (defun server-close (server)
   ;; the name goes first. Whatever else takes a while, a shell that will not go
@@ -217,6 +229,11 @@ on it are the whole of who may."
   ;; that is already leaving.
   (ignore-errors (sb-bsd-sockets:socket-close (server-socket server)))
   (ignore-errors (delete-file (server-path server)))
+  ;; then what it holds goes to disk, before the programs are let go: once the
+  ;; name is gone, the state is whole
+  (when (server-saving server)
+    (handler-case (save-everything server)
+      (error (e) (say-what-broke e))))
   ;; what was already said is still sent: the last thing a server does is often
   ;; answer whoever asked it to stop, and a reply thrown away with the socket
   ;; reads to them as a server that never heard
@@ -966,7 +983,20 @@ that is about a session is passed on only once it has joined one."
       (:kill-session
        (let ((it (and (second form) (session-named server (second form)))))
          (tell watcher (list :killed (second form) (and it t)))
-         (when it (end-the-session server it :stopped))))
+         (when it
+           (end-the-session server it :stopped)
+           (when (server-saving server) (save-tree server)))))
+      (:save
+       (when (server-saving server) (save-everything server))
+       (tell watcher (list :saved (and (server-saving server) t))))
+      (:restart
+       ;; everybody attached is told it is a restart, so they wait for the
+       ;; server to be back rather than taking it for gone
+       (dolist (session (server-sessions server))
+         (dolist (w (session-watchers session))
+           (tell w (list :bye :restarting))))
+       (tell watcher (list :restarting t))
+       (setf (server-going server) nil))
       ;; :one-server is how a client tells this server from one made before a
       ;; server held every session, which held only the session it was named
       (:knock (tell watcher (list :here (server-path server) :one-server)))
@@ -997,7 +1027,8 @@ that is about a session is passed on only once it has joined one."
            (when pane
              (setf (pane-label pane) (and (stringp label)
                                           (plusp (length (string-trim " " label)))
-                                          (string-trim " " label)))
+                                          (string-trim " " label))
+                   (pane-touched pane) (now-ms))
              (dolist (w (session-watchers (session-named server name)))
                (setf (watcher-behind w) t)))
            (tell watcher (list :named name id (and pane t))))))
@@ -1456,7 +1487,7 @@ sent one, or nothing when nobody is owed one."
   (finish-output *error-output*))
 
 (defun serve (path command &key (name "0") (rows 24) (cols 80)
-                                (interval *interval*))
+                                (interval *interval*) (persist t) fresh)
   "Hold the sessions and feed whoever is watching them, until there are none.
 
 With NAME nil it starts holding nothing, and the first client to open a session
@@ -1466,8 +1497,13 @@ A fault in one wakeup is said and stepped over rather than taken as the end. The
 panes are somebody's shells: losing them to a bug in the emulator is worse than
 drawing one frame wrong, and the backtrace is in the log either way. Faults one
 after another with nothing between them are a loop rather than a mishap, and
-that does end it."
-  (let ((server (make-server path))
+that does end it.
+
+With PERSIST what the server holds is kept on disk, brought back before it
+takes its name, and saved as it changes and when it stops; FRESH puts what was
+on disk aside first. A signal to stop is heard as a request: the loop ends and
+the state is saved on the way out."
+  (let ((server (make-server path :listening nil))
         (faults 0))
     (setf (server-command server) command)
     (when *init-problem*
@@ -1475,9 +1511,22 @@ that does end it."
             (server-notes server)))
     (unwind-protect
          (progn
-           (when name
+           (when persist
+             (when fresh (move-state-aside (file-namestring path)))
+             (handler-case (restore-state server)
+               (error (e)
+                 (say-what-broke e)
+                 (push (list (format nil "what was on disk could not be brought back: ~A" e)
+                             :warning)
+                       (server-notes server))))
+             (setf (server-saving server) t)
+             (tty:hear-the-end t)
+             (keep-saving server))
+           (server-listen server)
+           (when (and name (not (session-named server name)))
              (add-session server command :name name :rows rows :cols cols))
-           (loop while (server-wanted-p server (nanos))
+           (loop while (and (server-wanted-p server (nanos))
+                            (not (and persist tty:*asked-to-stop*)))
                  do (handler-case
                         (progn (server-step server :interval interval)
                                (setf faults 0))

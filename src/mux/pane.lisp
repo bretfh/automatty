@@ -4,6 +4,8 @@
 
 (defvar *panes-made* 0)
 
+(declaim (ftype function now-ms))
+
 (defstruct (pane (:constructor %make-pane))
   (id 0 :type fixnum)
   (term nil)
@@ -54,7 +56,8 @@ made now takes the next."
                                    (setf (pane-rang pane) t))
                         :title-fn (lambda (term title)
                                     (declare (ignore term))
-                                    (setf (pane-named pane) title)
+                                    (setf (pane-named pane) title
+                                          (pane-touched pane) (now-ms))
                                     (agent:agent-become (pane-agent pane) :title title
                                                                           :command command
                                                                           :programs (pane-programs pane)
@@ -215,9 +218,11 @@ entry that grows."
              (<= (- now (first newest)) +keys-run+))
         (setf (first newest) now
               (fourth newest) (+ (fourth newest) summary)
-              (sixth newest) (get-universal-time))
+              (sixth newest) (get-universal-time)
+              (pane-touched pane) now)
         (progn
           (push (list now who verb summary outcome (get-universal-time)) (pane-log pane))
+          (setf (pane-touched pane) now)
           (when (> (incf (pane-log-count pane)) +log-length+)
             (setf (pane-log pane) (subseq (pane-log pane) 0 (floor +log-length+ 2))
                   (pane-log-count pane) (floor +log-length+ 2)))))

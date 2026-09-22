@@ -55,9 +55,12 @@
    #:session-name
    #:session-layout
    #:session-focus
+   #:session-zoomed
    #:session-panes
    #:session-windows
    #:session-window
+   #:session-zoomed
+   #:window-zoomed
    #:window-panes
    #:window-label
    #:window-focus
@@ -108,6 +111,9 @@
    #:+restore-command+ #:+saved-scrollback+ #:+save-quiet-after+ #:+save-at-most-every+
    #:bind-prefixed-keys
    #:*init-problem* #:load-user-init #:user-init-file #:config-dir #:init-help
+   #:*state-home* #:state-dir #:pane-said #:said-pane #:tree-said #:restore-state
+   #:save-tree #:save-pane #:save-everything #:save-what-is-due #:move-state-aside #:saved-sessions
+   #:write-form-atomically #:read-state-file
    #:+was-known+
    #:client-knows
    #:tell-the-server

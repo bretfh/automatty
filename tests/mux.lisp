@@ -44,7 +44,7 @@
                        (lambda ()
                          (let ((*error-output* ,broke))
                            (mux:serve ,path ,command :rows ,rows :cols ,cols
-                                      :interval 0)))
+                                      :interval 0 :persist nil)))
                        :name "a test server")))
          (unwind-protect
              (progn (until 5 (lambda () (probe-file ,path)))
@@ -1352,7 +1352,7 @@ under a rule, and then echoes whatever it is answered."
                       "answering did not take it off the queue: ~S" (seen seer))
              (is-true (pump seer :want "✓")
                       "the answer is not among those answered lately: ~S" (seen seer))
-             (is-true (pump seer :want "by you") "~S" (seen seer))
+             (is-true (pump seer :want "by client you") "~S" (seen seer))
              (type-at seer (string (code-char 27)))
              (pump seer :seconds 1/2)
              (type-at seer (format nil "~Cb" mux:+prefix+))
@@ -1508,25 +1508,25 @@ under a rule, and then echoes whatever it is answered."
     (let ((mux::*drawing-for* client))
       (mux:draw-over d screen))
     (let ((all (format nil "~{~A~%~}" (loop :for y :below 36 :collect (shown screen y)))))
-      (is (search "why is todo:2 blocked?" all) "~A" all)
-      (is (search "foreground claude --resume  group 48213" all))
+      (is (search "why is impl blocked?" all) "~A" all)
+      (is (search "in front: claude --resume  group 48213" all))
       (is (search "* blocked permission" all)
           "the winning rule is not marked: ~A" all)
       (is (search "│ Do you want to proceed?" all) "the winning rule's text is not under it")
       (is (search "+ " all) "another rule that matched is not marked")
-      (is (search "who typed here" all))
+      (is (search "WHO TYPED HERE" all))
       (is (search "todo:4" all))
       (is (search "refused" all))
       (is (search "keys 14 bytes" all))
-      (is (search "last 20 minutes" all)))))
+      (is (search "the last 20 mi" all)))))
 
 (test the-drawer-follows-the-focus-and-typing-still-reaches-the-pane
   (with-server (path :command "cat" :rows 24 :cols 150)
     (with-seer (seer path :rows 24 :cols 150)
       (pump seer :seconds 1/2)
       (type-at seer (format nil "~Ce" mux:+prefix+))
-      (is-true (pump seer :want "what is 0:") "the drawer did not open: ~S" (seen seer))
-      (is-true (pump seer :want "not read: no rules know this program"))
+      (is-true (pump seer :want "what is cat?") "the drawer did not open: ~S" (seen seer))
+      (is-true (pump seer :want "not read: no reader knows this program"))
       (type-at seer "typed-past-it")
       (is-true (pump seer :want "typed-past-it")
                "what was typed with the drawer open did not reach the pane: ~S" (seen seer))
@@ -2044,3 +2044,80 @@ something tagged TAG, and answer it."
   (is (equal "aGVsbG8=" (mux::base64 "hello")))
   (is (equal "aGk=" (mux::base64 "hi")))
   (is (equal "YWJj" (mux::base64 "abc"))))
+
+;;; The queue and the drawer, as the canvas has them.
+
+(test the-queue-says-where-a-question-is-and-who-is-looking-at-it-and-who-answered
+  (let* ((client (a-told-client
+                  (list :session "todo" :id 2 :window 1 :window-name "agents" :at 1 :says "impl"
+                        :kind "claude-code" :state :blocked :for 42000
+                        :asks '(:subject "Bash command" :detail ("python3 -m pytest -q")
+                                :options ((1 "Yes") (2 "No"))))))
+         (q (mux::%make-queue))
+         (screen (tty:make-screen :width 120 :height 20)))
+    (setf (mux::client-id client) 7
+          (mux::client-clients client) '((7 "/dev/ttys042" 40 120 "lib" 1 1000 nil)
+                                         (9 "/dev/ttys051" 30 100 "todo" 1 5000 200))
+          (mux::client-lately client) '(("todo" 2 4000 (:client 7 "/dev/ttys042") :answer "1 Yes" t)
+                                        ("todo" 2 9000 (:pane "todo:1.4") :prompt "run it" :refused)))
+    (let ((mux::*drawing-for* client))
+      (mux:draw-over q screen))
+    (let ((all (format nil "~{~A~%~}" (loop :for y :below 20 :collect (shown screen y)))))
+      (is (search "todo › 1 agents › impl" all) "~A" all)
+      (is (search "⌨ client ttys051 is looking at it" all) "~A" all)
+      (is (null (search "ttys042 is looking" all)) "the client itself is not somebody else")
+      (is (search "by client you" all) "~A" all)
+      (is (search "by pane todo:1.4" all) "~A" all)
+      ;; the answers are buttons where they are drawn
+      (is-true (mux::queue-laid q))
+      (let ((found nil))
+        (labels ((walk (w)
+                   (when (and (typep w 'mux::bar-button)
+                              (equal '(:answer "todo" 2 1) (mux::bar-button-runs w)))
+                     (setf found t))
+                   (dolist (part (atty/ui:parts w)) (walk part))))
+          (walk (mux::queue-laid q)))
+        (is-true found "answer 1 is not a button")))))
+
+(test the-drawer-is-in-sections-and-answers-from-its-foot
+  (let* ((client (a-told-client
+                  (list :session "todo" :id 2 :window 1 :window-name "agents" :at 1 :says "impl"
+                        :label "impl" :kind "claude-code" :state :blocked :for 42000 :focus t
+                        :asks '(:subject "Bash command" :options ((1 "Yes") (2 "No"))))))
+         (d (mux::%make-drawer))
+         (key (cons "todo" 2))
+         (now (mux::ms-here))
+         (screen (tty:make-screen :width 150 :height 30)))
+    (setf (mux::client-session client) "todo"
+          (gethash key (mux::client-about client))
+          (list :pane-about (list now '(:kind "claude-code" :version "2.1.278" :reader "claude-code"
+                                        :pid 48213 :size (81 19) :directory "/tmp/x"
+                                        :programs ("claude") :command "claude"))
+                :agent-explained (list now :blocked :blocked nil)
+                :pane-history (list now '((42000 :blocked)))
+                :pane-log (list now nil)))
+    (let ((mux::*drawing-for* client))
+      (mux:draw-over d screen))
+    (let ((all (format nil "~{~A~%~}" (loop :for y :below 30 :collect (shown screen y)))))
+      (is (search "WHAT IT IS" all) "~A" all)
+      (is (search "claude-code 2.1.278 · read by the claude" all) "~A" all)
+      (is (search "pid 48213 · 81×19 · /tmp/x" all) "~A" all)
+      (is (search "STATE" all))
+      (is (search "HOW IT WAS READ" all))
+      (is (search "WHO TYPED HERE" all))
+      (is (search " 1 Yes" all) "no answers at the foot: ~A" all)
+      (is (search "answer from here" all)))
+    ;; a click on an answer is that answer, taken by the drawer itself
+    (let ((sent nil))
+      (setf (mux::client-wire client) nil)
+      (multiple-value-bind (x y)
+          (loop :for yy :below 30
+                :for xx := (search " 1 Yes" (shown screen yy))
+                :when xx :do (return (values xx yy)))
+        (is-true x)
+        (when x
+          ;; no wire to send on, so telling the server comes apart; that it was
+          ;; taken and tried is the point
+          (setf sent (handler-case (mux::clicked-over d y (+ x 2) client)
+                       (error () :tried)))
+          (is-true sent "the click on the answer was not taken: ~S" sent))))))

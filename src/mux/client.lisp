@@ -38,6 +38,7 @@ silence.")
            (find-text nil)
            (screens (make-hash-table :test 'equal))
            (lately nil)
+           (clients nil)
            (watching 0 :type fixnum)
            (ticked 0 :type integer)
            (session nil)
@@ -60,7 +61,20 @@ many want it, and dropped when the last of them goes."
   (when (= 1 (incf (client-watching client)))
     (wire-send (client-wire client) '(:watch-panes t))
     (wire-send (client-wire client) '(:watch-screens 16)))
-  (wire-send (client-wire client) '(:lately 5)))
+  (wire-send (client-wire client) '(:lately 5))
+  (wire-send (client-wire client) '(:clients)))
+
+(defun clients-looking-at (client session window)
+  "The attached terminals looking at WINDOW of SESSION, other than this one:
+what a question's line says when somebody else already has it in front of them."
+  (remove-if-not (lambda (c) (and (equal session (fifth c)) (eql window (sixth c))
+                                  (not (eql (first c) (client-id client)))))
+                 (client-clients client)))
+
+(defgeneric clicked-over (thing line col client)
+  (:documentation "A press of the mouse at LINE, COL while THING is drawn over
+the session: true when THING took it, so it is not passed on to the server.")
+  (:method (thing line col client) (declare (ignore thing line col client)) nil))
 
 (defun stop-told (client)
   (when (zerop (setf (client-watching client) (max 0 (1- (client-watching client)))))
@@ -258,6 +272,8 @@ looks like, not why it happened."
                    (client-dirty client) t))))
         (:lately (setf (client-lately client) (second form)
                        (client-dirty client) t))
+        (:clients (setf (client-clients client) (second form)
+                        (client-dirty client) t))
         ((:agent-explained :pane-history :pane-log :pane-about)
          ;; what the drawer asked about a pane, kept by the pane and by what
          ;; it was, with when it came so ages in it can be brought up to now
