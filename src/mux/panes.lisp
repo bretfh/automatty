@@ -54,6 +54,7 @@ thing that acted on it was one."
           :at (let ((n (pane-number session pane))) (and n (1- n)))
           :label (pane-label pane)
           :says (pane-says pane)
+          :command (shortened (pane-command pane))
           :kind (pane-kind pane)
           :state (agent:agent-state agent)
           :known (agent:agent-known-p agent)

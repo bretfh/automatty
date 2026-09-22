@@ -639,7 +639,7 @@ surface. Each phase ends with the suite green and something to try by hand.
 - The drawer in sections: what it is (kind, version, reader, pid, size,
   cwd), state, how it was read, who typed; answers at its foot.
 
-** Phase 7: the switchboard as the server
+** DONE Phase 7: the switchboard as the server
 - Side panel: the server, the sessions with counts and =⌨= dots and a
   scrollbar, the clients. Main: a window ruler; a row per session; each
   window a box with its clients and its panes in their real splits; =+

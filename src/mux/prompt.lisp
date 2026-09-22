@@ -289,9 +289,10 @@ on what it does."
 
 ;;; Sessions and windows, as one list: @ on the bar, or C-b '.
 
-(defun window-choices (rows)
+(defun window-choices (rows here)
   "Every session › window the server said, the ones asking first, from what
-:these says: (name rows cols panes watching blocked windows)."
+:these says: (name rows cols panes watching blocked windows). HERE is the
+session this client is on: the window it shows is marked."
   (let ((out nil))
     (dolist (row rows)
       (destructuring-bind (name rows cols panes watching &optional (blocked 0) windows) row
@@ -299,19 +300,28 @@ on what it does."
         (if windows
             (loop :for (n label npanes asking shownp) :in windows
                   :do (push (list :session name :window n :label label :panes npanes
-                                  :asking asking :shown shownp)
+                                  :asking asking :here (and shownp (equal name here)))
                             out))
-            (push (list :session name :window nil :label nil :panes 0 :asking 0 :shown t) out))))
+            (push (list :session name :window nil :label nil :panes 0 :asking 0
+                        :here (equal name here))
+                  out))))
     (stable-sort (nreverse out) #'> :key (lambda (c) (getf c :asking)))))
 
 (defun window-choice-line (c)
-  (format nil "~12A › ~@[~D ~]~10A ~@[▲ ~D  ~]~D pane~:P~:[~;  ● here~]"
-          (getf c :session) (getf c :window) (or (getf c :label) "")
-          (and (plusp (getf c :asking)) (getf c :asking))
-          (getf c :panes) (getf c :shown)))
+  "One line: the mark for where this client is, the session and window, what
+is asking, how many panes."
+  (let ((here (if (getf c :here) "● here" "      "))
+        (session (getf c :session))
+        (window (if (getf c :window)
+                    (format nil "› ~D ~A" (getf c :window) (or (getf c :label) ""))
+                    ""))
+        (asking (if (plusp (getf c :asking)) (format nil "▲ ~D" (getf c :asking)) ""))
+        (panes (format nil "~D pane~:P" (getf c :panes))))
+    (format nil "~A ~8A ~10A ~@[~A ~]~A" here session window
+            (and (plusp (length asking)) asking) panes)))
 
 (defun ask-a-window (client rows)
-  (ask client "sessions and windows" (window-choices rows) :kind #\@
+  (ask client "sessions and windows" (window-choices rows (client-session client)) :kind #\@
        :text #'window-choice-line
        :foot (hints 'prompt-mode 'prompt-accept "go there" 'prompt-accept-otherwise "new window there"
                     'prompt-go-into "its panes" 'prompt-cancel "close")

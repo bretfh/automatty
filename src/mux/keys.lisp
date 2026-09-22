@@ -94,10 +94,35 @@ instead."
                     (tell-the-server (list :close-window (client-session c))))))))
 
 (defcommand (choose-a-session :group sessions)
-  "every session, on the switchboard, starting on this one"
-  ;; the switchboard with nothing picked: its bands are the sessions, and the
-  ;; cursor starts on the one this is
-  (open-the-board *client* :session (client-session *client*)))
+  "every session and its windows, to go to one; the same list as @"
+  (tell-the-server (list :sessions)))
+
+(defcommand (clients :group sessions)
+  "who is attached to this server, and what each is looking at; RET goes there, d detaches one"
+  (let ((client *client*))
+    (keep-told client)
+    (ask client "clients" (or (client-clients client) (list nil))
+         :text (lambda (c)
+                 (if (null c)
+                     "nobody is attached yet; asking…"
+                     (format nil "~20A ~Dx~D  looking at ~A~@[ › ~D~]  attached ~A~@[  idle ~A~]"
+                             (if (eql (first c) (client-id client))
+                                 "⌨ client you"
+                                 (format nil "⌨ client ~A" (short-tty (second c) (first c))))
+                             (fourth c) (third c) (or (fifth c) "nothing") (sixth c)
+                             (duration (seventh c)) (and (eighth c) (duration (eighth c))))))
+         :foot (hints 'prompt-mode 'prompt-accept "go to what it sees" 'prompt-accept-otherwise "detach it"
+                      'prompt-cancel "close")
+         :chose (lambda (c client)
+                  (stop-told client)
+                  (when (and c (fifth c))
+                    (wire-send (client-wire client) (list :go (fifth c)))
+                    (when (sixth c)
+                      (wire-send (client-wire client) (list :go-window (fifth c) (sixth c))))))
+         :alt (lambda (c client)
+                (stop-told client)
+                (when c (wire-send (client-wire client) (list :detach-client (first c)))))
+         :dropped (lambda (client) (stop-told client)))))
 
 (defcommand (choose-a-window :group windows)
   "every session › window, the ones asking first; RET goes, C-RET makes one, TAB its panes"
@@ -332,6 +357,7 @@ anything is what that server always did, and a note for every notch is worse."
     ("&" . close-window)
     ("b" . choose-a-session)
     ("'" . choose-a-window)
+    ("D" . clients)
     ("." . name-this-pane)
     ("[" . scroll-mode)
     ("/" . find-in-pane)
