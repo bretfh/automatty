@@ -239,6 +239,18 @@ brought back ends and what the program started since begins."
 (defun push-rows (term rows)
   (dolist (row rows) (term:push-scrollback term row)))
 
+(defun show-rows (term rows)
+  "ROWS onto TERM's screen from the cursor down, one a line, the cursor left at
+the start of the line after the last: as though the program had written them.
+What goes off the top goes behind, the way it would have."
+  (dolist (row rows)
+    (let ((into (term:term-grid-row term (term:term-cursor-y term)))
+          (n (min (term:row-width row) (term:term-width term))))
+      (replace (term:row-chars into) (term:row-chars row) :end2 n)
+      (replace (term:row-faces into) (term:row-faces row) :end2 n)
+      (setf (term:term-cursor-x term) 0)
+      (term:term-line-feed term))))
+
 (defun said-pane (form now)
   "A pane from what PANE-SAID wrote, with everything it held behind a screen
 its program starts afresh on. Answers the pane and a note when anything about
@@ -256,11 +268,14 @@ it could not be as it was."
            (pane (make-pane runs :id id :rows rows :cols cols :directory directory))
            (term (pane-term pane))
            (seen (map 'simple-vector #'said-face faces)))
+      ;; what was behind the screen goes behind it; what was on it goes on
+      ;; it, with the rule under that and the program's first line under the
+      ;; rule, so it looks the way it did with one line saying what happened
       (push-rows term (mapcar (lambda (said) (said-row said seen)) behind))
-      (push-rows term (mapcar (lambda (said) (said-row said seen)) screen))
-      (push-rows term (list (divider-row cols (format nil "restored ~A~@[ · was: ~A~]"
-                                                      (day-and-time (or saved (get-universal-time)))
-                                                      (and (not same) command)))))
+      (show-rows term (append (mapcar (lambda (said) (said-row said seen)) screen)
+                              (list (divider-row cols (format nil "restored ~A~@[ · was: ~A~]"
+                                                              (day-and-time (or saved (get-universal-time)))
+                                                              (and (not same) command))))))
       (setf (pane-pushed-seen pane) (term:term-scrollback-pushed term)
             (pane-label pane) label
             (pane-named pane) named
@@ -282,8 +297,8 @@ it could not be as it was."
 (defun empty-pane-for (id rows cols why)
   "A pane standing in for one whose file could not be read."
   (let ((pane (make-pane (a-shell) :id id :rows rows :cols cols)))
-    (term:push-scrollback (pane-term pane)
-                          (divider-row cols (format nil "restored; what it held is ~A" why)))
+    (show-rows (pane-term pane)
+               (list (divider-row cols (format nil "restored; what it held is ~A" why))))
     (setf (pane-pushed-seen pane) (term:term-scrollback-pushed (pane-term pane)))
     pane))
 

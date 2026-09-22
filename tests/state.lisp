@@ -50,7 +50,10 @@ so most of them are behind the screen."
         (is (null (term:row-face back 0)))
         (is (term:face-equal red (term:row-face back 4)))))))
 
-(test a-pane-comes-back-with-every-row-it-held-behind-a-fresh-screen
+(defun shown-row (pane y)
+  (string-right-trim " " (term:term-dump-row-string (mux:pane-term pane) y)))
+
+(test a-pane-comes-back-showing-what-it-showed-with-the-rule-under-it
   (with-a-state-home (dir)
     (let* ((pane (coloured-pane 12 :rows 3 :cols 8))
            (now 5000)
@@ -61,15 +64,18 @@ so most of them are behind the screen."
         (is (eql (mux:pane-id pane) (mux:pane-id back)))
         (is (eql 12 (term:term-width (mux:pane-term back))))
         (let ((rows (rows-behind back)))
-          ;; nine behind, three on the screen, and the divider
-          (is (eql 13 (length rows)) "~S" rows)
+          ;; nine were behind; the three shown and the rule are four lines on
+          ;; a screen of three, so two more went behind on the way
+          (is (eql 11 (length rows)) "~S" rows)
           (is (equal "line 0" (car (first rows))))
           (is (eql 1 (cdr (second rows))) "the red did not come back: ~S" (second rows))
           (is (null (cdr (first rows))))
-          (is (equal "line 11" (car (nth 11 rows))))
-          (is (search "restored" (car (nth 12 rows))) "no divider: ~S" (nth 12 rows)))
-        (is (equal "" (string-right-trim " " (term:term-dump-row-string (mux:pane-term back) 0)))
-            "the screen is not fresh")
+          (is (equal "line 10" (car (nth 10 rows)))))
+        (is (equal "line 11" (shown-row back 0)) "the last line shown is not still shown")
+        (is (search "restored" (shown-row back 1)) "no rule under it: ~S" (shown-row back 1))
+        (is (equal "" (shown-row back 2)) "the program's first line has nowhere clean to go")
+        (is (eql 2 (term:term-cursor-y (mux:pane-term back))))
+        (is (eql 0 (term:term-cursor-x (mux:pane-term back))))
         (is (eql 0 (mux::pane-scrolled back)))
         (is (eql (term:term-scrollback-pushed (mux:pane-term back))
                  (mux::pane-pushed-seen back)))))))
@@ -107,7 +113,7 @@ so most of them are behind the screen."
         (is (null (mux::pane-queued back)) "a shell was handed claude's prompt")
         (is (eq :restored (third (first (mux::pane-log back)))))
         (is (equal '(:atty) (second (first (mux::pane-log back)))))
-        (is (search "was: claude" (car (first (last (rows-behind back)))))))
+        (is (search "was: claude" (shown-row back 0)) "~S" (shown-row back 0)))
       (mux:configure :restore-command :same)
       (let ((back (mux:said-pane form 200)))
         (is (equal "claude" (mux:pane-command back)))
@@ -204,9 +210,14 @@ it, a zoom in the third. Answers the first session."
                  (is (equal ids (mapcar #'mux:pane-id (mux:session-panes one))))
                  (is (>= mux::*panes-made* (reduce #'max ids)))
                  (is (eql 2 (mux:window-number one (mux:session-window one))))
-                 (let ((rows (rows-behind (mux:session-focus one))))
-                   (is (find "typed here" rows :key #'car :test #'string=) "~S" rows)
-                   (is (search "restored" (car (first (last rows))))))
+                 (let* ((pane (mux:session-focus one))
+                        (dump (term:term-dump-to-string (mux:pane-term pane)))
+                        (behind (mapcar #'car (rows-behind pane))))
+                   ;; a pane three rows tall: the first line has gone behind
+                   ;; by the time the rule is under the last
+                   (is (find "typed here" behind :test #'string=) "~S ~S" behind dump)
+                   (is (search "and more" dump) "~S" dump)
+                   (is (search "restored" dump) "no rule: ~S" dump))
                  (is (every #'mux:pane-started (mux:session-panes one)) "the programs were not started")
                  (is (null (mux::server-notes server)) "~S" (mux::server-notes server))))
           (mux:server-close server)
@@ -231,7 +242,7 @@ it, a zoom in the third. Answers the first session."
                (is (eql 2 (length sessions)))
                (let ((pane (find broken (mux:session-panes (first sessions)) :key #'mux:pane-id)))
                  (is-true pane "the broken pane is gone from the tree")
-                 (is (search "unreadable" (car (first (rows-behind pane))))))
+                 (is (search "unreadable" (shown-row pane 0)) "~S" (shown-row pane 0)))
                (is (search "could not be read" (first (first (mux::server-notes server))))))
           (mux:server-close server)
           (ignore-errors (delete-file path)))))))

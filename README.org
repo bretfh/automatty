@@ -127,11 +127,44 @@ While a pane is read back its frame says how far from live, which hit this is,
 and carries a =⌕ find= button; the bar says somebody is reading back, and a
 click on that is back to live.
 
-These are defaults. =~/.config/atty/init.lisp= is loaded when atty starts, and
-binds a key, a button or the wheel to any command:
+These are defaults. =~/.config/atty/init.lisp= (or under =$XDG_CONFIG_HOME=)
+is loaded when atty starts, in the client and in the server, from source. It
+binds a key, a button or the wheel to any command by name, defines commands,
+sets settings, and hooks what happens:
 
 #+begin_src lisp
-(atty/mode:define-key 'pane-mode "M-wheel-up" #'scroll-page-up)
+(define-key 'pane-mode "M-wheel-up" "scroll page up")
+(undefine-key 'pane-mode "C-b t")
+(defcommand say-hello (show-note *client* "hi" "hello"))
+(configure :prefix "C-a" :wheel-rows 6 :theme :ef-dream)
+(add-hook 'pane-started (lambda (session pane) ...))
+#+end_src
+
+=atty help init= lists every setting with what it is now. A file that does not
+load is said in the log and shown as a note to whoever attaches next; atty
+starts anyway. =^-b R= loads it again without restarting.
+
+** What is kept when the server stops
+
+Everything the server holds goes to =~/.local/state/atty/<server>/= (or under
+=$XDG_STATE_HOME=): the sessions, their windows and the splits in them, and
+what every pane holds, screen and scrollback with their colours, its log, what
+it ran and where. The tree is written whenever it changes, each pane when it
+has been quiet a moment, and everything when the server stops, whether asked
+or by a signal.
+
+A server started on the same name brings it all back before it answers
+anybody. Each pane shows what it showed, with a rule under it saying when it
+was brought back, and its program starts again under the rule: a shell in the
+directory it was in, and for anything else, an agent say, a shell standing in,
+the rule saying what was running (=(configure :restore-command :same)= restarts
+it instead). Everything that was behind the screen is still behind it.
+
+#+begin_src sh
+atty restart-server     # stop it and start it from this build, keeping everything; clients wait and come back
+atty save               # write it all now
+atty list               # says what is saved when nothing is running
+atty start --fresh      # start with nothing; what was saved is moved aside, not deleted
 #+end_src
 
 The same from a shell, for a program driving other panes:
