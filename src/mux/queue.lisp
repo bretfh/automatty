@@ -137,7 +137,8 @@ those the filter matches."
              (atty/ui:label ""))))))
 
 (defun lately-line (client entry)
-  (destructuring-bind (session id age who verb summary outcome) entry
+  (destructuring-bind (session id age who verb summary outcome &optional clock) entry
+    (declare (ignore clock))
     (atty/ui:row :spacing 0
                  (atty/ui:label (if (eq outcome t) "   ✓ " "   ✗ ")
                                 :face (if (eq outcome t) :state-idle :error))

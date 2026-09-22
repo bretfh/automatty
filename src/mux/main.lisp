@@ -369,9 +369,9 @@ it, and the pane that was acted on can say who by."
                                          :done (lambda (f) (eq :pane-log (first f))))
                                   :key #'first))))
       (if entries
-          (loop :for (age who verb summary outcome) :in entries
+          (loop :for (nil who verb summary outcome clock) :in entries
                 :do (format t "~&~A  ~12A ~(~7A~) ~A~:[~;  refused~]~%"
-                            (wall-clock-ago age) (who-said-here who) verb
+                            (wall-clock clock) (who-said-here who) verb
                             (if (eq verb :keys) (format nil "~D bytes" summary) (or summary ""))
                             (eq outcome :refused)))
           (format t "~&nobody has typed into ~A:~D~%" session id)))))

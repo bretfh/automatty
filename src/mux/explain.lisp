@@ -41,10 +41,13 @@
   (let ((it (getf (gethash key (client-about client)) what)))
     (values (rest it) (first it))))
 
-(defun wall-clock-ago (ms)
-  "The time of day it was MS milliseconds ago, as hh:mm:ss."
-  (multiple-value-bind (s m h) (decode-universal-time (- (get-universal-time) (floor ms 1000)))
-    (format nil "~2,'0D:~2,'0D:~2,'0D" h m s)))
+(defun wall-clock (clock)
+  "The universal time CLOCK as the time of day, hh:mm:ss, or blank if there
+is none."
+  (if clock
+      (multiple-value-bind (s m h) (decode-universal-time clock)
+        (format nil "~2,'0D:~2,'0D:~2,'0D" h m s))
+      "        "))
 
 (defun seen-lines (seen)
   (remove nil
@@ -74,10 +77,10 @@
                                     :collect (atty/ui:label (format nil "        │ ~A"
                                                                     (string-trim " " line)))))))))
 
-(defun who-typed-lines (client log late)
-  (loop :for (age who verb summary outcome) :in log
+(defun who-typed-lines (client log)
+  (loop :for (nil who verb summary outcome clock) :in log
         :collect (atty/ui:row :spacing 0
-                              (atty/ui:label (format nil "~A " (wall-clock-ago (+ age late)))
+                              (atty/ui:label (format nil "~A " (wall-clock clock))
                                              :face :quiet)
                               (atty/ui:label (format nil "~8A " (said-by client who))
                                              :face (case (first who)
@@ -97,7 +100,7 @@
     (multiple-value-bind (explained) (about client key :agent-explained)
       (multiple-value-bind (about) (about client key :pane-about)
         (multiple-value-bind (history history-at) (about client key :pane-history)
-          (multiple-value-bind (log log-at) (about client key :pane-log)
+          (multiple-value-bind (log) (about client key :pane-log)
             (let* ((about (first about))
                    (state (and (getf row :known) (getf row :state)))
                    (rows (third explained))
@@ -127,8 +130,9 @@
                                                                    :state-blocked-strong
                                                                    (state-face state)))
                                           (atty/ui:label (format nil " for ~A" (duration for)))
-                                          (atty/ui:label (if for
-                                                             (format nil " · since ~A" (wall-clock-ago for))
+                                          (atty/ui:label (if (getf row :since-clock)
+                                                             (format nil " · since ~A"
+                                                                     (wall-clock (getf row :since-clock)))
                                                              "")
                                                          :face :quiet)))
                              (atty/ui:label ""))
@@ -150,7 +154,7 @@
                                              (atty/ui:label " blocked" :face :quiet))
                                 (atty/ui:label ""))))
                        (list (atty/ui:label "who typed here" :face :quiet))
-                       (or (who-typed-lines client (first log) (max 0 (- now (or log-at now))))
+                       (or (who-typed-lines client (first log))
                            (list (atty/ui:label "  nobody yet" :face :quiet)))
                        (list (atty/ui:gap :expand 1))))
                :face :state-unknown

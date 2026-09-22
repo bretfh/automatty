@@ -200,16 +200,18 @@ nothing in front of it, and otherwise the program in the foreground."
   "Keys from one source this close together, in milliseconds, are one entry.")
 
 (defun pane-logged (pane now who verb summary &optional (outcome t))
-  "Put in PANE's log that WHO did VERB at NOW. For :keys SUMMARY is how many
-bytes; a run of them from the same place is one entry that grows."
+  "Put in PANE's log that WHO did VERB at NOW, and the time of day it was. For
+:keys SUMMARY is how many bytes; a run of them from the same place is one
+entry that grows."
   (let ((newest (first (pane-log pane))))
     (if (and newest (eq verb :keys) (eq (third newest) :keys)
              (equal (second newest) who)
              (<= (- now (first newest)) +keys-run+))
         (setf (first newest) now
-              (fourth newest) (+ (fourth newest) summary))
+              (fourth newest) (+ (fourth newest) summary)
+              (sixth newest) (get-universal-time))
         (progn
-          (push (list now who verb summary outcome) (pane-log pane))
+          (push (list now who verb summary outcome (get-universal-time)) (pane-log pane))
           (when (> (incf (pane-log-count pane)) +log-length+)
             (setf (pane-log pane) (subseq (pane-log pane) 0 (floor +log-length+ 2))
                   (pane-log-count pane) (floor +log-length+ 2)))))

@@ -32,6 +32,7 @@
    (trace :initform nil :accessor agent-trace)
    (traced :initform 0 :accessor agent-traced)
    (since :initform nil :accessor agent-since)
+   (since-clock :initform nil :accessor agent-since-clock)
    (history :initform nil :accessor agent-history)
    (historied :initform 0 :accessor agent-historied)
    (told :initform nil :accessor agent-told)))
@@ -86,7 +87,8 @@
         (agent-told agent) t))
 
 (defun became (agent now state)
-  (setf (agent-since agent) now)
+  (setf (agent-since agent) now
+        (agent-since-clock agent) (get-universal-time))
   (push (list now state) (agent-history agent))
   (when (> (incf (agent-historied agent)) +history-length+)
     (setf (agent-history agent) (subseq (agent-history agent) 0 (floor +history-length+ 2))

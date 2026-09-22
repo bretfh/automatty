@@ -1146,7 +1146,11 @@ not the one clicked on: ~S" (seen seer))
       (let ((entry (first (fourth (heard-from server wire :pane-log)))))
         (is (integerp (first entry)))
         (is (equal '(:pane "todo:4") (second entry)))
-        (is (eq :say (third entry))))
+        (is (eq :say (third entry)))
+        ;; the time of day it was goes with it, kept by the server, so the
+        ;; drawer shows the same second every time it asks
+        (is (typep (sixth entry) '(integer 0)) "~S" entry)
+        (is (<= (abs (- (get-universal-time) (sixth entry))) 5) "~S" entry))
       (mux:wire-close wire))))
 
 ;;; The frames and the bar, through a real client.

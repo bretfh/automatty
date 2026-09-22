@@ -13,6 +13,7 @@
    #:agent-for
    #:agent-history
    #:agent-since
+   #:agent-since-clock
    #:agent-known-p
    #:agent-won
    #:+history-length+

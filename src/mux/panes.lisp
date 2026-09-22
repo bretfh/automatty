@@ -13,11 +13,12 @@ pane writing without pause would otherwise be sent to everybody watching the
 switchboard as fast as it writes.")
 
 (defun input-said (entry now)
-  "A log ENTRY as it goes out: how long ago rather than when, since the two
-ends do not share a clock."
+  "A log ENTRY as it goes out: how long ago by the millisecond clock, which the
+two ends do not share, and the time of day it was, which is shown as it is
+and never worked out again from the age."
   (and entry
-       (destructuring-bind (ms who verb summary outcome) entry
-         (list (max 0 (- now ms)) who verb summary outcome))))
+       (destructuring-bind (ms who verb summary outcome clock) entry
+         (list (max 0 (- now ms)) who verb summary outcome clock))))
 
 (defparameter +history-said+ (* 20 60 1000)
   "How far back a pane's history goes out with it: what a strip of its last
@@ -55,6 +56,7 @@ thing that acted on it was one."
           :state (agent:agent-state agent)
           :known (agent:agent-known-p agent)
           :for (agent:agent-for agent now)
+          :since-clock (agent:agent-since-clock agent)
           :asks (agent:agent-asks agent (pane-term pane))
           :doing (pane-doing pane)
           :history (loop :for (ms state) :in (agent:agent-history agent)
