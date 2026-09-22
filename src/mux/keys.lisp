@@ -42,8 +42,8 @@ instead."
   (tell-the-server (list :bar :toggle)))
 
 (defcommand (run-a-command :group asking)
-  "run any command by name"
-  (ask-a-command *client*))
+  "run any command by name; the palette's first tab"
+  (open-the-palette *client* :commands))
 
 (defcommand (split-right :group panes)
   "another pane beside this one"
@@ -86,43 +86,18 @@ instead."
 
 (defcommand (close-window :group windows)
   "close this window and every program in it, after a yes"
-  (ask *client* "close this window and every program in it?" (list "y  yes" "n  no")
-       :free t
-       :chose (lambda (typed c)
-                (when (and (plusp (length typed)) (char-equal #\y (char typed 0)))
+  (confirm *client* "close this window and every program in it?"
+           :yes (lambda (c)
                   (let ((*client* c))
-                    (tell-the-server (list :close-window (client-session c))))))))
+                    (tell-the-server (list :close-window (client-session c)))))))
 
 (defcommand (choose-a-session :group sessions)
   "every session and its windows, to go to one; the same list as @"
   (tell-the-server (list :sessions)))
 
 (defcommand (clients :group sessions)
-  "who is attached to this server, and what each is looking at; RET goes there, d detaches one"
-  (let ((client *client*))
-    (keep-told client)
-    (ask client "clients" (or (client-clients client) (list nil))
-         :text (lambda (c)
-                 (if (null c)
-                     "nobody is attached yet; asking…"
-                     (format nil "~20A ~Dx~D  looking at ~A~@[ › ~D~]  attached ~A~@[  idle ~A~]"
-                             (if (eql (first c) (client-id client))
-                                 "⌨ client you"
-                                 (format nil "⌨ client ~A" (short-tty (second c) (first c))))
-                             (fourth c) (third c) (or (fifth c) "nothing") (sixth c)
-                             (duration (seventh c)) (and (eighth c) (duration (eighth c))))))
-         :foot (hints 'prompt-mode 'prompt-accept "go to what it sees" 'prompt-accept-otherwise "detach it"
-                      'prompt-cancel "close")
-         :chose (lambda (c client)
-                  (stop-told client)
-                  (when (and c (fifth c))
-                    (wire-send (client-wire client) (list :go (fifth c)))
-                    (when (sixth c)
-                      (wire-send (client-wire client) (list :go-window (fifth c) (sixth c))))))
-         :alt (lambda (c client)
-                (stop-told client)
-                (when c (wire-send (client-wire client) (list :detach-client (first c)))))
-         :dropped (lambda (client) (stop-told client)))))
+  "who is attached to this server, and what each is looking at; RET goes there, C-RET detaches one"
+  (open-the-palette *client* :clients))
 
 (defcommand (choose-a-window :group windows)
   "every session › window, the ones asking first; RET goes, C-RET makes one, TAB its panes"
@@ -139,6 +114,17 @@ instead."
 (defcommand (name-this-pane :group panes)
   "what to call this pane; TAB names the window instead"
   (tell-the-server (list :naming)))
+
+(defun ask-a-session-name (client session)
+  "What to call SESSION, on the line at the foot, starting from its name."
+  (entry client "name" (format nil "session ~A" session) session
+         :keep (lambda (typed c)
+                 (let ((*client* c)) (tell-the-server (list :name-session session typed))))))
+
+(defcommand (name-this-session :group sessions)
+  "what to call this session"
+  (when (client-session *client*)
+    (ask-a-session-name *client* (client-session *client*))))
 
 (defcommand (go-to-the-blocked :group agents)
   "go to whatever has been asking longest, in any session"
@@ -173,9 +159,8 @@ anything is what that server always did, and a note for every notch is worse."
 (defun pointer-did (what)
   (let ((button (or (getf *mouse-event* :button) :left)))
     (cond ((and (eq what :press) (eq button :left)
-                (or (popup-clicked-p *client* (cdr *mouse-at*) (car *mouse-at*))
-                    (some (lambda (over) (clicked-over over (cdr *mouse-at*) (car *mouse-at*) *client*))
-                          (client-over *client*))))
+                (some (lambda (over) (clicked-over over (cdr *mouse-at*) (car *mouse-at*) *client*))
+                      (client-over *client*)))
            ;; something drawn over the session took the click: the drawer's answers, say
            nil)
           ((server-knows-p :pointer)
@@ -202,6 +187,8 @@ anything is what that server always did, and a note for every notch is worse."
 
 (defcommand natural-scroll-up (wheel-went :up))
 (defcommand natural-scroll-down (wheel-went :down))
+(defcommand natural-scroll-left (wheel-went :left))
+(defcommand natural-scroll-right (wheel-went :right))
 
 (defcommand scroll-up (scroll-by 1))
 (defcommand scroll-down (scroll-by -1))
@@ -257,17 +244,8 @@ anything is what that server always did, and a note for every notch is worse."
   (scroll-to-bottom))
 
 (defcommand (find-in-pane :group reading)
-  "find in this pane's history; n and N move between the hits"
-  (scroll-mode)
-  (let ((was (car (find-text-of *client*))))
-    (ask *client* "find" (list "RET finds it   n next   N back   C-g cancels")
-         :free t :query (or was "")
-         :chose (lambda (typed c)
-                  (let ((*client* c))
-                    (setf (client-find-text c) typed)
-                    (tell-the-server-if-it-knows (list :find nil nil typed :here)))))))
-
-(defun find-text-of (client) (list (client-find-text client)))
+  "find in this pane's history, the hits listed as you type; n and N move between them after"
+  (open-the-palette *client* :find))
 
 (defcommand (find-next :group reading)
   "the next older hit of the last find"
@@ -299,6 +277,138 @@ anything is what that server always did, and a note for every notch is worse."
                     :collect (list name (key-for (intern (string-upcase (substitute #\- #\Space name)) :atty))
                                    (or (command-group name) 'other)))))
     (stable-sort rows #'< :key (lambda (r) (or (position (third r) +groups+) (length +groups+))))))
+
+(defun command-named-by (does)
+  "The name DOES is registered under, or nil for a function that is no command."
+  (loop :for name :being :the :hash-keys :of *commands* :using (hash-value fn)
+        :when (eq fn does) :return name))
+
+(defun mode-keys-rows (mode)
+  "Every key in force in MODE that runs a command, as (name key group)."
+  (stable-sort
+   (loop :for (chord . does) :in (atty/mode:keys-in-force (atty/mode:mode-named mode))
+         :for name := (command-named-by does)
+         :when name :collect (list name chord (or (command-group name) 'other)))
+   #'string< :key #'second))
+
+;;; The one key to learn. Press the prefix and wait, and a menu rises from
+;;; the foot with every key that can follow it, grouped by what it acts on.
+;;; It draws only after a moment, so a chord typed straight through never
+;;; sees it, and it waits as long as anyone needs.
+
+(defparameter +menu-after+ 300
+  "How long a prefix has to hang, in milliseconds, before the menu is drawn.")
+
+(defparameter +menu-column+ 30 "How wide a column of the menu is.")
+
+(defun menu-due-p (client)
+  (and (client-chord-so-far client)
+       (client-pending-since client)
+       (>= (- (ms-here) (client-pending-since client)) +menu-after+)))
+
+(defun menu-closed (client)
+  "Put the menu away, and the half chord it was for."
+  (setf (client-chord-so-far client) nil
+        (client-pending-since client) nil
+        (client-menu client) nil
+        (client-dirty client) t))
+
+(defun menu-clicked (client)
+  "A press while the menu is up: an entry under it runs, and either way the
+menu goes away with the half chord it was for."
+  (let ((hit (button-at (client-menu client) (cdr *mouse-at*) (car *mouse-at*))))
+    (menu-closed client)
+    (when hit (run-command (bar-button-runs hit) client))))
+
+(defun group-title (group)
+  (case group
+    (panes "panes") (windows "windows") (sessions "sessions")
+    (agents "agents") (reading "reading") (asking "look around")
+    (t "more")))
+
+(defun menu-groups (client)
+  "What can follow the chord CLIENT has half typed, as (group (key name) ...)
+in the order the groups are listed."
+  (let* ((prefix (let ((atty/mode:*pending* (client-chord-so-far client))) (atty/mode:pending)))
+         (start (concatenate 'string prefix " "))
+         (rows (loop :for (name chord group) :in (mode-keys-rows (client-mode client))
+                     :when (and (> (length chord) (length start))
+                                (string= start chord :end2 (length start)))
+                       :collect (list group (subseq chord (length start)) name)))
+         (groups (remove-duplicates (mapcar #'first rows))))
+    (loop :for group :in (stable-sort groups #'<
+                                      :key (lambda (g) (or (position g +groups+) (length +groups+))))
+          :collect (cons group (loop :for (g key name) :in rows
+                                     :when (eq g group) :collect (list key name))))))
+
+(defun menu-entry (key name width)
+  (bar-button name
+              (atty/ui:row :spacing 0
+                           (atty/ui:label (format nil "  ~5A " key) :face :state-blocked-strong)
+                           (atty/ui:label (shortened-to (or (command-doc name) name) (max 1 (- width 10)))))))
+
+(defun menu-tree (client cols)
+  "The menu: columns of groups, each its title and the keys under it, in a
+rounded box that says what it is for and how to put it away."
+  (let* ((width +menu-column+)
+         (across (max 1 (min 4 (floor (- cols 4) width))))
+         (columns (make-array across :initial-element nil))
+         (heights (make-array across :initial-element 0)))
+    ;; each group goes into the column with the least in it so far
+    (dolist (group (menu-groups client))
+      (let ((at (position (reduce #'min heights) heights)))
+        (setf (aref columns at)
+              (append (aref columns at)
+                      (list (atty/ui:label (format nil "  ~:@(~A~)" (group-title (first group))) :face :quiet))
+                      (loop :for (key name) :in (rest group) :collect (menu-entry key name width))
+                      (list (atty/ui:label ""))))
+        (incf (aref heights at) (+ 2 (length (rest group))))))
+    (atty/ui:framed
+     (apply #'atty/ui:row :spacing 0 :align :stretch
+            (loop :for column :across columns
+                  :collect (apply #'atty/ui:column :align :stretch :min-width width
+                                  (cons (atty/ui:label "") column))))
+     :line :rounded :face :card-cursor
+     :titles (list :tl (atty/ui:row :spacing 0
+                                    (atty/ui:label (format nil " ~A " (prefix-spelled)) :face :key)
+                                    (atty/ui:label " then one key" :face :strong))
+                   :tr (and (client-session client)
+                            (atty/ui:label (format nil " ~A " (client-session client)) :face :quiet))
+                   :br (atty/ui:row :spacing 0
+                                    (atty/ui:label "Esc" :face :key-hint)
+                                    (atty/ui:label " cancels · no timeout " :face :quiet))))))
+
+(defun draw-the-menu (client screen)
+  "Draw the menu over the foot of SCREEN and keep the tree for clicks."
+  (let* ((cols (tty:screen-width screen))
+         (rows (tty:screen-height screen))
+         (m (atty/cells:make-cells (tty:screen-grid screen) cols rows))
+         (tree (menu-tree client cols))
+         (high (nth-value 1 (atty/ui:with-pass
+                              (atty/ui:restyle tree)
+                              (atty/ui:measure tree m cols rows))))
+         (top (max 0 (- rows (min high rows)))))
+    (atty/cells:fill-rect m 0 top cols (- rows top) (term:make-face :bg (bar-face :bg)))
+    (atty/cells:draw tree (tty:screen-grid screen) cols (+ top (min high rows)) :top top)
+    (setf (client-menu client) tree
+          (tty:screen-cursor-visible screen) nil)))
+
+(defcommand (show-the-menu :group asking)
+  "the menu of every key that follows the prefix, as though it had been pressed"
+  (client-chord *client* (key-of +prefix+))
+  (when (client-chord-so-far *client*)
+    (setf (client-pending-since *client*) (- (ms-here) +menu-after+)
+          (client-dirty *client*) t)))
+
+(defcommand (keys-of-this-mode :unlisted)
+  "the keys of whatever is on top, or of the session when nothing is"
+  (let ((mode (client-mode *client*)))
+    (if (eq mode 'pane-mode)
+        (what-the-keys-do)
+        (ask *client* (format nil "keys · ~(~A~)" mode) (mode-keys-rows mode)
+             :text (lambda (r) (format nil "~12A ~24A ~@[~A~]" (second r) (first r) (command-doc (first r))))
+             :foot (hints 'prompt-mode 'prompt-accept "run" 'prompt-cancel "close")
+             :chose (lambda (r client) (run-command (first r) client))))))
 
 (defcommand (what-the-keys-do :group asking)
   "every command, its key and what it acts on; RET runs one"
@@ -360,6 +470,7 @@ anything is what that server always did, and a note for every notch is worse."
     ("'" . choose-a-window)
     ("D" . clients)
     ("." . name-this-pane)
+    ("$" . name-this-session)
     ("[" . scroll-mode)
     ("/" . find-in-pane)
     ("PageUp" . scroll-mode-page-up)
@@ -403,6 +514,8 @@ behind WAS when the prefix has moved."
 
 (atty/mode:define-key 'pane-mode "wheel-up" #'natural-scroll-up)
 (atty/mode:define-key 'pane-mode "wheel-down" #'natural-scroll-down)
+(atty/mode:define-key 'pane-mode "wheel-left" #'natural-scroll-left)
+(atty/mode:define-key 'pane-mode "wheel-right" #'natural-scroll-right)
 (atty/mode:define-key 'pane-mode "S-wheel-up" #'scroll-up-a-little)
 (atty/mode:define-key 'pane-mode "S-wheel-down" #'scroll-down-a-little)
 (atty/mode:define-key 'pane-mode "M-wheel-up" #'scroll-up-a-little)

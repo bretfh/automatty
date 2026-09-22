@@ -252,8 +252,10 @@ border is the corner."))
     (apply #'make-instance 'center :parts (%one parts) props)))
 
 (defparameter +frame-glyphs+
-  '(:single (#\─ #\│ #\┌ #\┐ #\└ #\┘)
-    :double (#\═ #\║ #\╔ #\╗ #\╚ #\╝))
+  '(:single  (#\─ #\│ #\┌ #\┐ #\└ #\┘)
+    :rounded (#\─ #\│ #\╭ #\╮ #\╰ #\╯)
+    :heavy   (#\━ #\┃ #\┏ #\┓ #\┗ #\┛)
+    :double  (#\═ #\║ #\╔ #\╗ #\╚ #\╝))
   "What each kind of line is drawn with: across, up, and the four corners.")
 
 (defun clip (child &rest props)
@@ -261,7 +263,8 @@ border is the corner."))
 
 (defun framed (child &rest props)
   "CHILD, boxed in on all four sides with the glyphs a border is drawn from,
-each lit however PROPS' :FACE says. :LINE is :single or :double. :TITLES is a
+each lit however PROPS' :FACE says. :LINE is :single, :rounded, :heavy or
+:double. :TITLES is a
 plist from :tl :tr :bl :br to a widget set into the border at that corner, one
 cell in from it, and cut short when the border is too short for it."
   (let* ((face (getf props :face))

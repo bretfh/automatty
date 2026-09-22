@@ -281,7 +281,7 @@ watcher is told how many there are and which this is."
                   (and (watcher-session watcher) (session-focus (watcher-session watcher))))))
     (when pane
       (let ((find (pane-find pane)))
-        (ecase way
+        (ecase (if (consp way) (first way) way)
           (:clear (setf (pane-find pane) nil (pane-selecting pane) nil (pane-dirty pane) t))
           (:here
            (let ((hits (find-hits pane query)))
@@ -296,7 +296,11 @@ watcher is told how many there are and which this is."
                     (at (getf find :at))
                     (to (+ at (if (eq way :next) -1 1))))
                (setf (getf (pane-find pane) :at) (mod to n)
-                     (pane-dirty pane) t)))))
+                     (pane-dirty pane) t))))
+          (:row
+           ;; (:row n): the hit on row n, when there is one
+           (let ((to (and find (position (second way) (getf find :hits) :key #'first))))
+             (when to (setf (getf (pane-find pane) :at) to (pane-dirty pane) t)))))
         (let* ((find (pane-find pane))
                (hits (getf find :hits))
                (at (getf find :at))
@@ -304,8 +308,19 @@ watcher is told how many there are and which this is."
           (when hit (pane-show-row pane (first hit)))
           (dolist (w (session-watchers (session-of-pane server pane)))
             (setf (watcher-behind w) t))
-          (tell watcher (list :found (session-name (session-of-pane server pane)) (pane-id pane)
-                              (length hits) (and at (- (length hits) at)) (and hit (first hit)))))))))
+          ;; the hits nearest the one gone to go out with their text, for a
+          ;; list of them: the nearest two hundred, and which of those it is
+          ;; a clear is not a find: nothing is said back for one
+          (unless (eq way :clear)
+           (let* ((n (length hits))
+                 (from (max 0 (- (or at 0) 100)))
+                 (to (min n (+ (or at 0) 100)))
+                 (said (loop :for h :in (subseq hits from to)
+                             :collect (list (first h) (second h) (third h)
+                                            (string-right-trim " " (pane-row-text pane (first h)))))))
+            (tell watcher (list :found (session-name (session-of-pane server pane)) (pane-id pane)
+                                n (and at (- n at)) (and hit (first hit))
+                                said (and at (- at from)))))))))))
 
 (defun session-of-pane (server pane)
   (find-if (lambda (s) (member pane (session-panes s))) (server-sessions server)))
@@ -319,7 +334,10 @@ end of what is shown now, or the screen when nothing was marked."
     (when pane
       (let ((top (pane-top-row pane))
             (height (term:term-height (pane-term pane))))
-        (ecase what
+        (ecase (if (consp what) (first what) what)
+          (:line
+           ;; (:line row): that one row, as it is
+           (tell watcher (list :copied (string-right-trim " " (pane-row-text pane (second what))))))
           (:start (setf (pane-selecting pane) top (pane-dirty pane) t))
           (:copy
            (let* ((mark (or (pane-selecting pane) top))
@@ -380,6 +398,25 @@ pane that is asking something is refused as a prompt to it now would be."
     (when (and queued (eq :idle (agent:agent-state (pane-agent pane))))
       (setf (pane-queued pane) nil)
       (prompt-a-pane server pane (first queued) (second queued)))))
+
+(defun pulses-said (server)
+  "Every pane's pulse: its session, its id and its cells, oldest first."
+  (loop :for (session . pane) :in (every-pane server)
+        :collect (list (session-name session) (pane-id pane)
+                       (mapcar (lambda (cell) (list (car cell) (cdr cell))) (pane-pulse pane)))))
+
+(defun events-said (server n now)
+  "The last N things that happened anywhere on the server, newest first:
+how long ago, the time of day, what kind of thing, which pane and the window
+it is in, who did it when somebody did, and what it was."
+  (let ((all (loop :for (session . pane) :in (every-pane server)
+                   :for window := (nth-value 1 (window-of session pane))
+                   :append (loop :for (ms clock kind who text) :in (pane-events pane)
+                                 :collect (list (max 0 (- now ms)) clock kind
+                                                (session-name session) (pane-id pane) window
+                                                who text)))))
+    (let ((sorted (sort all #'< :key #'first)))
+      (subseq sorted 0 (min n (length sorted))))))
 
 (defun lately (server n now)
   "The last N answers anybody gave any pane, and prompts refused because a pane

@@ -68,6 +68,7 @@ atty <name>             # the same, under another name, started where you are
 atty attach [<name>]    # join a session already running
 atty list               # the sessions: windows, panes, what needs you, who is attached
 atty clients            # every terminal attached, and what each is looking at
+atty rename <old> <new> # call a session something else
 atty stop <name>        # stop a session, and the programs in it
 atty kill-server        # stop every session
 atty -L <server> ...    # any of these against a server other than your own
@@ -78,41 +79,86 @@ a window holds panes in their splits, and each terminal attached is a client
 looking at one window of one session. A pane's address is
 =session:window.pane=, =todo:1.2=: window 1 of todo, its second pane.
 
-=^-b= is the prefix for everything else. Every key runs a named command, and
-=^-b := lists them all with their keys and a line on each, so any can be bound
-to something else; =^-b ?= is the same list grouped by what they act on.
+=^-b= is the prefix for everything else, and the one key to learn: press it
+and wait, and a menu rises from the foot with every key that can follow,
+grouped by what it acts on, with no timeout. Type straight through and it
+never shows. Every key runs a named command, and =^-b := lists them all with
+their keys and a line on each, so any can be bound to something else; =^-b ?=
+is the same list grouped by what they act on, and =?= on anything that is up
+lists that thing's keys.
+
+Everything drawn on top of the panes has the same shape: a header saying what
+it is and where you are with =✕= at its right, a toolbar of its controls with
+their keys printed on them, a gutter of marks down the left, a rail down the
+right when there is more than fits, and a footer of keys that are buttons.
+Escape closes any of it. Every rail is drawn the same way: a thin line is the
+whole length, a heavy line is the part in view, and its ends are lit only when
+there is more that way. This terminal is =◆=, another terminal is =⌨= and its
+tty, a pane that typed into another is =⌁= and its address, and the command
+line is =$=. Anything that wants a word from you, a name or a yes, takes the
+one line at the foot where the keys are, and never covers the screen.
 
 #+begin_src sh
 ^-b c   ^-b n   ^-b p   # a new window; the next; the one before
 ^-b '                   # every session › window, the ones asking first; RET goes, C-RET makes a window there, TAB its panes
-^-b ,   ^-b .           # name this window; name this pane (TAB swaps between them)
+^-b ,   ^-b .   ^-b $   # name this window; name this pane (TAB swaps between them); name this session
 ^-b &                   # close this window and every program in it, after a yes
 ^-b C                   # another session
 ^-b 2   ^-b 3   ^-b 0   ^-b 1   ^-b o   # split below; split beside; close this pane; only this pane; the next pane
-^-b d   ^-b D           # detach; who is attached, to go to what they see or detach one
+^-b d   ^-b D           # detach; who is attached, to go to what they see, follow one, or detach one
 #+end_src
 
 The bar lists this session's windows, lit where you are, yellow with a count
 where a pane is asking something, and a =+= that opens one. Then the field
-that opens the commands (=:=) or the sessions and windows (=@=), what needs
-you anywhere, the other sessions, who else is attached, and the time.
+that opens the palette, what needs you anywhere, the other sessions, who else
+is attached (=←= after one that follows another), =^-b menu=, and the time.
+
+The palette is one prompt with four tabs: =:= the commands, =@= every
+session › window with its panes previewed beside, =#= the terminals
+attached, =/= find in this pane with the hits listed as you type. =^-b :=,
+=^-b '=, =^-b D= and =^-b /= open them; typing another tab's prefix first
+switches to it, and TAB goes round them. In =#=, =C-f= follows the terminal
+chosen: this one shows whatever session that one shows, as it moves, until
+you type something of your own.
 
 Every pane's frame is the colour of what its program is doing: working,
-blocked or idle, with how long. A pane that is asking something carries the
+blocked or idle, with how long; the pane with the focus has a heavy border and
+the others a thin rounded one. A pane that is asking something carries the
 question in its top border and its answers in its bottom one; click one to
 answer.
 
 #+begin_src sh
 ^-b N                   # what needs you: every question, where it is, who is looking at it; a digit answers
-^-b w                   # the switchboard: the whole server, sessions as rows, windows as boxes, panes inside; + zooms to one session
+^-b w                   # the switchboard: the whole server. A side pane beside a lane for every session; - and + zoom
+                        # out to a row of chips a session and in to one session; \ hides the side pane, / filters
 ^-b a                   # go to whatever has been blocked longest
 ^-b e                   # why a pane is what it is: what it is, its state, how it was read, who typed there; answers at the foot
 ^-b z                   # zoom a pane
 #+end_src
 
-The mouse works everywhere: chips on the bar, answers in a frame, rows in a
-prompt, panes and windows on the switchboard, questions on the needs-you
-list, the answers at the foot of the drawer. In a pane it works the way it
+On the switchboard every session is a lane: a header with its name, its
+counts and =+ window=, its windows as boxes showing their panes' last lines
+(a split window divides its box with a dotted rule naming the pane under
+it), and a foot that is the lane's scrollbar and says which windows are in
+view. The box with the cursor has a heavy border in its state's colour and
+carries its answers and =↵ go= in its bottom edge; the lane with the cursor
+lists the lane's keys on its foot (=← →= window, =c= new window, =r= rename
+the session, =⇥= fold);
+the footer lists only the keys that work anywhere (=↑↓= session, =n= the
+oldest question, =- += zoom, =/= filter, =\= side pane). On the box: =x=
+closes, =,= names, =p= prompts, =SPC= picks for a prompt to several, =e=
+opens the details drawer, a digit answers. The side pane shows what is going
+on everywhere: the server, every session and the cursor's session's windows
+each with a sparkline of the last twenty minutes (height is how much was
+written, colour is the most urgent state then: asking outranks working
+outranks idle; a shell is grey), an activity log of what just happened across
+the server (questions, answers and who gave them, typing, programs starting
+and finishing; the wheel scrolls it and a click on a line puts the cursor on
+that window), and who is attached. =atty events= prints the same log.
+
+The mouse works everywhere: chips on the bar, the menu, answers in a frame,
+rows in a prompt, boxes, lanes and rails on the switchboard, questions on the
+needs-you list, the answers at the foot of the drawer. In a pane it works the way it
 would with nothing in between: a program that asked for it gets the wheel and
 the buttons; one with the whole screen gets the wheel as arrow keys; anything
 else has its pane read back.
@@ -124,8 +170,8 @@ v  y                    # in reading back: mark the top line; copy from the mark
 #+end_src
 
 While a pane is read back its frame says how far from live, which hit this is,
-and carries a =⌕ find= button; the bar says somebody is reading back, and a
-click on that is back to live.
+and carries a =⌕ find= button; a click on the =↓ N to live= chip is back to
+live.
 
 These are defaults. =~/.config/atty/init.lisp= (or under =$XDG_CONFIG_HOME=)
 is loaded when atty starts, in the client and in the server, from source. It

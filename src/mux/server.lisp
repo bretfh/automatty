@@ -22,12 +22,12 @@ more than the terminal it is sitting inside costs in the first place.")
     :answer :focus-pane :go-to-blocked :zoom :pane-read :lately :prompt-when-idle
     :close-pane :split-in :pane-about :spawn :since-prompt
     :new-window :go-window :next-window :previous-window :close-window :name-window :layouts
-    :clients :detach-client :reading :naming-window :find :select
+    :clients :detach-client :reading :naming-window :find :select :follow
     :keys :resize :bar :split :focus :close :only :mouse-at
     :scroll :wheel :pointer :scrollbars :reload-init :save :restart
     :agents :agent-signal :agent-read :agent-keys :agent-prompt :agent-explain :agent-snapshot
     :agent-act :agent-observe :readers-load
-    :agent-trace)
+    :agent-trace :pulses :events :name-session)
   "Every message this server knows what to do with.
 
 It goes out with the greeting. A server outlives the builds that reach it: it
@@ -64,6 +64,7 @@ command line."
   (tty nil)
   (since 0 :type integer)
   (typed-at 0 :type integer)
+  (following nil)                       ; the id of the watcher this one goes where
   (watch-panes nil)
   (panes-told (make-hash-table :test 'equal))
   (screen-rows nil)
@@ -363,6 +364,23 @@ one after. The last window stays, empty, which is a session that is over."
   (dolist (pane (window-panes window))
     (close-the-pane session pane)))
 
+(defun name-a-session (server watcher session new)
+  "Call SESSION NEW, when NEW is a name and no other session has it: everybody
+attached is told the old and the new, and WATCHER whether it was done."
+  (let* ((old (session-name session))
+         (new (string-trim " " (or new "")))
+         (taken (and (plusp (length new)) (session-named server new))))
+    (cond
+      ((zerop (length new)) (tell watcher (list :session-named old new :empty)))
+      ((and taken (not (eq taken session))) (tell watcher (list :session-named old new :taken)))
+      (t
+       (setf (session-name session) new)
+       (dolist (w (every-watcher server))
+         (setf (watcher-behind w) t)
+         (when (wire-open (watcher-wire w))
+           (tell w (list :session-renamed old new))))
+       (tell watcher (list :session-named old new t))))))
+
 (defun name-a-window (session window label)
   (setf (window-label window) (and label (plusp (length label)) label))
   (dolist (w (session-watchers session)) (setf (watcher-behind w) t)))
@@ -581,9 +599,16 @@ and so it is over the scrollbar, which is nobody's but the multiplexer's."
   (multiple-value-bind (pane hit) (pane-at session x y)
     (let* ((pane (or pane (session-focus session)))
            (term (and pane (pane-term pane)))
+           (sideways (member way '(:left :right)))
            (rows (if (eq way :up) +wheel-rows+ (- +wheel-rows+))))
       (when pane
         (cond
+          (sideways
+           ;; nothing here scrolls sideways; a program that asked is told
+           (when (typep hit 'pane-view)
+             (tell-the-program session pane :wheel x y :wheel way
+                               :meta (and (member :meta mods) t)
+                               :ctrl (and (member :ctrl mods) t))))
           ((or (member :shift mods) (typep hit 'scrollbar) (plusp (pane-scrolled pane)))
            (pane-scroll-by pane rows))
           ((and (typep hit 'pane-view)
@@ -847,6 +872,7 @@ is drawn is what they have just been told they are."
   (wire-close (watcher-wire watcher))
   (setf (server-knocking server) (remove watcher (server-knocking server)))
   (leave-session watcher)
+  (stop-following server watcher)
   (when (watcher-here watcher) (tell-the-clients server)))
 
 (defun join-session (server watcher session)
@@ -871,7 +897,39 @@ is drawn is what they have just been told they are."
       (tell watcher (list* :say note)))
     (setf (server-notes server) nil))
   (tell-the-clients server)
+  (bring-the-followers server watcher session)
   session)
+
+;;; Following: a terminal that follows another shows whatever session that
+;;; one shows, as it moves, until it types something of its own. A session
+;;; shows one window for everybody on it, so following is being kept on the
+;;; same session.
+
+(defun followers-of (server watcher)
+  (remove-if-not (lambda (w) (eql (watcher-following w) (watcher-id watcher)))
+                 (every-watcher server)))
+
+(defun bring-the-followers (server watcher session)
+  "Everybody following WATCHER is put on SESSION with it."
+  (dolist (w (followers-of server watcher))
+    (unless (eq (watcher-session w) session)
+      (join-session server w session))))
+
+(defun follow (server watcher id)
+  "WATCHER goes where the watcher called ID goes, from now; nil stops."
+  (let ((leader (and id (find id (every-watcher server) :key #'watcher-id))))
+    (setf (watcher-following watcher) (and leader (not (eq leader watcher)) id))
+    (when (and leader (watcher-following watcher) (watcher-session leader)
+               (not (eq (watcher-session leader) (watcher-session watcher))))
+      (join-session server watcher (watcher-session leader)))
+    (tell-the-clients server)))
+
+(defun stop-following (server watcher)
+  "WATCHER goes its own way, and nobody follows it any more."
+  (let ((was (or (watcher-following watcher) (followers-of server watcher))))
+    (setf (watcher-following watcher) nil)
+    (dolist (w (followers-of server watcher)) (setf (watcher-following w) nil))
+    (when was (tell-the-clients server))))
 
 (defun watcher-sized (watcher rows cols takes)
   (setf (watcher-rows watcher) (max 1 (min +biggest-pane+ rows))
@@ -895,7 +953,8 @@ typed."
           (and session (session-name session))
           (and session (window-number session (session-window session)))
           (max 0 (- now (watcher-since watcher)))
-          (if (plusp (watcher-typed-at watcher)) (max 0 (- now (watcher-typed-at watcher))) nil))))
+          (if (plusp (watcher-typed-at watcher)) (max 0 (- now (watcher-typed-at watcher))) nil)
+          (watcher-following watcher))))
 
 (defun clients-said (server now)
   (loop :for w :in (every-watcher server)
@@ -1018,6 +1077,7 @@ that is about a session is passed on only once it has joined one."
          (when (and it (watcher-here it))
            (drop-watcher server it :detached)
            (tell-the-clients server))))
+      (:follow (follow server watcher (second form)))
       (:agent-signal
        (destructuring-bind (name id state &optional caller) (rest form)
          (let ((pane (pane-called server name id)))
@@ -1044,6 +1104,12 @@ that is about a session is passed on only once it has joined one."
            (tell watcher (list :name-it (session-name session) (pane-id pane)
                                (pane-label pane) (pane-named pane)
                                (pane-address-of session pane))))))
+      (:name-session
+       (destructuring-bind (name new) (rest form)
+         (let ((it (session-named server name)))
+           (if it
+               (name-a-session server watcher it new)
+               (tell watcher (list :session-named name new :gone))))))
       (:naming-window
        (when session
          (tell watcher (list :name-window-of (session-name session)
@@ -1162,6 +1228,8 @@ that is about a session is passed on only once it has joined one."
          (focus-a-pane server watcher name id)))
       (:go-to-blocked (take-to-the-blocked server watcher))
       (:lately (tell watcher (list :lately (lately server (or (second form) 5) (now-ms)))))
+      (:pulses (tell watcher (list :pulses (pulses-said server))))
+      (:events (tell watcher (list :events (events-said server (or (second form) 64) (now-ms)))))
       (:pane-about
        (destructuring-bind (name id) (rest form)
          (let ((pane (pane-called server name id)))
@@ -1237,6 +1305,7 @@ that is about a session is passed on only once it has joined one."
      (let ((pane (session-focus session))
            (said (second form)))
        (setf (watcher-typed-at watcher) (now-ms))
+       (when (watcher-following watcher) (stop-following (session-server session) watcher))
        (pane-logged pane (now-ms) (who-of watcher) :keys (length said))
        ;; somebody typing wants to see what they are typing at
        (pane-scroll-to pane 0)
@@ -1353,12 +1422,24 @@ it was the last are they told WHY and let go."
   server)
 
 (defun session-observe (session now)
-  (let ((changed nil))
+  (let ((changed nil)
+        (ms (floor now 1000000)))
     (dolist (pane (session-panes session))
-      (pane-notice-programs pane (floor now 1000000))
-      (when (agent:agent-look (pane-agent pane) (pane-term pane)
-                              (floor now 1000000) (pane-dirty pane))
-        (push pane changed)))
+      (pane-notice-programs pane ms)
+      (let ((was (agent:agent-state (pane-agent pane))))
+        (when (agent:agent-look (pane-agent pane) (pane-term pane) ms (pane-dirty pane))
+          (push pane changed))
+        ;; a state is only news of a pane something is read in: a shell has
+        ;; none worth telling, and its pulse is coloured quiet
+        (let* ((read (agent:agent-reader (pane-agent pane)))
+               (is (and read (agent:agent-state (pane-agent pane)))))
+          (when (and read (not (eq was is)))
+            (pane-noted pane ms
+                        (case is (:blocked :asks) (:working :working) (:idle :idle) (t :quiet))
+                        nil
+                        (and (eq is :blocked)
+                             (getf (agent:agent-asks (pane-agent pane) (pane-term pane)) :subject))))
+          (pane-pulse-roll pane ms is))))
     (dolist (pane changed)
       (when (session-server session)
         (send-what-waited (session-server session) pane))

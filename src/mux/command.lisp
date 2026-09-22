@@ -130,7 +130,7 @@ modifiers that are down, so it is read with GETF rather than MEMBER."
          (wheel (getf e :wheel))
          (button (case (getf e :button) (:left 1) (:middle 2) (:right 3)))
          (sym (cond
-                (wheel (if (eq wheel :up) "wheel-up" "wheel-down"))
+                (wheel (format nil "wheel-~(~A~)" wheel))
                 ((null button) nil)
                 (t (format nil "mouse-~D~A" button
                            (cond ((getf e :drag) "-drag")

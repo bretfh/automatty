@@ -17,12 +17,11 @@
   "How often, in milliseconds, the drawer asks again about the pane it shows.")
 
 (defstruct (drawer (:constructor %make-drawer))
+  (target nil)                          ; (session . id) to open on, else the focus
   (key nil)
   (asked 0 :type integer)
+  (folded nil :type list)
   (laid nil))
-
-(defun section (name)
-  (atty/ui:label (format nil " ~A" (string-upcase name)) :face :quiet))
 
 (defun drawer-width (cols)
   (min +drawer-most+ (floor cols 3)))
@@ -37,8 +36,9 @@
     (dolist (form (list (list :agent-explain session id)
                         (list :pane-history session id)
                         (list :pane-log session id 8)
-                        (list :pane-about session id)))
-      (tell-the-server form))))
+                        (list :pane-about session id)
+                        (list :pulses)))
+      (tell-the-server-if-it-knows form))))
 
 (defun about (client key what)
   "What the server last said about KEY's pane as WHAT, and when it came."
@@ -89,7 +89,7 @@ is none."
                               (atty/ui:label (format nil "~14A " (said-by client who))
                                              :face (case (first who)
                                                      (:pane :driven)
-                                                     (:client :you)
+                                                     (:client :here)
                                                      (t :quiet)))
                               (atty/ui:label (format nil "~(~A~)" verb))
                               (atty/ui:label (cond ((eq verb :keys) (format nil " ~D bytes" summary))
@@ -99,101 +99,117 @@ is none."
                               (atty/ui:label (if (eq outcome :refused) " refused" "")
                                              :face :error))))
 
-(defun drawer-tree (client key row width)
+(defun section-head (d name what)
+  "A section's heading, a button that folds it: ▾ open, ▸ folded."
+  (bar-button (list :fold what)
+              (atty/ui:label (format nil " ~A ~A" (if (member what (drawer-folded d)) "▸" "▾") (string-upcase name))
+                             :face :quiet)))
+
+(defun drawer-tree (d client key row width)
   (let ((now (ms-here)))
     (multiple-value-bind (explained) (about client key :agent-explained)
       (multiple-value-bind (about) (about client key :pane-about)
         (multiple-value-bind (history history-at) (about client key :pane-history)
+          (declare (ignore history history-at))
           (multiple-value-bind (log) (about client key :pane-log)
             (let* ((about (first about))
                    (state (and (getf row :known) (getf row :state)))
                    (rows (third explained))
                    (for (row-for row now))
                    (asks (and (eq state :blocked) (getf row :asks)))
-                   (size (getf about :size)))
-              (atty/ui:framed
-               (apply #'atty/ui:column :align :stretch :expand 1
-                      :background-color (bar-face :bg-dim)
-                      :min-width (max 0 (- width 2))
-                      (append
-                       (list (atty/ui:row :spacing 0
-                                          (atty/ui:label (format nil " ~A " (row-path row)) :face :strong)
-                                          (atty/ui:label (format nil "> ~A" (shortened-to (or (getf about :command) "") 30))
-                                                         :face :quiet))
-                             (section "what it is")
-                             (atty/ui:row :spacing 0
-                                          (atty/ui:label "  ")
-                                          (atty/ui:label (or (getf about :kind) (getf row :kind) "") :face :strong)
-                                          (atty/ui:label (format nil "~@[ ~A~]" (getf about :version)))
-                                          (atty/ui:label (if (getf about :reader)
-                                                             (format nil " · read by the ~A reader" (getf about :reader))
-                                                             " · no reader knows it")
-                                                         :face :quiet))
-                             (atty/ui:label (format nil "  ~@[pid ~D · ~]~@[~{~D×~D~} · ~]~A"
-                                                    (getf about :pid) size
-                                                    (or (getf about :directory) ""))
-                                            :face :quiet)
-                             (atty/ui:label (format nil "  in front: ~A~@[  group ~A~]"
-                                                    (or (first (getf about :programs)) "nothing yet")
-                                                    (getf about :group))
-                                            :face :quiet)
-                             (section "state")
-                             (if (null state)
-                                 (atty/ui:label "  not read: no reader knows this program" :face :quiet)
-                             (atty/ui:row :spacing 0
-                                          (atty/ui:label "  ")
-                                          (atty/ui:label (format nil "~A ~(~A~)" (state-glyph state) state)
-                                                         :face (if (eq state :blocked)
-                                                                   :state-blocked-strong
-                                                                   (state-face state)))
-                                          (atty/ui:label (format nil " for ~A" (duration for)))
-                                          (atty/ui:label (if (getf row :since-clock)
-                                                             (format nil " · since ~A"
-                                                                     (wall-clock (getf row :since-clock)))
-                                                             "")
-                                                         :face :quiet))))
-                       ;; the last while and the reading only for an agent that
-                       ;; is read; for anything else they would be about nothing
-                       (when state
-                         (append
-                          (list (strip (list :history (first history) :heard-at (or history-at now))
-                                       now)
-                                (atty/ui:row :spacing 0
-                                             (atty/ui:label "  ■" :face :state-idle)
-                                             (atty/ui:label " idle  " :face :quiet)
-                                             (atty/ui:label "■" :face :state-working)
-                                             (atty/ui:label " working  " :face :quiet)
-                                             (atty/ui:label "■" :face :state-blocked)
-                                             (atty/ui:label " blocked  · the last 20 minutes" :face :quiet))
-                                (section "how it was read · entries in the order tried"))
-                          (or (and rows (rule-lines rows))
-                              (list (atty/ui:label "  nothing read yet" :face :quiet)))))
-                       (list (section "who typed here"))
-                       (or (who-typed-lines client (first log))
-                           (list (atty/ui:label "  nobody yet" :face :quiet)))
-                       (list (atty/ui:gap :expand 1))
-                       ;; asking something: the answers, at the foot, to click or key
-                       (when asks
-                         (list (apply #'atty/ui:row :spacing 0
-                                      (atty/ui:label " ")
-                                      (append (option-labels row (getf asks :options) nil)
-                                              (list (atty/ui:label " answer from here" :face :quiet))))))))
-               :face :state-unknown
-               :titles (list :tl (atty/ui:label (if state
-                                                    (format nil " why is ~A ~(~A~)? "
-                                                            (or (getf row :label) (getf row :says) (cdr key)) state)
-                                                    (format nil " what is ~A? "
-                                                            (or (getf row :label) (getf row :says) (cdr key))))
-                                                :face :strong)
-                             :tr (atty/ui:label (format nil " ~A " (key-in 'pane-mode 'explain-this-pane))
-                                                :face :quiet))))))))))
+                   (size (getf about :size))
+                   (name (or (getf row :label) (getf row :says) (cdr key)))
+                   (session (car key)) (id (cdr key)))
+              (flet ((open-p (what) (not (member what (drawer-folded d)))))
+                (apply #'atty/ui:column :align :stretch :expand 1
+                       :background-color (bar-face :bg-dim)
+                       :min-width width
+                       (append
+                        (list (header-band (if state
+                                               (format nil "why is ~A ~A?" name (if (eq state :blocked) "asking" (string-downcase state)))
+                                               (format nil "what is ~A?" name))
+                                           :right (atty/ui:label (format nil " ~A " (key-in 'pane-mode 'explain-this-pane)) :face :quiet))
+                              (atty/ui:row :spacing 0 (atty/ui:label " ")
+                                           (path '(:quiet "default") (getf row :session)
+                                                 (and (getf row :window)
+                                                      (format nil "~D~@[ ~A~]" (getf row :window)
+                                                              (let ((w (getf row :window-name))) (and w (plusp (length w)) w))))
+                                                 (format nil "~@[~D ~]~A" (and (getf row :at) (1+ (getf row :at))) name)
+                                                 (list :quiet (format nil "› ~A" (shortened-to (or (getf about :command) "") 24)))))
+                              (toolbar (keycap "z" "zoom" :runs "zoom this pane")
+                                       (keycap "r" "read" :runs (list :pane-read session id))
+                                       (keycap "n" "name" :runs "name this pane")
+                                       (keycap "x" "close" :runs (list :confirm-close session id)))
+                              (section-head d "what it is" :what))
+                        (when (open-p :what)
+                          (list (atty/ui:row :spacing 0
+                                             (atty/ui:label "  ")
+                                             (atty/ui:label (or (getf about :kind) (getf row :kind) "") :face :strong)
+                                             (atty/ui:label (format nil "~@[ ~A~]" (getf about :version)))
+                                             (atty/ui:label (if (getf about :reader)
+                                                                (format nil " · read by the ~A reader" (getf about :reader))
+                                                                " · no reader knows it")
+                                                            :face :quiet))
+                                (atty/ui:label (format nil "  ~@[pid ~D · ~]~@[~{~D×~D~} · ~]~A"
+                                                       (getf about :pid) size
+                                                       (or (getf about :directory) ""))
+                                               :face :quiet)
+                                (atty/ui:label (format nil "  in front: ~A~@[  group ~A~]"
+                                                       (or (first (getf about :programs)) "nothing yet")
+                                                       (getf about :group))
+                                               :face :quiet)))
+                        (list (section-head d "state" :state))
+                        (when (open-p :state)
+                          (list (if (null state)
+                                    (atty/ui:label "  not read: no reader knows this program" :face :quiet)
+                                    (atty/ui:row :spacing 0
+                                                 (atty/ui:label "  ")
+                                                 (atty/ui:label (format nil "~A ~A" (state-glyph state)
+                                                                        (if (eq state :blocked) "asking" (string-downcase state)))
+                                                                :face (if (eq state :blocked)
+                                                                          :state-blocked-strong
+                                                                          (state-face state)))
+                                                 (atty/ui:label (format nil " for ~A" (duration for)))
+                                                 (atty/ui:label (if (getf row :since-clock)
+                                                                    (format nil " · since ~A"
+                                                                            (wall-clock (getf row :since-clock)))
+                                                                    "")
+                                                                :face :quiet)))))
+                        (when (and state (open-p :state))
+                          (list (atty/ui:row :spacing 0 (atty/ui:label "  ")
+                                             (spark (pane-cells client (car key) (cdr key)))
+                                             (atty/ui:label "  how much it wrote, in the colour of what it was" :face :quiet))
+                                (atty/ui:row :spacing 0 (atty/ui:label "  ")
+                                             (atty/ui:label "20m ago      now" :face :quiet))))
+                        ;; the reading only for an agent that is read; for
+                        ;; anything else it would be about nothing
+                        (when state
+                          (cons (section-head d "how it was read · in the order tried" :read)
+                                (when (open-p :read)
+                                  (or (and rows (rule-lines rows))
+                                      (list (atty/ui:label "  nothing read yet" :face :quiet))))))
+                        (list (section-head d "who typed here" :who))
+                        (when (open-p :who)
+                          (or (who-typed-lines client (first log))
+                              (list (atty/ui:label "  nobody yet" :face :quiet))))
+                        (list (atty/ui:gap :expand 1))
+                        ;; asking something: the answers, at the foot, to click or key
+                        (list (band (list (atty/ui:label " ")
+                                          (if asks
+                                              (apply #'atty/ui:row :spacing 0
+                                                     (append (option-labels row (getf asks :options) nil)
+                                                             (list (atty/ui:label " answer from here" :face :quiet))))
+                                              (atty/ui:label "")))
+                                    (list (hint (key-in 'pane-mode 'explain-this-pane) "closes" :runs :close))))))))))))))
 
 (defmethod draw-over ((d drawer) screen)
   (let* ((client *drawing-for*)
          (cols (tty:screen-width screen))
          (rows (tty:screen-height screen))
          (width (drawer-width cols))
-         (row (focused-row client))
+         (row (or (and (drawer-target d)
+                       (find (drawer-target d) (rows-of client) :key #'row-key :test #'equal))
+                  (focused-row client)))
          (key (and row (row-key row))))
     (when key
       ;; asked again when the focus moves, and every so often about the same
@@ -203,17 +219,31 @@ is none."
         (setf (drawer-key d) key
               (drawer-asked d) (ms-here))
         (let ((*client* client)) (drawer-ask client key)))
-      (let ((tree (drawer-tree client key row width)))
+      (let ((tree (drawer-tree d client key row width)))
         (atty/cells:draw tree (tty:screen-grid screen)
                          cols rows :left (- cols width) :top (min 1 (max 0 (1- rows))))
         (setf (drawer-laid d) tree)))))
 
+(defmethod laid-tree ((d drawer)) (drawer-laid d))
+
 (defmethod clicked-over ((d drawer) line col client)
-  "An answer at the drawer's foot, clicked."
-  (let ((hit (and (drawer-laid d) (button-at (drawer-laid d) line col))))
-    (when (and hit (consp (bar-button-runs hit)) (eq :answer (first (bar-button-runs hit))))
+  "A button on the drawer: an answer at its foot, a section's fold, one of
+its actions."
+  (let* ((hit (and (drawer-laid d) (button-at (drawer-laid d) line col)))
+         (runs (and hit (bar-button-runs hit))))
+    (when hit
       (let ((*client* client))
-        (tell-the-server (bar-button-runs hit)))
+        (case (and (consp runs) (first runs))
+          (:answer (tell-the-server runs))
+          (:fold (setf (drawer-folded d) (if (member (second runs) (drawer-folded d))
+                                             (remove (second runs) (drawer-folded d))
+                                             (cons (second runs) (drawer-folded d)))
+                       (client-dirty client) t))
+          (:confirm-close
+           (destructuring-bind (session id) (rest runs)
+             (confirm client (format nil "close ~A and what runs in it?" (row-path (focused-row client)))
+                      :yes (lambda (c) (let ((*client* c)) (tell-the-server (list :close-pane session id)))))))
+          (t (generic-click d runs client))))
       t)))
 
 (defmethod ticks-p ((d drawer)) t)
@@ -240,9 +270,13 @@ is none."
 (atty/mode:define-key 'drawer-mode "Escape" #'close-drawer)
 (atty/mode:define-key 'drawer-mode "C-g" #'close-drawer)
 
+(defun open-the-drawer (client &optional target)
+  "The drawer over CLIENT's screen, on the pane TARGET names or the focus."
+  (keep-told client)
+  (client-over-put client (%make-drawer :target target)))
+
 (defcommand (explain-this-pane :group agents)
   "why this pane is what it is, and who typed into it"
   (if (find-if (lambda (it) (typep it 'drawer)) (client-over *client*))
       (close-the-drawer *client*)
-      (progn (keep-told *client*)
-             (client-over-put *client* (%make-drawer)))))
+      (open-the-drawer *client*)))

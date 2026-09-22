@@ -105,12 +105,13 @@
 
 (defun mouse-report (term kind x y &key button wheel shift meta ctrl)
   "The report for a mouse doing KIND at column X and line Y of TERM, both from
-nought. BUTTON is :left, :middle or :right; WHEEL is :up or :down. Nil when the
+nought. BUTTON is :left, :middle or :right; WHEEL is :up, :down, :left or
+:right. Nil when the
 program did not ask for it, or asked in an encoding that cannot say where it
 was."
   (when (mouse-wanted-p term kind)
     (let* ((cb (+ (if (eq kind :wheel)
-                      (if (eq wheel :up) 64 65)
+                      (ecase wheel (:up 64) (:down 65) (:left 66) (:right 67))
                       (ecase button (:left 0) (:middle 1) (:right 2) ((nil) 3)))
                   (if (eq kind :drag) 32 0)
                   (if shift 4 0) (if meta 8 0) (if ctrl 16 0)))

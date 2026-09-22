@@ -59,7 +59,7 @@
                       :collect (string-right-trim " " (shown screen y)))))
       (is (find-if (lambda (r) (search "run" r)) rows) "no title: ~S" rows)
       (is (find-if (lambda (r) (search "re" r)) rows) "what was typed is not shown")
-      (is (find-if (lambda (r) (search "> redraw" r)) rows)
+      (is (find-if (lambda (r) (search "▶ redraw" r)) rows)
           "the chosen one is not marked: ~S" rows)
       (is (find-if (lambda (r) (search "rename" r)) rows))
       (is (null (find-if (lambda (r) (search "detach" r)) rows))

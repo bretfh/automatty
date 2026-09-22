@@ -864,11 +864,48 @@ since-ms idle-ms) rows."
     (if (null rows)
         (format t "~&nobody is attached~%")
         (dolist (row rows)
-          (destructuring-bind (id tty rows cols session window since idle) row
+          (destructuring-bind (id tty rows cols session window since idle &optional following) row
             (declare (ignore id tty))
-            (format t "~&~-10A ~Dx~D  ~A~@[ › ~D~]  attached ~A~@[  idle ~A~]~%"
+            (format t "~&~-10A ~Dx~D  ~A~@[ › ~D~]  attached ~A~@[  idle ~A~]~@[  follows ~A~]~%"
                     (client-name row) cols rows (or session "no session") window
-                    (duration since) (and idle (duration idle))))))))
+                    (duration since) (and idle (duration idle))
+                    (and following (let ((led (find following rows :key #'first)))
+                                     (if led (client-name led) following)))))))))
+
+(defun event-line (kind who text)
+  "What an event says, in a few words, and who did it when somebody did."
+  (format nil "~A~@[ by ~A~]" (event-says kind text) (and who (who-said-here who))))
+
+(defun list-events (args)
+  "atty events [<n>]: what happened lately across the server, newest first."
+  (let* ((path (where-the-server-is))
+         (n (or (and (second args) (parse-integer (second args) :junk-allowed t)) 20))
+         (events (and (answering-p path)
+                      (second (find :events (asked path (list (list :events n))
+                                                   :done (lambda (f) (eq :events (first f))))
+                                    :key #'first)))))
+    (if events
+        (loop :for (nil clock kind session id window who text) :in events
+              :do (format t "~&~A  ~A ~A:~@[~D.~]~D  ~A~%"
+                          (wall-clock clock) (event-glyph kind) session window id
+                          (event-line kind who text)))
+        (format t "~&nothing has happened yet~%"))))
+
+(defun rename-a-session (args)
+  "atty rename <old> <new>: call a session something else."
+  (destructuring-bind (&optional old new) (rest args)
+    (unless (and old new) (error "atty rename <old> <new>: which session, and what to call it?"))
+    (let* ((path (where-the-server-is))
+           (said (and (answering-p path)
+                      (find :session-named (asked path (list (list :name-session old new))
+                                                  :done (lambda (f) (eq :session-named (first f))))
+                            :key #'first))))
+      (case (fourth said)
+        ((t) (format t "~&~A is now ~A~%" old new))
+        (:taken (error "there is already a session called ~A" new))
+        (:empty (error "a session needs a name"))
+        (:gone (error "nothing is called ~A" old))
+        (t (error "no server answered"))))))
 
 (defun list-sessions ()
   (let ((rows (the-sessions))
@@ -916,6 +953,8 @@ they are not there, its first pane called LABEL."
   (format s "  atty attach [<name>] join a session already running~%")
   (format s "  atty list            the sessions, their windows and panes, how many need you, who is attached~%")
   (format s "  atty clients         every terminal attached, and what each is looking at~%")
+  (format s "  atty events [n]      what happened lately across the server, newest first~%")
+  (format s "  atty rename <old> <new>  call a session something else~%")
   (format s "  atty stop <name>     stop a session, and the programs in it~%")
   (format s "  atty kill-server     stop every session~%")
   (format s "  atty restart-server  stop it and start it again from this build, keeping everything~%")
@@ -949,7 +988,7 @@ they are not there, its first pane called LABEL."
   (format s "  atty readers update          fetch the catalog and load it into every running server~%")
   (format s "  atty readers verify [<dir>]  replay every recorded version against its reader~%")
   (format s "  atty agent signal <state>   from inside a pane: what its program is doing~%~%")
-  (format s "  ~C-b n what needs you, ~C-b w every pane, ~C-b a the one blocked longest,~%"
+  (format s "  ~C-b N what needs you, ~C-b w the switchboard, ~C-b a the one blocked longest,~%"
           #\^ #\^ #\^)
   (format s "  ~C-b e why a pane is what it is, ~C-b z zoom, ~C-b , name a pane.~%"
           #\^ #\^ #\^)
@@ -996,6 +1035,8 @@ foreground. With a name it holds that session from the start."
             ((null what) (run))
             ((string= what "list") (list-sessions))
             ((string= what "clients") (list-clients))
+            ((string= what "events") (list-events args))
+            ((string= what "rename") (rename-a-session args))
             ((string= what "stop")
              (let ((name (or (second args) (error "atty stop <name>: which session?"))))
                (cond ((stop-a-session name)

@@ -51,7 +51,7 @@ final character and where it was, or nil when there is not yet an end to it."
 (defun mouse-event (cb x y release)
   (list :mouse :x x :y y
         :button (unless (logbitp 6 cb) (case (logand cb 3) (0 :left) (1 :middle) (2 :right)))
-        :wheel (when (logbitp 6 cb) (if (logbitp 0 cb) :down :up))
+        :wheel (when (logbitp 6 cb) (case (logand cb 3) (0 :up) (1 :down) (2 :left) (t :right)))
         :drag (logbitp 5 cb)
         :release release
         :shift (logbitp 2 cb) :meta (logbitp 3 cb) :ctrl (logbitp 4 cb)))

@@ -73,109 +73,50 @@ widgets already use, just answering with itself rather than an action to run."
 ;;; A scrollbar, in a column of its own down the right of the pane. The column
 ;;; is the scrollbar's and the program is told it is that much narrower, so
 ;;; nothing it draws is ever under it and nothing moves when the scrolling
-;;; starts. An arrow at each end, a track between them, and a thumb on the track
-;;; as long as the share of the history the pane shows and as far up as the pane
-;;; is scrolled back.
+;;; starts. It is a rail bound to a pane: how far along it is, how much it
+;;; shows and how much there is are read off the pane whenever it is drawn or
+;;; asked about, so the arithmetic is the rail's and only the reading is here.
 
-(defparameter +scrollbar-glyphs+ '(:up #\▲ :down #\▼ :track #\░ :thumb #\█))
-
-(defparameter +arrows-from+ 4
-  "A scrollbar shorter than this is all track: two arrows would leave no room
-for a thumb to be anywhere.")
-
-(defclass scrollbar (atty/ui:widget)
+(defclass scrollbar (rail)
   ((pane :initarg :pane :reader view-pane)))
 
 (defun scrollbar (pane &rest props)
   (apply #'make-instance 'scrollbar :pane pane props))
 
-(defmethod atty/ui:measure ((w scrollbar) m aw ah)
-  (declare (ignore m aw ah))
-  (values 1 0))
+(defmethod rail-at-of ((r scrollbar))
+  (let ((pane (view-pane r)))
+    (- (pane-history pane) (pane-scrolled pane))))
 
-(defmethod atty/ui:under ((w scrollbar) line col)
-  (when (and (<= (atty/ui:top w) line) (< line (atty/ui:bottom w))
-             (<= (atty/ui:left w) col) (< col (atty/ui:right w)))
-    w))
+(defmethod rail-extent-of ((r scrollbar))
+  (term:term-height (pane-term (view-pane r))))
+
+(defmethod rail-total-of ((r scrollbar))
+  (let ((pane (view-pane r)))
+    (+ (pane-history pane) (term:term-height (pane-term pane)))))
+
+(defmethod rail-thumb-face ((r scrollbar))
+  (if (plusp (pane-scrolled (view-pane r))) :scroll-thumb-back :scroll-thumb))
 
 (defun scrollbar-thumb (track rows history back)
   "Where the thumb is on a track TRACK cells long, for a pane of ROWS with
 HISTORY behind it that is BACK rows up: how far down the track it starts, and
 how long it is. At the foot when the pane is live and at the head when it is as
 far back as there is."
-  (let* ((total (+ history rows))
-         (long (max 1 (min track (round (* track rows) (max 1 total)))))
-         (room (- track long)))
-    (values (if (plusp history)
-                (round (* room (- history (min back history))) history)
-                room)
-            long)))
+  (rail-thumb track rows (+ history rows) (- history (min back history))))
 
 (defun scrollbar-track (bar)
   "Which of BAR's lines its track is: the first, and how many."
-  (let ((high (atty/ui:height bar)))
-    (if (>= high +arrows-from+)
-        (values (1+ (atty/ui:top bar)) (- high 2))
-        (values (atty/ui:top bar) high))))
+  (rail-track bar))
 
 (defun scrollbar-part (bar line)
   "What of BAR is at LINE: :up or :down for an arrow, :thumb, or :above or
 :below for the track either side of it. Nil when there is nothing to scroll."
-  (let* ((pane (view-pane bar))
-         (history (pane-history pane)))
-    (when (plusp history)
-      (multiple-value-bind (from track) (scrollbar-track bar)
-        (cond
-          ((< line from) :up)
-          ((>= line (+ from track)) :down)
-          (t (multiple-value-bind (top long)
-                 (scrollbar-thumb track (term:term-height (pane-term pane))
-                                  history (pane-scrolled pane))
-               (let ((at (- line from)))
-                 (cond ((< at top) :above)
-                       ((>= at (+ top long)) :below)
-                       (t :thumb))))))))))
+  (rail-part bar line))
 
 (defun scrollbar-back-at (bar line grabbed)
   "How far back the pane is with the thumb dragged so the cell of it GRABBED
 cells down from its head is at LINE."
-  (let* ((pane (view-pane bar))
-         (history (pane-history pane)))
-    (multiple-value-bind (from track) (scrollbar-track bar)
-      (multiple-value-bind (top long)
-          (scrollbar-thumb track (term:term-height (pane-term pane))
-                           history (pane-scrolled pane))
-        (declare (ignore top))
-        (let* ((room (- track long))
-               (head (max 0 (min room (- line from grabbed)))))
-          (if (plusp room)
-              (round (* history (- room head)) room)
-              0))))))
-
-(defmethod atty/ui:paint ((w scrollbar) (m atty/cells:cells))
-  (let* ((pane (view-pane w))
-         (history (pane-history pane))
-         (back (pane-scrolled pane))
-         (col (atty/ui:left w)))
-    (when (plusp (atty/ui:width w))
-      (flet ((ink (face) (setf (atty/ui:face w) face) (atty/cells:face-of w))
-             (glyph (name) (getf +scrollbar-glyphs+ name)))
-        (multiple-value-bind (from track) (scrollbar-track w)
-          (let ((arrows (/= from (atty/ui:top w))))
-            (atty/cells:fill-rect m col from 1 track (ink :scroll-track) (glyph :track))
-            (when arrows
-              (atty/cells:fill-rect m col (atty/ui:top w) 1 1
-                                    (ink (if (< back history) :scroll-arrow :scroll-track))
-                                    (glyph :up))
-              (atty/cells:fill-rect m col (1- (atty/ui:bottom w)) 1 1
-                                    (ink (if (plusp back) :scroll-arrow :scroll-track))
-                                    (glyph :down)))
-            (when (plusp history)
-              (multiple-value-bind (top long)
-                  (scrollbar-thumb track (term:term-height (pane-term pane)) history back)
-                (atty/cells:fill-rect m col (+ from top) 1 long
-                                      (ink (if (plusp back) :scroll-thumb-back :scroll-thumb))
-                                      (glyph :thumb))))))))))
+  (- (pane-history (view-pane bar)) (rail-at bar line grabbed)))
 
 ;;; What says a pane is being read back, and takes it to the foot when clicked.
 
@@ -254,7 +195,7 @@ while one is laid out.")
 (defun pane-frame (pane focusp &optional session)
   (atty/ui:framed (pane-area pane :scrollbarp *scrollbars*)
                   :face (frame-face pane focusp)
-                  :line (if focusp :double :single)
+                  :line (if focusp :heavy :rounded)
                   :titles (and session (pane-titles session pane focusp))))
 
 (defun views-in (tree)

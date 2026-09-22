@@ -7,10 +7,20 @@
 ;;; everything else. Everyone attached sees the same one.
 
 (declaim (special +prompt-toggles+))
-(declaim (ftype function key-in key-for state-glyph state-face known-p shortened-to duration pane-top-row pane-rows-kept))
+(declaim (ftype function key-in key-for state-glyph state-face known-p shortened-to duration pane-top-row pane-rows-kept prefix-spelled))
 
-(defun bar-face (role)
-  (atty/ui:unhex (atty/ui:color role)))
+(defun search-segment (session)
+  "The bar's own way in: one field, styled like a search bar and a shade
+deeper than the bar it sits on, and one button naming what it currently opens.
+Clicking the button cycles it through +PROMPT-TOGGLES+; clicking the field
+runs whichever of them is current."
+  (let* ((kind (nth (mod (session-search-kind session) (length +prompt-toggles+))
+                    +prompt-toggles+))
+         (prefix (car kind)) (runs (cdr kind)))
+    (atty/ui:row
+     :spacing 0 :background-color (bar-face :bg-alt)
+     (bar-button :cycle-search-kind (atty/ui:label (format nil " ~C " prefix) :face :brand))
+     (bar-button runs (atty/ui:label (format nil " ~A " runs))))))
 
 (defun clock-says ()
   (multiple-value-bind (second minute hour) (decode-universal-time (get-universal-time))
@@ -36,60 +46,6 @@ gave itself, else the program."
       (and (pane-named pane) (plusp (length (pane-named pane))) (pane-named pane))
       (shortened (pane-command pane))
       ""))
-
-;;; A button on the bar is a widget like any other, except a click on it does
-;;; not run anything itself: the bar is composed once and shared by everyone
-;;; watching, so what a click on it means is the server's to say, and RUNS
-;;; names a command for whichever watcher clicked it to be told to run.
-
-(defclass bar-button (atty/ui:widget)
-  ((runs :initarg :runs :reader bar-button-runs)))
-
-(defun bar-button (runs part &rest props)
-  (apply #'make-instance 'bar-button :runs runs :parts (list part) props))
-
-(defmethod atty/ui:measure ((w bar-button) m aw ah)
-  (let ((part (first (atty/ui:parts w))))
-    (if part (atty/ui:measure part m aw ah) (values 0 1))))
-
-(defmethod atty/ui:lay ((w bar-button) m x y width height)
-  (call-next-method)
-  (let ((part (first (atty/ui:parts w))))
-    (when part (atty/ui:lay part m x y width height))))
-
-(defmethod atty/ui:under ((w bar-button) line col)
-  (when (and (<= (atty/ui:top w) line) (< line (atty/ui:bottom w))
-             (<= (atty/ui:left w) col) (< col (atty/ui:right w)))
-    w))
-
-(defun button-at (tree line col)
-  "The innermost bar-button in TREE at LINE, COL, titles of frames included:
-what a click on something drawn client-side lands on."
-  (let ((found nil))
-    (labels ((walk (w)
-               (when (and (typep w 'bar-button)
-                          (<= (atty/ui:top w) line) (< line (atty/ui:bottom w))
-                          (<= (atty/ui:left w) col) (< col (atty/ui:right w)))
-                 (setf found w))
-               (dolist (part (atty/ui:parts w)) (walk part))
-               (when (typep w 'atty/ui:framed)
-                 (loop :for (nil title) :on (atty/ui:titles w) :by #'cddr
-                       :do (walk title)))))
-      (walk tree))
-    found))
-
-(defun search-segment (session)
-  "The bar's own way in: one field, styled like a search bar and a shade
-deeper than the bar it sits on, and one button naming what it currently opens.
-Clicking the button cycles it through +PROMPT-TOGGLES+; clicking the field
-runs whichever of them is current."
-  (let* ((kind (nth (mod (session-search-kind session) (length +prompt-toggles+))
-                    +prompt-toggles+))
-         (prefix (car kind)) (runs (cdr kind)))
-    (atty/ui:row
-     :spacing 0 :background-color (bar-face :bg-alt)
-     (bar-button :cycle-search-kind (atty/ui:label (format nil " ~C " prefix) :face :brand))
-     (bar-button runs (atty/ui:label (format nil " ~A " runs))))))
 
 (defparameter +chip-says+ 20
   "How much of a pane's name a chip on the bar has room for.")
@@ -190,6 +146,7 @@ counts say what the names would, in the room there is.")
 (defparameter +needs-width+ 21 "What needs you anywhere, or nothing.")
 (defparameter +session-width+ 8 "One other session: its name and its worst pane's glyph.")
 (defparameter +clients-width+ 14 "Who else is attached, or nothing.")
+(defparameter +menu-width+ 9 "The one key to learn, always in the same place.")
 
 (defun slot (text width &key (face :default) background)
   "TEXT in a slot exactly WIDTH wide: cut when longer, padded when shorter."
@@ -240,6 +197,11 @@ The one shown is lit. A click shows it."
                                       :face (if worst (state-face worst) :quiet)
                                       :background (and shown (bar-face :bg-active)))))))))
 
+(defun plus-chip (session)
+  "The way to another window, by mouse."
+  (bar-button (list :new-window (session-name session))
+              (atty/ui:label " + " :face :quiet)))
+
 (defun focus-slot (session now &key narrow)
   "What the shown window's one pane is doing, when it has one and there is no
 frame to say it: the glyph, the state and how long, in a slot that is there
@@ -256,11 +218,6 @@ either way."
                           (duration (agent:agent-for (pane-agent pane) now))))
               width :face (state-face state))
         (slot "" width))))
-
-(defun plus-chip (session)
-  "The way to another window, by mouse."
-  (bar-button (list :new-window (session-name session))
-              (atty/ui:label " + " :face :quiet)))
 
 (defun mode-slot (session)
   "Zoomed, or somebody reading back, or nothing, in one slot: a click on
@@ -291,6 +248,12 @@ reading back, from whoever is, is back to live."
                                            6 :face :quiet :background (bar-face :bg-alt)))))
         (slot "" width))))
 
+(defun menu-slot ()
+  "The one key to learn: the prefix, and that a menu follows it, in a slot of
+its own so it is always in the same place."
+  (bar-button "show the menu"
+              (slot (format nil " ~A menu" (prefix-spelled)) +menu-width+ :face :quiet)))
+
 (defun short-tty (tty id)
   (cond ((and (stringp tty) (> (length tty) 5) (string= "/dev/" tty :end2 5)) (subseq tty 5))
         ((and (stringp tty) (plusp (length tty))) tty)
@@ -306,7 +269,9 @@ everybody's, so it names them all."
                     (slot (if narrow
                               (format nil " ⌨~D" (length here))
                               (format nil " ⌨ ~{~A~^,~}"
-                                      (mapcar (lambda (w) (short-tty (watcher-tty w) (watcher-id w))) here)))
+                                      (mapcar (lambda (w) (format nil "~A~:[~;←~]" (short-tty (watcher-tty w) (watcher-id w))
+                                                                  (watcher-following w)))
+                                              here)))
                           width :face :driven))
         (slot "" width))))
 
@@ -339,8 +304,8 @@ as how many more; a click goes to the pane there that most wants somebody."
 where you are; this session's windows and a way to another; what the shown
 window's lone pane is doing; zoomed or reading back; the field for commands
 and sessions; what needs you anywhere; the other sessions; who else is here;
-the time. Rebind *BAR* to a function of the session answering another tree,
-and it is another bar."
+the one key to learn; the time. Rebind *BAR* to a function of the session
+answering another tree, and it is another bar."
   (let* ((now (now-ms))
          (server (session-server session))
          (narrow (< (session-cols session) +narrow-bar+)))
@@ -360,11 +325,8 @@ and it is another bar."
             (list (needs-slot server :narrow narrow))
             (other-sessions-folded session :narrow narrow)
             (list (clients-slot session :narrow narrow))
-            ;; the popup slot is the client's to paint what it has on top
-            ;; into; the server only says here when the pane is done
-            (list (slot (if (pane-running (session-focus session)) "" " done") +popup-width+
-                        :face :warning)
-                  (atty/ui:label " │ " :face :quiet)
+            (unless narrow (list (menu-slot)))
+            (list (atty/ui:label " │ " :face :quiet)
                   (atty/ui:label (clock-says))
                   (atty/ui:label " "))))))
 (defvar *bar* #'default-bar)

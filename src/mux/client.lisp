@@ -36,15 +36,23 @@ silence.")
            (id nil)
            (panes (make-hash-table :test 'equal))
            (find-text nil)
+           (found nil)
            (screens (make-hash-table :test 'equal))
            (lately nil)
            (clients nil)
+           (pulses (make-hash-table :test 'equal))
+           (events nil)
+           (events-at 0 :type integer)
            (barp t)
            (layouts (make-hash-table :test 'equal))
            (watching 0 :type fixnum)
            (ticked 0 :type integer)
            (session nil)
-           (about (make-hash-table :test 'equal)))
+           (about (make-hash-table :test 'equal))
+           ;; half a chord, and the menu of what can follow it once it has
+           ;; been pending long enough to want one
+           (pending-since nil)
+           (menu nil))
 
 (defun connect-to (path)
   (let ((socket (make-instance 'sb-bsd-sockets:local-socket :type :stream)))
@@ -52,8 +60,7 @@ silence.")
     (values (make-wire (sb-bsd-sockets:socket-file-descriptor socket) socket)
             socket)))
 
-(declaim (ftype function ask ask-a-name shortened-to bar-face))
-(declaim (special +popup-width+ +clock-width+))
+(declaim (ftype function ask ask-a-name shortened-to bar-face menu-due-p draw-the-menu menu-clicked))
 
 (defun ms-here ()
   (floor (* 1000 (get-internal-real-time)) internal-time-units-per-second))
@@ -73,11 +80,6 @@ what a question's line says when somebody else already has it in front of them."
   (remove-if-not (lambda (c) (and (equal session (fifth c)) (eql window (sixth c))
                                   (not (eql (first c) (client-id client)))))
                  (client-clients client)))
-
-(defgeneric clicked-over (thing line col client)
-  (:documentation "A press of the mouse at LINE, COL while THING is drawn over
-the session: true when THING took it, so it is not passed on to the server.")
-  (:method (thing line col client) (declare (ignore thing line col client)) nil))
 
 (defun stop-told (client)
   (when (zerop (setf (client-watching client) (max 0 (1- (client-watching client)))))
@@ -178,50 +180,14 @@ front of them, that only says things, need not take the keyboard away.")
   (:method (thing) (declare (ignore thing)) 'pane-mode))
 
 (defgeneric over-name (thing)
-  (:documentation "What THING on top is called, for the bar's popup slot: nil
-for something that need not be said.")
+  (:documentation "What THING on top is called, for its header: nil for
+something that need not be said.")
   (:method (thing) (declare (ignore thing)) nil))
 
 (defgeneric close-over (thing client)
   (:documentation "Take THING off the top of CLIENT, the way its own close key
 would.")
   (:method (thing client) (client-over-drop client thing)))
-
-(defparameter +popup-width+ 24
-  "The slot at the right of the bar, before the clock, that the client paints
-what is on top into: the server leaves it blank, and knows nothing of what a
-client has on top.")
-
-(defparameter +clock-width+ 9
-  "What is right of the popup slot: the bar's ' │ hh:mm '.")
-
-(defun popup-slot (cols)
-  "Where the popup slot is on a bar COLS wide: its first column, and one past its last."
-  (let ((right (- cols +clock-width+)))
-    (values (max 0 (- right +popup-width+)) right)))
-
-(defun popup-chip (client screen)
-  "Paint what is on top, and that Escape closes it, into the bar's popup slot:
-the bar is the server's and everybody's, this chip is this client's own."
-  (let ((named (find-if #'over-name (client-over client))))
-    (when (and named (client-barp client))
-      (multiple-value-bind (from to) (popup-slot (tty:screen-width screen))
-        (let* ((m (atty/cells:make-cells (tty:screen-grid screen)
-                                         (tty:screen-width screen) (tty:screen-height screen)))
-               (text (shortened-to (format nil " ▣ ~A · esc ✕" (over-name named)) (- to from)))
-               (face (term:make-face :fg (bar-face :bg) :bg (bar-face :magenta) :bold t)))
-          (atty/cells:fill-rect m from 0 (- to from) 1 (term:make-face :bg (bar-face :bg-alt)))
-          (atty/cells:say-at m from 0 text face))))))
-
-(defun popup-clicked-p (client line col)
-  "Whether a click at LINE, COL is on the popup chip: if so the thing on top
-goes, and the click is taken."
-  (let ((named (find-if #'over-name (client-over client))))
-    (when (and named (zerop line) (client-barp client))
-      (multiple-value-bind (from to) (popup-slot (client-cols client))
-        (when (and (<= from col) (< col to))
-          (close-over named client)
-          t)))))
 
 (defun client-fit (client rows cols)
   (setf (client-screen client) (tty:make-screen :width cols :height rows)
@@ -241,7 +207,9 @@ not something everybody attached should be shown."
       (let ((*drawing-for* client))
         (dolist (it (reverse (client-over client)))
           (draw-over it work))
-        (popup-chip client work))
+        (if (menu-due-p client)
+            (draw-the-menu client work)
+            (setf (client-menu client) nil)))
       (let ((runs (tty:screen-diff (client-shown client) work)))
         (host-say client
                   (with-output-to-string (s)
@@ -251,7 +219,9 @@ not something everybody attached should be shown."
 (defun client-in-mode (client)
   "The mode whatever is on top asks for, or the pane's when nothing is."
   (setf (client-mode client) (mode-of (first (client-over client)))
-        (client-chord-so-far client) nil))
+        (client-chord-so-far client) nil
+        (client-pending-since client) nil
+        (client-menu client) nil))
 
 (defun client-over-put (client it)
   (push it (client-over client))
@@ -322,6 +292,13 @@ looks like, not why it happened."
                    (client-dirty client) t))))
         (:lately (setf (client-lately client) (second form)
                        (client-dirty client) t))
+        (:pulses (loop :for (session id cells) :in (second form)
+                       :do (setf (gethash (cons session id) (client-pulses client))
+                                 (mapcar (lambda (c) (cons (first c) (second c))) cells)))
+                 (setf (client-dirty client) t))
+        (:events (setf (client-events client) (second form)
+                       (client-events-at client) (ms-here)
+                       (client-dirty client) t))
         (:layouts (setf (gethash (second form) (client-layouts client)) (third form)
                         (client-dirty client) t))
         (:barp (setf (client-barp client) (and (second form) t)
@@ -357,10 +334,16 @@ looks like, not why it happened."
                                     "is asking something; answer it, not a prompt."
                                     "is gone."))))))
         (:found
-         ;; nothing to draw: the frame says it; only nothing found is worth a word
-         (destructuring-bind (session id n at row) (rest form)
+         ;; the frame says it; the palette's find lists the hits; nothing
+         ;; found is worth a word only when nothing is listing them
+         (destructuring-bind (session id n at row &optional hits current) (rest form)
            (declare (ignore session id at row))
-           (when (zerop n) (show-note client "find" "nothing has that in it" :face :warning))))
+           (setf (client-found client) (list :n n :hits hits :current current)
+                 (client-dirty client) t)
+           (let ((top (first (client-over client))))
+             (if (and (typep top 'prompt) (eql #\/ (prompt-kind top)))
+                 (setf (prompt-index top) (or current 0))
+                 (when (zerop n) (show-note client "find" "nothing has that in it" :face :warning))))))
         (:copied
          ;; to the terminal the client sits in, the way a program would ask it
          (host-say client (format nil "~C]52;c;~A~C" (code-char 27) (base64 (second form)) (code-char 7)))
@@ -373,6 +356,15 @@ looks like, not why it happened."
                               ;; the end of it, which is what is being asked
                               (last lines (max 1 (- (client-rows client) 3))))
                       :face :accent)))
+        (:session-renamed
+         (destructuring-bind (old new) (rest form)
+           (session-renamed-here client old new)))
+        (:session-named
+         (destructuring-bind (old new how) (rest form)
+           (case how
+             (:empty (show-note client "name" "a session needs a name"))
+             (:taken (show-note client "name" (format nil "there is already a session called ~A" new)))
+             (:gone (show-note client "name" (format nil "no session is called ~A any more" old))))))
         (:name-it
          (destructuring-bind (session id label title &optional address) (rest form)
            (ask-a-name client session id label title :address address)))
@@ -381,6 +373,44 @@ looks like, not why it happened."
            (ask-a-window-name client session n label)))
         (:bye (done-with client (second form)))
         (t nil)))
+
+(defun rehash-session (table old new)
+  "Every key (OLD . id) in TABLE moved to (NEW . id)."
+  (let ((moved nil))
+    (maphash (lambda (k v) (when (equal (car k) old) (push (cons k v) moved))) table)
+    (loop :for (k . v) :in moved
+          :do (remhash k table)
+              (setf (gethash (cons new (cdr k)) table) v))))
+
+(defgeneric session-renamed-over (thing old new)
+  (:documentation "THING, drawn on top, hears that session OLD is now NEW.")
+  (:method (thing old new) (declare (ignore thing old new)) nil))
+
+(defun session-renamed-here (client old new)
+  "The server called the session OLD NEW: everything this client keeps by
+the old name is kept by the new one, and whatever is on top is told."
+  (when (equal (client-session client) old)
+    (setf (client-session client) new))
+  (dolist (table (list (client-panes client) (client-screens client)
+                       (client-pulses client) (client-about client)))
+    (rehash-session table old new))
+  (dolist (row (loop :for v :being :the :hash-values :of (client-panes client) :collect v))
+    (when (equal (getf row :session) old)
+      (setf (getf row :session) new)))
+  (let ((layout (gethash old (client-layouts client))))
+    (when layout
+      (remhash old (client-layouts client))
+      (setf (gethash new (client-layouts client)) layout)))
+  (setf (client-events client)
+        (mapcar (lambda (e) (if (equal (fourth e) old) (append (subseq e 0 3) (list new) (nthcdr 4 e)) e))
+                (client-events client)))
+  (setf (client-clients client)
+        (mapcar (lambda (c) (if (equal (fifth c) old) (append (subseq c 0 4) (list new) (nthcdr 5 c)) c))
+                (client-clients client))
+        (client-lately client)
+        (mapcar (lambda (e) (if (equal (first e) old) (cons new (rest e)) e)) (client-lately client)))
+  (dolist (it (client-over client)) (session-renamed-over it old new))
+  (setf (client-dirty client) t))
 
 (defun base64 (text)
   "TEXT as base64, the way OSC 52 wants it."
@@ -433,7 +463,12 @@ in. A click is a key a mode can bind, and says where it landed as *MOUSE-AT*."
         (when key
           (let ((*mouse-at* (cons (getf (rest event) :x) (getf (rest event) :y)))
                 (*mouse-event* (rest event)))
-            (client-chord client key))))
+            (if (client-menu client)
+                ;; the menu is up over a half chord: a press is the menu's,
+                ;; not another key on the chord
+                (when (string= "mouse-1" (atty/mode:spelled key))
+                  (let ((*client* client)) (menu-clicked client)))
+                (client-chord client key)))))
       (client-chord client (key-of event))))
 
 (defun client-pressed (client said)
@@ -468,8 +503,16 @@ finishing each other's chords."
          (over (first (client-over client)))
          (atty/mode:*pending* (client-chord-so-far client))
          (atty/mode:*unbound* (lambda (chord) (unbound over chord client))))
-    (prog1 (eq :pending (atty/mode:press (atty/mode:spelled key)
-                                       (atty/mode:mode-named (client-mode client))))
+    (prog1 (let ((how (atty/mode:press (atty/mode:spelled key)
+                                       (atty/mode:mode-named (client-mode client)))))
+             (if (eq how :pending)
+                 (unless (client-pending-since client)
+                   (setf (client-pending-since client) (ms-here)))
+                 (progn
+                   (setf (client-pending-since client) nil)
+                   (when (client-menu client)
+                     (setf (client-menu client) nil (client-dirty client) t))))
+             (eq how :pending))
       (setf (client-chord-so-far client) atty/mode:*pending*)
       (when over (setf (client-dirty client) t)))))
 
@@ -556,7 +599,7 @@ moment would otherwise answer that question first, and answer it wrongly."
                                     (if (plusp (wire-pending wire))
                                         sb-unix:pollout
                                       0)))))
-    (tty:wait-on w patience)
+    (tty:wait-on w (if (client-chord-so-far client) (min patience 50) patience))
     (when tty:*resized* (client-resized client))
     (when (tty:writable-p (tty:waiting-back w sock))
       (wire-flush wire))
@@ -575,6 +618,8 @@ moment would otherwise answer that question first, and answer it wrongly."
                (>= (- (ms-here) (client-ticked client)) 1000))
       (setf (client-ticked client) (ms-here)
             (client-dirty client) t))
+    (when (and (menu-due-p client) (null (client-menu client)))
+      (setf (client-dirty client) t))
     (when (client-dirty client) (client-show client))
     (wire-flush wire)
     client))

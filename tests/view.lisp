@@ -84,7 +84,7 @@
       (is (null (mux:without-pane layout three))
           "taking the last pane out left something behind"))))
 
-(test the-focused-pane-is-framed-double-and-every-frame-is-coloured-by-state
+(test the-focused-pane-is-framed-heavy-and-every-frame-is-coloured-by-state
   (let* ((one (a-pane "aaa" :rows 3 :cols 20))
          (two (a-pane "bbb" :rows 3 :cols 20))
          (layout (mux:make-split :across (list one two)))
@@ -95,12 +95,12 @@
     (setf tree (mux::layout-tree layout two))
     (laid tree screen)
     (destructuring-bind (frame-one frame-two) (atty/ui:parts tree)
-      (is (eq :single (atty/ui:line frame-one)))
-      (is (eq :double (atty/ui:line frame-two)) "the focused pane was not framed double")
+      (is (eq :rounded (atty/ui:line frame-one)))
+      (is (eq :heavy (atty/ui:line frame-two)) "the focused pane was not framed heavy")
       (is (eq :state-blocked (atty/ui:face frame-two))
           "a blocked pane's frame was ~S" (atty/ui:face frame-two)))
-    (is (search "╔" (shown screen 0)) "~S" (shown screen 0))
-    (is (search "┌" (shown screen 0)))))
+    (is (search "┏" (shown screen 0)) "~S" (shown screen 0))
+    (is (search "╭" (shown screen 0)))))
 
 (test a-frame-with-no-session-given-has-no-titles
   (let* ((one (a-pane "aaa" :rows 3 :cols 20))
@@ -109,7 +109,7 @@
          (tree (mux::layout-tree layout)))
     (dolist (frame (atty/ui:parts tree))
       (is (null (atty/ui:titles frame)))
-      (is (eq :single (atty/ui:line frame))))))
+      (is (eq :rounded (atty/ui:line frame))))))
 
 (test a-title-sits-in-the-border-and-is-cut-where-the-border-ends
   (let* ((screen (tty:make-screen :width 16 :height 4))
@@ -230,8 +230,8 @@ but the last ROWS of them are behind the screen."
       (is (eql 11 (atty/ui:left bar)))
       (is (char= #\▲ (char-at screen 11 0)))
       (is (char= #\▼ (char-at screen 11 7)))
-      (is (char= #\█ (char-at screen 11 6)) "live, the thumb is at the foot of the track")
-      (is (char= #\░ (char-at screen 11 1)))
+      (is (char= #\┃ (char-at screen 11 6)) "live, the thumb is at the foot of the track")
+      (is (char= #\│ (char-at screen 11 1)))
       (is (eq bar (atty/ui:under area 3 11)))
       (is (eq v (atty/ui:under area 3 10))))))
 
@@ -260,7 +260,7 @@ but the last ROWS of them are behind the screen."
     ;; six cells of track, a thumb of one, half way up it
     (is (eq :up (mux::scrollbar-part bar 0)))
     (is (eq :down (mux::scrollbar-part bar 7)))
-    (let ((thumb (position #\█ (loop :for y :below 8 :collect (char-at screen 11 y)))))
+    (let ((thumb (position #\┃ (loop :for y :below 8 :collect (char-at screen 11 y)))))
       (is-true thumb)
       (is (eq :thumb (mux::scrollbar-part bar thumb)))
       (is (eq :above (mux::scrollbar-part bar (1- thumb))))
@@ -272,7 +272,7 @@ but the last ROWS of them are behind the screen."
          (screen (tty:make-screen :width 12 :height 8)))
     (laid area screen)
     (is (null (mux::scrollbar-part (mux::area-bar area) 3)))
-    (is (null (find #\█ (loop :for y :below 8 :collect (char-at screen 11 y)))))))
+    (is (= 8 (count #\│ (loop :for y :below 8 :collect (char-at screen 11 y)))) "a thin line the whole way when there is nothing behind")))
 
 (test dragging-the-thumb-goes-from-live-at-the-foot-to-the-oldest-at-the-head
   (let* ((pane (a-pane-with-history 38 :rows 8 :cols 12))
@@ -293,3 +293,13 @@ but the last ROWS of them are behind the screen."
       (laid tree screen)
       (is (search "↓ 5 to live" (shown screen 3)) "~S" (shown screen 3))
       (is (typep (atty/ui:under tree 3 (search "↓" (shown screen 3))) 'mux::live-chip)))))
+
+(test the-focused-pane-is-framed-heavy-and-the-others-rounded
+  (let* ((pane (a-pane "abc" :rows 4 :cols 12))
+         (screen (tty:make-screen :width 12 :height 4)))
+    (laid (mux::pane-frame pane t) screen)
+    (is (char= #\┏ (char-at screen 0 0)) "~S" (shown screen 0))
+    (is (char= #\┃ (char-at screen 0 1)))
+    (laid (mux::pane-frame pane nil) screen)
+    (is (char= #\╭ (char-at screen 0 0)) "~S" (shown screen 0))
+    (is (char= #\│ (char-at screen 0 1)))))

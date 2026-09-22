@@ -655,3 +655,112 @@ surface. Each phase ends with the suite green and something to try by hand.
 - =agent spawn --window n= and =--new-window=; the README's Using atty
   section; benchmarks before and after; a field script walking every board
   against real Claude Code.
+
+* Round 3: the UI rethought, bottom to top
+
+The mockup page "atty Rethought" is the design: one grammar of text pieces,
+every overlay with the same skeleton (header band · toolbar · gutters · rail ·
+footer of keys that are buttons), colour as a contract, =◆ here= instead of
+"you", a switchboard that is a styled side pane beside niri-style lanes of
+window cards, and the pane scrollbar reused wherever anything scrolls. Built
+from the pieces up; each phase ends with the suite green and something to try.
+
+** Decisions
+
+- One file, =src/mux/chrome.lisp=, holds the grammar: =band=, =keycap=,
+  =hint=, =selector=, =toggle=, =field=, =toolbar=, =gutter-row=, =path=,
+  =who=, =rail=, =card=, =strip=, =overlay-tree=. =bar-button= and
+  =button-at= live there.
+- The pane's scrollbar is one use of =rail=: the arithmetic is the rail's,
+  and =scrollbar= is a rail bound to a pane, so nothing about the mouse on
+  it changes.
+- Who is said by glyph: =◆= this terminal, =⌨ ttysNNN= another, =⌁ path= a
+  driving pane, =$= the command line. Cyan is here, magenta is others. The
+  word "you" is gone.
+- Everything on top has a header with =✕=, a toolbar for its controls, and a
+  footer of hints that are buttons; the bar's popup slot goes.
+- The switchboard: a side pane (server · sessions tree · clients · view
+  controls) beside lanes of cards, one cursor for both, three zooms, =c= or
+  =+ window= for a window in a lane.
+- The palette: =:= =@= =#= =/= as tabs of one prompt, a preview column, find
+  as a list of hits; =:found= carries the hit rows' text.
+- Follow: =(:follow id)= makes this terminal show what that one shows.
+
+** DONE Phase 1: the grammar
+** DONE Phase 2: the skeleton everything on top shares
+** DONE Phase 3: the switchboard
+** DONE Phase 4: needs you and the drawer
+** DONE Phase 5: the palette
+** DONE Phase 6: clients and follow
+** DONE Phase 7: reading back, docs, a field walk
+- The frame's =⌕ find= opens the palette's find tab with the last query; the
+  README says the palette, the switchboard, follow and the glyphs. A walk over
+  a throwaway server at 189×45 with the reader's own dialog script: the frame,
+  needs you, the palette's three tabs, the drawer, the switchboard at two
+  zooms, and an answer typed from the board reached the pane.
+
+* Round 4: one question per screen
+
+The design page "atty, rethought: one question per screen" is the pass after
+Round 3: every scrollbar one vocabulary of thin and heavy lines, a lane's foot
+its own scrollbar with the lane's keys on it, keys printed in exactly one
+place by scope, cards with their state in the border and a heavy one where
+the cursor is, a side pane that shows what is going on everywhere as
+sparklines and an activity log, a bar of where · what else · who · the one
+key to learn, a menu that rises when the prefix hangs, and a name typed on
+the one line at the foot.
+
+** Decisions
+
+- Rails paint lines: =─= the whole length, =━= the part in view, =‹ ›= or
+  =▲ ▼= at the ends lit only when there is more that way, a thin line and
+  nothing else when nothing overflows. The pane's scrollbar changes with it;
+  the arithmetic and the mouse on it do not.
+- Frames: =:heavy= on the focus and the cursor's card, =:rounded= elsewhere;
+  =+frame-glyphs+= has both and =:double= stays for whoever wants it.
+- The server keeps a pulse per pane: sixteen cells of 75 s, each how many
+  bytes were read and the worst state seen, rolled in =session-observe=;
+  =(:pulses)= sends every pane's. Windows, sessions and the server are rolled
+  up on the client by adding the output and keeping the worst state. A shell
+  has no state worth a colour. Not kept across a restart.
+- Every pane keeps its events: typed, answered, prompted, said, signalled,
+  restored from its log; asks, working, finished from a state change of a
+  pane that is read; started and finished from the foreground program
+  changing. =(:events n)= merges them newest first with the window each is
+  in; =atty events= prints them.
+- The bar keeps every slot it had, in its place and style; =C-b menu= is one
+  more fixed slot before the time, so nothing on it moves.
+- The menu is not an overlay, since putting anything on top clears the half
+  chord: =client-show= draws it when the chord has hung =+menu-after+= (300
+  ms), from =mode-keys-rows= of the mode in force, grouped by what the
+  commands act on, in up to four columns; a press on it runs the entry.
+- Board keys by scope. Board: =↑↓= session, =n= the oldest question, =- +=
+  zoom, =/= filter, =\= side pane, =?= keys, =Esc=. Lane: =← →= window,
+  =c= new window, =⇥= fold. Card: =↵= go, digits answer, =x= close, =,= name
+  the window, =p= prompt, =SPC= pick, =e= details. =s= sort, =f= fold quiet,
+  =l= live and =o= next pane stay bound and listed only under =?=. =r= on the
+  lane renames the session: =(:name-session old new)= on the wire, refused
+  when empty or taken, and everybody attached hears =(:session-renamed old
+  new)= and moves what it keeps by name; =C-b $= and =atty rename= do the same.
+- =entry= is the one line at the foot for a name: =↵ keep=, =Esc undo=, =⇥=
+  swaps pane and window. =ask-a-name= and =ask-a-window-name= use it.
+- No new nouns on screen: the status row says =session 1 of 6 · window 2 of 5=.
+
+** DONE Phase 1: the pieces
+** DONE Phase 2: the server remembers more
+** DONE Phase 3: the bar and the menu
+** DONE Phase 4: the lanes, tidied
+** DONE Phase 5: asking and details
+** DONE Phase 6: docs and the walk
+- The README's Using atty says the menu, the bar's four parts, the rails, the
+  lanes with their feet and the keys by scope, the sparklines and the
+  activity log, and the name at the foot. A walk over a throwaway server at
+  148×38 with two sessions of shells: one pane with no frame; a split with a
+  heavy frame on the focus and rounded ones behind; the menu after the prefix
+  hung, on its own ground, four columns; the board with =‹━━━───›= feet
+  saying =windows 1–4 of 13= and the cursor's lane's keys, the cursor's card
+  heavy with =↵ go=, sparklines that rolled a cell between two looks, the
+  activity log saying =◆ zero›1 typed=, and the clients; the lane folded to
+  its header and foot; the overview; one session with the card's keys along
+  its bottom edge. =atty events= printed the same typing with its tty.
+
