@@ -42,8 +42,9 @@ flag, and =xattr -d com.apple.quarantine atty= clears it; one curl fetched
 carries none. The binary is signed by nobody: there is no notarization, which
 takes an Apple developer account.
 
-From source, on a machine with sbcl on it (=brew install sbcl= on a mac; the
-distribution's sbcl on linux):
+From source, on a machine with sbcl on it, 2.4 or newer (=brew install sbcl=
+on a mac; on linux the distribution's when it is that new, else the binary
+from sbcl.org):
 
 #+begin_src sh
 make FOREIGN=1 deps install                   # PREFIX=/usr/local
