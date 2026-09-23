@@ -26,14 +26,14 @@ jobs:
           fetch-depth: 0   # git describe needs the tags
 
       # sbcl.org's own binary, not the distribution's: ubuntu 22.04 ships
-      # 2.1.11, from 2021, and the runner is chosen for its old glibc, not
-      # for its sbcl
+      # 2.1.11, from 2021. 2.5.5 is the newest sbcl.org build that runs on the
+      # glibc this runner is chosen for; from 2.5.9 on they want 2.38
       - name: sbcl (linux)
         if: runner.os == 'Linux'
         run: |
-          curl -fsSL -o sbcl.tar.bz2 https://downloads.sourceforge.net/project/sbcl/sbcl/2.6.5/sbcl-2.6.5-x86-64-linux-binary.tar.bz2
+          curl -fsSL -o sbcl.tar.bz2 https://downloads.sourceforge.net/project/sbcl/sbcl/2.5.5/sbcl-2.5.5-x86-64-linux-binary.tar.bz2
           tar xjf sbcl.tar.bz2
-          cd sbcl-2.6.5-x86-64-linux && sudo sh install.sh
+          cd sbcl-2.5.5-x86-64-linux && sudo sh install.sh
           sbcl --version
 
       - name: sbcl (macos)
