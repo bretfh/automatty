@@ -25,6 +25,53 @@ protocol to speak: an agent that can run a shell command can watch another
 pane, wait until it is stuck, read why, and answer it, through the terminal it
 already has.
 
+** Installing atty
+
+atty is one file. A release carries it built for each platform, with a
+=SHA256SUMS= to check it by:
+
+#+begin_src sh
+curl -fsSL https://github.com/bretfh/automatty/releases/download/v0.1.0/atty-v0.1.0-darwin-arm64.tar.gz | tar xz
+./atty                        # or put it somewhere on PATH
+#+end_src
+
+The names are =atty-<tag>-darwin-arm64=, =-darwin-x86_64=, =-linux-x86_64=. The
+linux one is built on Ubuntu 22.04 and runs on any glibc since; on musl (alpine)
+build it from source. A file a browser downloaded on macOS carries a quarantine
+flag, and =xattr -d com.apple.quarantine atty= clears it; one curl fetched
+carries none. The binary is signed by nobody: there is no notarization, which
+takes an Apple developer account.
+
+From source, on a machine with sbcl and ocicl on it (=brew install sbcl ocicl=
+on a mac; sbcl from the distribution and ocicl from its releases on linux):
+
+#+begin_src sh
+make FOREIGN=1 deps install                   # PREFIX=/usr/local
+make FOREIGN=1 deps install PREFIX=$HOME/.local
+#+end_src
+
+Or, on guix, =guix package -f guix.scm= from a checkout, or add this repository
+as a channel and =guix install atty=. With roswell, =ros install bretfh/automatty=.
+
+*** Staying current
+
+#+begin_src sh
+atty version                  # which build this is, and the server's when it is another
+atty update --check           # whether a newer release is out
+atty update                   # put it where this atty is, and restart the server from it
+#+end_src
+
+=atty update= replaces the file it is running from, so it works where the file
+is yours: a tarball you put on PATH, or =make install PREFIX=$HOME/.local=. Where
+a package manager put it (brew, guix, nix, apt) it says what that manager's
+upgrade is instead, and =atty restart-server= afterwards moves the running server
+onto the new build. Either way the server keeps every session, window and
+pane: they are on disk (see below), and each terminal attached waits for the
+new server and becomes the new build itself, on the same session it was on. The
+server asks once a day whether a release is out and says so to the next
+terminal to attach; =(configure :check-for-updates nil)= in init.lisp stops it
+asking.
+
 ** Building
 
 For working on this repo:
@@ -33,32 +80,21 @@ For working on this repo:
 make test                     # the whole suite
 make test-term                # libatty alone, nothing else loaded
 make run CMD='top -b -n 1'    # run a command on a pty, print the screen libatty drew
-make atty                      # the binary, in this directory
+make atty                     # the binary, in this directory
+make release                  # the binary as a release tarball, in dist/
 #+end_src
 
-This is developed on Guix. Without it, put =FOREIGN=1= in front of any
-target and it uses whatever SBCL is already on the machine:
+This is developed on Guix, where =manifest.scm= names what it needs. Without
+guix, =ocicl.csv= pins the same lisp systems and =make FOREIGN=1 deps= fetches
+them into =ocicl/=; then =FOREIGN=1= in front of any target uses whatever sbcl is
+on the machine:
 
 #+begin_src sh
-make FOREIGN=1 test
+make FOREIGN=1 deps test
 #+end_src
 
-** Installing atty
-
-#+begin_src sh
-make FOREIGN=1 install                       # PREFIX=/usr/local
-make FOREIGN=1 install PREFIX=$HOME/.local
-#+end_src
-
-Or, if you use roswell, brew or guix:
-
-#+begin_src sh
-ros install bretfhorne/automatty
-brew install bretfhorne/automatty/atty
-guix install atty
-#+end_src
-
-A tagged release also carries a Linux AppImage and a macOS tarball.
+Either way sbcl runs without your init file and sees this directory and the one
+place the dependencies are, so nothing in a home directory reaches a build.
 
 ** Using atty
 

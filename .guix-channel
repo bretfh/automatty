@@ -1,3 +1,8 @@
+;; This repository as a guix channel: with it in ~/.config/guix/channels.scm,
+;; guix pull and then guix install atty.
+;;
+;;   (channel (name 'automatty)
+;;            (url "https://github.com/bretfh/automatty"))
 (channel
  (version 0)
  (directory "guix"))

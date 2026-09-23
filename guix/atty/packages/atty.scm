@@ -8,7 +8,8 @@
   #:export (atty))
 
 (define (atty-source-select? file stat)
-  (not (member (basename file) '(".git" ".cache" "systems" "ocicl"))))
+  ;; what ocicl fetched and what make release wrote are not the source
+  (not (member (basename file) '(".git" ".cache" "ocicl" "dist" "atty"))))
 
 (define-public atty
   (package
@@ -29,10 +30,12 @@
           (delete 'configure)
           (replace 'build
             (lambda _
+              ;; this directory and the inputs, as the Makefile has it
               (setenv "CL_SOURCE_REGISTRY"
-                      (string-append (getcwd) "//:"
+                      (string-append "(:source-registry (:directory \"" (getcwd) "/\") (:tree \""
                                      #$(this-package-native-input "sbcl-cl-ppcre")
-                                     "/share/common-lisp//"))
+                                     "/share/common-lisp/\") :ignore-inherited-configuration)"))
+              (setenv "ATTY_VERSION" #$version)
               (setenv "ATTY_OUT" "atty")
               (invoke "sbcl" "--non-interactive" "--load" "build.lisp")))
           (delete 'check)
@@ -42,7 +45,7 @@
                 (mkdir-p bin)
                 (copy-file "atty" (string-append bin "/atty"))
                 (chmod (string-append bin "/atty") #o755)))))))
-    (home-page "https://github.com/bretfhorne/atty")
+    (home-page "https://github.com/bretfh/automatty")
     (synopsis "A terminal emulator and multiplexer")
     (description "atty opens a pty, spawns a shell, reads your keyboard and
 draws to a real screen, holding several sessions and several panes at once

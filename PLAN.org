@@ -561,6 +561,50 @@ session chooser is its lighter form, not a separate thing.
   =atty --fresh=; a broken init.lisp; =C-b R=.
 - =make mux-bench= and =make attached= before and after.
 
+* Phase 13: binaries, releases, and staying current
+
+What was in the way: the build took its lisp systems from whatever the
+developer's sbclrc loaded, CI had failed on every push, the README named a
+tap, a channel and releases that did not exist, no build could say which it
+was, and a restart could not carry a new build to whoever was attached.
+
+- [X] The build owns its dependencies: =ocicl.csv= pins them off guix,
+  =make deps= fetches them into =ocicl/=, =manifest.scm= names them on guix,
+  and sbcl runs without the user's init file either way, seeing this
+  directory and the one place the dependencies are. A build with an empty
+  =$HOME= is the check.
+- [X] =atty version=: what =git describe= said, baked in by build.lisp. The
+  server says it when knocked and when greeting; a client from another
+  build says so once and carries on; =atty list= says it under the sessions.
+- [X] =make release=: one tarball per platform, named for the tag and the
+  platform as uname says them, and its =SHA256SUMS=. ci.yml runs the make
+  targets on ubuntu-22.04 and macos-latest; release.yml, on a =v*= tag,
+  builds on those and macos-15-intel and puts the tarballs and one
+  =SHA256SUMS= on the release.
+- [X] A restart's successor is the atty that asked: =(:restart <path>)=, so
+  what is on PATH is what comes back, not this server's own file (under
+  guix or nix that is the old store item). =(:bye :restarting <path>)= tells
+  whoever is attached, and after the server is back the client becomes
+  that path, by execv, on the same session: the same pid, the same
+  terminal.
+- [X] =atty update=: who owns the file says who replaces it. A tarball or
+  =make install PREFIX=$HOME/.local= is atty's to swap, in one rename beside
+  itself after the sum checks; brew, guix, nix and a distribution's package
+  are theirs, and it says what to run, then =atty restart-server=. The
+  server asks once a day whether a release is out (=:check-for-updates=) and
+  notes it for the next terminal to attach; nothing is ever swapped by
+  itself.
+- [ ] Tag =v0.1.0=, watch release.yml, fill the formula's sums, make the tap
+  =bretfh/homebrew-automatty=.
+- [ ] A =flake.nix= with =sbcl.withPackages= running build.lisp, so
+  =nix profile install github:bretfh/automatty= is true.
+- [ ] Bump the tap from release.yml, which wants a token in the repository's
+  secrets.
+- [ ] When the first foreign library arrives (cl+ssl, sqlite, tree-sitter):
+  Shinmera's deploy, =:build-operation "deploy-op"=, as hemlock-port has it.
+  The product becomes a directory then, and =self=, the tarball's layout and
+  =install-release= change together.
+
 * Round 2: windows, clients, and the whole UI as the canvas has it
 
 The canvas "atty: the whole experience, server to pane" (fifteen boards,
