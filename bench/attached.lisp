@@ -9,8 +9,10 @@
 
 (declaim (inline nanos))
 (defun nanos ()
-  (multiple-value-bind (sec nsec) (sb-unix:clock-gettime sb-unix:clock-monotonic)
-    (+ (* sec 1000000000) nsec)))
+  ;; the internal real time is monotonic on every platform sbcl runs on, and
+  ;; sb-unix names its clocks differently on each: this asks nothing of them
+  (* (get-internal-real-time)
+     #.(floor 1000000000 internal-time-units-per-second)))
 
 (defparameter +ticks+ 100)
 (defparameter +rows+ 48)

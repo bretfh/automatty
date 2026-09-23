@@ -245,8 +245,10 @@ a client that may still be on its way."
     (dolist (it (reverse due)) (funcall (cdr it)))))
 
 (defun nanos ()
-  (multiple-value-bind (sec nsec) (sb-unix:clock-gettime sb-unix:clock-monotonic)
-    (+ (* sec 1000000000) nsec)))
+  ;; the internal real time is monotonic on every platform sbcl runs on, and
+  ;; sb-unix names its clocks differently on each: this asks nothing of them
+  (* (get-internal-real-time)
+     #.(floor 1000000000 internal-time-units-per-second)))
 
 (defun listen-on (path)
   "Take PATH as the name to answer on, and let nobody but its owner open it.

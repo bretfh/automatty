@@ -7,8 +7,10 @@
 ;; arrangement of servers and clients that rescues it.
 (declaim (inline nanos))
 (defun nanos ()
-  (multiple-value-bind (sec nsec) (sb-unix:clock-gettime sb-unix:clock-monotonic)
-    (+ (* sec 1000000000) nsec)))
+  ;; the internal real time is monotonic on every platform sbcl runs on, and
+  ;; sb-unix names its clocks differently on each: this asks nothing of them
+  (* (get-internal-real-time)
+     #.(floor 1000000000 internal-time-units-per-second)))
 
 (defparameter +sizes+ '((80 . 24) (120 . 40) (200 . 50) (300 . 80)))
 (defparameter +gaps+ '(1 4 8 16))
