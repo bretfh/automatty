@@ -129,6 +129,18 @@ the saved pane and answers a command."
              (error "~S is not :shell, :same or a function" value))
            value))
 
+(defsetting +resume-commands+ '(("claude" . "claude --continue"))
+  "For a program a restored shell stands in for, the command that picks its
+work up again, said on the rule under what it showed: (\"claude\" . \"claude
+--continue\") means a pane that ran claude comes back saying so."
+  :check (lambda (value)
+           (unless (and (listp value)
+                        (every (lambda (pair) (and (consp pair) (stringp (car pair))
+                                                   (stringp (cdr pair))))
+                               value))
+             (error "~S is not a list of (\"program\" . \"command\")" value))
+           value))
+
 (defsetting +saved-scrollback+ 10000
   "How many rows of a pane's scrollback are saved to disk."
   :check (a-number 0))

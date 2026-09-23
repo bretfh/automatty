@@ -160,12 +160,24 @@ anything actually moved.")
   (notes nil)
   (saving nil :type boolean)
   (tree-saved nil)
+  (restarting nil :type boolean)
   (going t :type boolean))
 
 (defparameter +first-session-patience+ 10000000000
   "How long a server started with no session waits for somebody to ask for
 one, in nanoseconds. A server nobody reaches in that time was started by a
 client that has since gone, and holding the socket helps nobody.")
+
+(defun self ()
+  "This program, when it is a program.
+
+An executable core is its own runtime, so the server a client starts is another
+of this told to serve rather than an sbcl told what to load. Out of a repl it is
+neither, and there is nothing to run."
+  (let ((runtime (and sb-ext:*runtime-pathname*
+                      (namestring sb-ext:*runtime-pathname*)))
+        (core (and sb-ext:*core-pathname* (namestring sb-ext:*core-pathname*))))
+    (when (and runtime core (string= runtime core)) runtime)))
 
 (defun server-wanted-p (server now)
   "Whether the server has a reason to go on: a session, or no session yet and
@@ -1058,7 +1070,12 @@ that is about a session is passed on only once it has joined one."
        (dolist (session (server-sessions server))
          (dolist (w (session-watchers session))
            (tell w (list :bye :restarting))))
-       (tell watcher (list :restarting t))
+       ;; a server that is a program starts its successor itself on the way
+       ;; out, so whoever asked can go away, or be interrupted, without the
+       ;; server being lost between the old one and the new; one loaded into
+       ;; a lisp cannot, and the asker starts it
+       (setf (server-restarting server) (and (self) t))
+       (tell watcher (list :restarting (server-restarting server)))
        (setf (server-going server) nil))
       ;; :one-server is how a client tells this server from one made before a
       ;; server held every session, which held only the session it was named

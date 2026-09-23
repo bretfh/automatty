@@ -160,6 +160,14 @@ face at the end is left off."
       (aref (term:term-main-grid term) y)
       (term:term-grid-row term y)))
 
+(defun last-row-on (term)
+  "The last row of what TERM shows with anything on it, or -1."
+  (loop :for y :from (1- (term:term-height term)) :downto 0
+        :unless (every (lambda (ch) (char= ch #\Space))
+                       (term:row-chars (term:term-grid-row term y)))
+          :return y
+        :finally (return -1)))
+
 (defun ages (entries now)
   "ENTRIES, each beginning with a moment on the monotonic clock, with that
 moment said as how long ago it was: the clock means nothing to another process."
@@ -180,7 +188,12 @@ log, and every row it holds, oldest first, with the faces said once."
          (behind (loop :for i :from from :below kept
                        :collect (row-said (term:term-scrollback-row term i) faces table)))
          (shown (loop :for y :from 0 :to (last-shown-row term)
-                      :collect (row-said (main-row term y) faces table))))
+                      :collect (row-said (main-row term y) faces table)))
+         ;; a full-screen program's screen is what was in front of somebody
+         ;; when the server stopped, and the main screen is what was under it
+         (over (and (term:term-in-alt-screen term)
+                    (loop :for y :from 0 :to (last-row-on term)
+                          :collect (row-said (term:term-grid-row term y) faces table)))))
     (list :atty-pane +state-version+
           :id (pane-id pane)
           :saved (get-universal-time)
@@ -200,7 +213,8 @@ log, and every row it holds, oldest first, with the faces said once."
           :log (ages (pane-log pane) now)
           :faces (coerce table 'simple-vector)
           :behind behind
-          :screen shown)))
+          :screen shown
+          :over over)))
 
 (defun shell-command-p (command)
   (member (program-name command) +shells+ :test #'string=))
@@ -213,6 +227,27 @@ log, and every row it holds, oldest first, with the faces said once."
           ((functionp policy) (or (funcall policy form) (a-shell)))
           ((and command (shell-command-p command)) command)
           (t (a-shell)))))
+
+(defun resume-command (command)
+  "What picks up the work of a pane that ran COMMAND, when something is known to."
+  (cdr (assoc (program-name command) +resume-commands+ :test #'string=)))
+
+(defun restored-note (saved command directory same)
+  "What the rule under a restored pane says: when, and when its program is not
+what ran there, what did, where, and what brings it back."
+  (format nil "restored ~A~@[ · was: ~A~]~@[ in ~A~]~@[ · ~A picks it up~]"
+          (day-and-time (or saved (get-universal-time)))
+          (and (not same) command)
+          (and (not same) directory (short-directory directory))
+          (and (not same) (resume-command command))))
+
+(defun short-directory (directory)
+  "DIRECTORY with the home directory said as ~."
+  (let ((home (namestring (user-homedir-pathname)))
+        (said (namestring directory)))
+    (if (and (> (length said) (length home)) (string= home said :end2 (length home)))
+        (concatenate 'string "~/" (subseq said (length home)))
+        (string-right-trim "/" said))))
 
 (defun divider-row (width text)
   "A row of rule with TEXT set into it, drawn faint: what says where what was
@@ -257,7 +292,7 @@ its program starts afresh on. Answers the pane and a note when anything about
 it could not be as it was."
   (destructuring-bind (&key id saved command directory label named rows cols
                             programs title queued told since-clock states log
-                            faces behind screen &allow-other-keys)
+                            faces behind screen over &allow-other-keys)
       (nthcdr 2 form)
     (let* ((runs (command-to-restore form))
            (same (equal runs command))
@@ -269,13 +304,16 @@ it could not be as it was."
            (term (pane-term pane))
            (seen (map 'simple-vector #'said-face faces)))
       ;; what was behind the screen goes behind it; what was on it goes on
-      ;; it, with the rule under that and the program's first line under the
-      ;; rule, so it looks the way it did with one line saying what happened
+      ;; it, a full-screen program's screen after that since it was what was
+      ;; in front, with the rule under that and the program's first line
+      ;; under the rule, so it looks the way it did with one line saying what
+      ;; happened
       (push-rows term (mapcar (lambda (said) (said-row said seen)) behind))
       (show-rows term (append (mapcar (lambda (said) (said-row said seen)) screen)
-                              (list (divider-row cols (format nil "restored ~A~@[ · was: ~A~]"
-                                                              (day-and-time (or saved (get-universal-time)))
-                                                              (and (not same) command))))))
+                              (mapcar (lambda (said) (said-row said seen)) over)
+                              (list (divider-row cols (restored-note saved command
+                                                                     (getf (nthcdr 2 form) :directory)
+                                                                     same)))))
       (setf (pane-pushed-seen pane) (term:term-scrollback-pushed term)
             (pane-label pane) label
             (pane-named pane) named

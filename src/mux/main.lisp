@@ -692,22 +692,10 @@ paste itself makes before the program has started on it."
           (format t "~&~A ~:[did not answer~;loaded ~:*~D~]~%"
                   (file-namestring path) (and answer (length (second answer)))))))))
 
-(defun self ()
-  "This program, when it is a program.
-
-An executable core is its own runtime, so the server a client starts is another
-of this told to serve rather than an sbcl told what to load. Out of a repl it is
-neither, and there is nothing to run."
-  (let ((runtime (and sb-ext:*runtime-pathname*
-                      (namestring sb-ext:*runtime-pathname*)))
-        (core (and sb-ext:*core-pathname* (namestring sb-ext:*core-pathname*))))
-    (when (and runtime core (string= runtime core)) runtime)))
-
-(defun start-a-server ()
-  "Start this user's server, holding nothing yet: the client that started it
-opens the first session. Answers its path."
-  (let ((me (self))
-        (path (socket-path)))
+(defun spawn-a-server (path)
+  "Another of this program, told to serve at PATH, out of reach of this
+terminal. Answers its pid."
+  (let ((me (self)))
     (if me
         (pty:spawn-in-its-own-session me (list "-L" (server-name) "serve")
                                       :output (log-path))
@@ -719,7 +707,13 @@ opens the first session. Answers its path."
                  "--eval" "(asdf:load-system :atty)"
                  "--eval" form
                  "--quit")
-           :output (log-path))))
+           :output (log-path))))))
+
+(defun start-a-server ()
+  "Start this user's server, holding nothing yet: the client that started it
+opens the first session. Answers its path."
+  (let ((path (socket-path)))
+    (spawn-a-server path)
     ;; a server with a lot to bring back from disk takes a while before it
     ;; takes its name; a minute is longer than any restore should be
     (loop repeat 6000
@@ -745,16 +739,21 @@ waits, and comes back. Answers how many sessions came back."
   (let ((path (where-the-server-is)))
     (unless (answering-p path)
       (error "no server is running"))
-    (asked path '((:restart)) :patience 0)
-    (loop repeat 3000
-          while (probe-file path)
-          do (sleep 0.01)
-          finally (when (probe-file path)
-                    (error "the server did not stop; ~A says why" (log-path))))
-    (start-a-server)
-    (unless (answering-p path)
-      (error "no server came back. ~A says why." (log-path)))
-    (length (the-sessions))))
+    (let* ((said (asked path '((:restart)) :done (lambda (f) (eq :restarting (first f)))))
+           (by-itself (second (find :restarting said :key #'first))))
+      (loop repeat 3000
+            while (probe-file path)
+            do (sleep 0.01)
+            finally (when (probe-file path)
+                      (error "the server did not stop; ~A says why" (log-path))))
+      ;; a server that is a program starts its successor itself; one in a
+      ;; lisp cannot, and this does
+      (if by-itself
+          (loop repeat 6000 until (answering-p path) do (sleep 0.01))
+          (start-a-server))
+      (unless (answering-p path)
+        (error "no server came back. ~A says why." (log-path)))
+      (length (the-sessions)))))
 
 (defun server-back-p (path)
   "Wait for the server at PATH to go and come back, as a restart does: first
@@ -1014,11 +1013,16 @@ foreground. With a name it holds that session from the start."
         (terminal-size tty:+stdin+)
       (let ((said-rows (and (third args) (parse-integer (third args) :junk-allowed t)))
             (said-cols (and (fourth args) (parse-integer (fourth args) :junk-allowed t))))
-        (serve path (or (second args) (a-shell))
-               :name (first args)
-               :rows (or said-rows rows)
-               :cols (or said-cols cols)
-               :fresh *fresh*)))))
+        (let ((server (serve path (or (second args) (a-shell))
+                             :name (first args)
+                             :rows (or said-rows rows)
+                             :cols (or said-cols cols)
+                             :fresh *fresh*)))
+          ;; asked to restart: the name is gone and the state is on disk, and
+          ;; the next server is this program again, started by the one leaving
+          ;; so that nobody has to stay around to do it
+          (when (server-restarting server)
+            (spawn-a-server path)))))))
 
 (defun main (&optional (args (rest sb-ext:*posix-argv*)))
   (handler-case
@@ -1096,6 +1100,10 @@ foreground. With a name it holds that session from the start."
             (t (run :name what)))))
     (stream-error ()
       (sb-ext:quit :unix-status 0 :recklessly-p t))
+    ;; ^C while this waits on something, a server restarting say, is somebody
+    ;; leaving, not a fault to print a backtrace for
+    (sb-sys:interactive-interrupt ()
+      (sb-ext:quit :unix-status 130 :recklessly-p t))
     (error (e)
       (format *error-output* "~&atty: ~A~%" e)
       (sb-ext:quit :unix-status 1))))

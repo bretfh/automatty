@@ -80,15 +80,24 @@ so most of them are behind the screen."
         (is (eql (term:term-scrollback-pushed (mux:pane-term back))
                  (mux::pane-pushed-seen back)))))))
 
-(test a-pane-on-the-alt-screen-saves-its-main-screen
+(test a-pane-on-the-alt-screen-saves-its-main-screen-and-what-was-over-it
   (let ((pane (coloured-pane 5 :rows 3 :cols 8)))
-    (term:term-process-output (mux:pane-term pane) (format nil "~C[?1049hfull screen" #\Escape))
+    (term:term-process-output (mux:pane-term pane) (format nil "~C[?1049hfull scr" #\Escape))
     (let* ((form (mux:pane-said pane 100))
-           (screen (getf (nthcdr 2 form) :screen)))
+           (screen (getf (nthcdr 2 form) :screen))
+           (over (getf (nthcdr 2 form) :over)))
       (is (getf (nthcdr 2 form) :alt-screen))
       (is (search "line 4" (format nil "~{~A~}" (mapcar #'cdr (second (first (last screen))))))
           "the main screen was not what was saved: ~S" screen)
-      (is (null (search "full screen" (format nil "~S" screen)))))))
+      (is (null (search "full scr" (format nil "~S" screen))))
+      (is (eql 1 (length over)) "~S" over)
+      (is (search "full scr" (format nil "~S" over)) "what was in front was not saved: ~S" over)
+      ;; and it comes back in front: the main screen, then the program's
+      ;; screen, then the rule
+      (let ((back (mux:said-pane form 200)))
+        (is (equal "line 4" (car (first (last (rows-behind back))))) "~S" (rows-behind back))
+        (is (equal "full scr" (shown-row back 0)) "~S" (shown-row back 0))
+        (is (search "restored" (shown-row back 1)) "~S" (shown-row back 1))))))
 
 (test the-log-and-the-agents-history-are-saved-as-ages-and-come-back-as-moments
   (let* ((pane (coloured-pane 2))
@@ -113,7 +122,8 @@ so most of them are behind the screen."
         (is (null (mux::pane-queued back)) "a shell was handed claude's prompt")
         (is (eq :restored (third (first (mux::pane-log back)))))
         (is (equal '(:atty) (second (first (mux::pane-log back)))))
-        (is (search "was: claude" (shown-row back 0)) "~S" (shown-row back 0)))
+        (is (search "was: claude" (shown-row back 0)) "~S" (shown-row back 0))
+        (is (search "claude --continue picks it up" (shown-row back 0)) "~S" (shown-row back 0)))
       (mux:configure :restore-command :same)
       (let ((back (mux:said-pane form 200)))
         (is (equal "claude" (mux:pane-command back)))
@@ -340,6 +350,9 @@ it, a zoom in the third. Answers the first session."
       (until 5 (lambda () (find :hello (heard-back wire) :key #'first)))
       (say-to wire (list :restart))
       (is-true (until 5 (lambda () (find '(:bye :restarting) (heard-back wire) :test #'equal))))
+      ;; a server loaded into a lisp is not a program and cannot start itself
+      ;; again; it says so, and whoever asked starts it
+      (is-true (until 5 (lambda () (find '(:restarting nil) (heard-back wire) :test #'equal))))
       (is-true (until 5 (lambda () (not (probe-file path)))) "the server did not stop")
       (is (eql 1 (length (mux:saved-sessions (file-namestring path)))))
       (is (eql 1 (length (mux::pane-files state))))
