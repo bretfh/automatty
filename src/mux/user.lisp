@@ -130,10 +130,13 @@ not a reason not to start."
         (t (list (format nil "there is no ~A" (user-init-file)) :accent))))
 
 (defun writable-p (value)
+  ;; printed to a stream, not to a string: sbcl knows prin1-to-string has no
+  ;; effect but its answer, and leaves the call out when the answer is not
+  ;; needed, so nothing was ever printed and nothing could fail
   (handler-case (with-standard-io-syntax
                   (let ((*print-readably* t)
                         (*package* (find-package '#:atty)))
-                    (prin1-to-string value)
+                    (prin1 value (make-broadcast-stream))
                     t))
     (error () nil)))
 
