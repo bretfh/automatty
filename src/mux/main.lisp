@@ -1030,7 +1030,7 @@ since-ms idle-ms) rows."
         (dolist (row rows)
           (destructuring-bind (id tty rows cols session window since idle &optional following) row
             (declare (ignore id tty))
-            (format t "~&~-10A ~Dx~D  ~A~@[ › ~D~]  attached ~A~@[  idle ~A~]~@[  follows ~A~]~%"
+            (format t "~&~10A ~Dx~D  ~A~@[ › ~D~]  attached ~A~@[  idle ~A~]~@[  follows ~A~]~%"
                     (client-name row) cols rows (or session "no session") window
                     (duration since) (and idle (duration idle))
                     (and following (let ((led (find following rows :key #'first)))
