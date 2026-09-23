@@ -6,6 +6,7 @@
    #:open-pty
    #:spawn-pty-process
    #:spawn-in-its-own-session
+   #:become
    #:pty-set-size
    #:pty-wait
    #:pty-read-string

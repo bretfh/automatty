@@ -1,5 +1,5 @@
 *.fasl
-/systems/
-/ocicl.csv
+/ocicl/
+/dist/
 .#*
 /atty

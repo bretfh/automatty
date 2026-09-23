@@ -1,3 +1,6 @@
+# A tag v* makes a release: `make release' on each platform, the tarballs and
+# one SHA256SUMS on the release. The tag is the version the binary says, and
+# the asset names are what `atty update' asks for.
 name: Release
 
 on:
@@ -5,48 +8,58 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
-  linux:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        # the oldest linux the runners offer, so the binary runs on anything
+        # newer; the arm and the intel mac
+        os: [ubuntu-22.04, macos-latest, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # git describe needs the tags
+
+      - name: sbcl and ocicl (linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update && sudo apt-get install -y sbcl
+          curl -fsSL https://github.com/ocicl/ocicl/releases/download/v2.19.1/ocicl-2.19.1-linux-amd64.tar.gz | tar xz ./ocicl
+          sudo install -m 755 ocicl /usr/local/bin/ocicl && rm ocicl
+
+      - name: sbcl and ocicl (macos)
+        if: runner.os == 'macOS'
+        run: brew install sbcl ocicl
+
+      - run: make FOREIGN=1 deps release
+      - run: ./atty version
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.os }}
+          path: dist/
+
+  publish:
+    needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y sbcl
-      - run: make FOREIGN=1 atty
-
-      - name: package as an AppImage
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: one SHA256SUMS for every platform
         run: |
-          mkdir -p AppDir/usr/bin
-          cp atty AppDir/usr/bin/atty
-          mkdir -p AppDir/usr/share/applications AppDir/usr/share/icons/hicolor/256x256/apps
-          cat > AppDir/usr/share/applications/atty.desktop << 'DESKTOP'
-          [Desktop Entry]
-          Type=Application
-          Name=atty
-          Exec=atty
-          Icon=atty
-          Categories=System;TerminalEmulator;
-          Terminal=true
-          DESKTOP
-          convert -size 256x256 xc:none AppDir/usr/share/icons/hicolor/256x256/apps/atty.png 2>/dev/null \
-            || touch AppDir/usr/share/icons/hicolor/256x256/apps/atty.png
-          ln -s usr/bin/atty AppDir/AppRun
-          ln -s usr/share/applications/atty.desktop AppDir/atty.desktop
-          ln -s usr/share/icons/hicolor/256x256/apps/atty.png AppDir/atty.png
-          curl -fsSL -o appimagetool https://github.com/AppImage/appimagetool/releases/latest/download/appimagetool-x86_64.AppImage
-          chmod +x appimagetool
-          ./appimagetool --appimage-extract-and-run AppDir atty-x86_64.AppImage
-
+          cd dist
+          rm -f SHA256SUMS
+          sha256sum atty-*.tar.gz > SHA256SUMS
+          cat SHA256SUMS
       - uses: softprops/action-gh-release@v2
         with:
-          files: atty-x86_64.AppImage
-
-  macos:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: brew install sbcl
-      - run: make FOREIGN=1 atty
-      - run: tar czf atty-macos.tar.gz atty
-      - uses: softprops/action-gh-release@v2
-        with:
-          files: atty-macos.tar.gz
+          files: |
+            dist/atty-*.tar.gz
+            dist/SHA256SUMS

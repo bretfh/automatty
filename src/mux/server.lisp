@@ -160,8 +160,16 @@ anything actually moved.")
   (notes nil)
   (saving nil :type boolean)
   (tree-saved nil)
-  (restarting nil :type boolean)
+  ;; where the next server is when this one was asked to restart: the atty
+  ;; that asked, so that a newer build on PATH is what comes back
+  (successor nil)
+  ;; the latest release, once asked for, and whether it has been said
+  (release nil)
+  (release-said nil)
+  (release-asked-at 0 :type integer)
   (going t :type boolean))
+
+(declaim (ftype function latest-release release-note))
 
 (defparameter +first-session-patience+ 10000000000
   "How long a server started with no session waits for somebody to ask for
@@ -178,6 +186,41 @@ neither, and there is nothing to run."
                       (namestring sb-ext:*runtime-pathname*)))
         (core (and sb-ext:*core-pathname* (namestring sb-ext:*core-pathname*))))
     (when (and runtime core (string= runtime core)) runtime)))
+
+(defun runnable-p (path)
+  "Whether PATH names something this user may run."
+  (and (stringp path)
+       (handler-case (progn (sb-posix:access path sb-posix:x-ok) t)
+         (error () nil))))
+
+(defparameter +release-check-every+ (* 24 60 60 1000)
+  "How often the server asks whether a newer release is out, in milliseconds.")
+
+(defun keep-checking-for-releases (server)
+  "Every hour, when +CHECK-FOR-UPDATES+ says to and a day has passed, ask
+for the latest release off the server's thread, and put one note about it
+where the next client to attach sees it. Nothing is ever fetched or swapped
+by this: that is somebody's to do."
+  (labels ((tick ()
+             (when (server-going server)
+               (let ((now (now-ms)))
+                 (when (and +check-for-updates+
+                            (>= (- now (server-release-asked-at server)) +release-check-every+))
+                   (setf (server-release-asked-at server) now)
+                   (sb-thread:make-thread
+                    (lambda ()
+                      (let ((tag (ignore-errors (latest-release))))
+                        (when tag (setf (server-release server) tag))))
+                    :name "asking for the latest release")))
+               (let ((tag (server-release server)))
+                 (when (and tag (not (server-release-said server))
+                            (not (equal tag *version*)))
+                   (setf (server-release-said server) t)
+                   (push (list (release-note tag) :accent) (server-notes server))))
+               (later server (* 60 60 1000) #'tick))))
+    ;; a minute in, not at once: a server has enough to do as it starts
+    (setf (server-release-asked-at server) (- (now-ms) +release-check-every+ (* -60 1000)))
+    (later server (* 60 1000) #'tick)))
 
 (defun server-wanted-p (server now)
   "Whether the server has a reason to go on: a session, or no session yet and
@@ -849,6 +892,8 @@ is drawn is what they have just been told they are."
   ;; this takes the greeting apart by its exact shape, and passes over a
   ;; message it has never heard of
   (tell watcher (list :you (watcher-id watcher)))
+  ;; and which build this server is, for a client that is another
+  (tell watcher (list :version *version*))
   (tell watcher (list :barp (session-barp session))))
 
 (defun frame-for (session watcher)
@@ -1067,19 +1112,24 @@ that is about a session is passed on only once it has joined one."
       (:restart
        ;; everybody attached is told it is a restart, so they wait for the
        ;; server to be back rather than taking it for gone
-       (dolist (session (server-sessions server))
-         (dolist (w (session-watchers session))
-           (tell w (list :bye :restarting))))
        ;; a server that is a program starts its successor itself on the way
        ;; out, so whoever asked can go away, or be interrupted, without the
        ;; server being lost between the old one and the new; one loaded into
-       ;; a lisp cannot, and the asker starts it
-       (setf (server-restarting server) (and (self) t))
-       (tell watcher (list :restarting (server-restarting server)))
+       ;; a lisp cannot, and the asker starts it. The successor is the atty
+       ;; that asked when it says which it is: under guix or nix this
+       ;; program's own path is the old store item, and what is on PATH is
+       ;; the new one
+       (let ((asked (second form)))
+         (setf (server-successor server)
+               (or (and (runnable-p asked) asked) (self))))
+       (dolist (session (server-sessions server))
+         (dolist (w (session-watchers session))
+           (tell w (list :bye :restarting (server-successor server)))))
+       (tell watcher (list :restarting (server-successor server)))
        (setf (server-going server) nil))
       ;; :one-server is how a client tells this server from one made before a
       ;; server held every session, which held only the session it was named
-      (:knock (tell watcher (list :here (server-path server) :one-server)))
+      (:knock (tell watcher (list :here (server-path server) :one-server *version*)))
       (:reload-init
        (load-user-init)
        (tell watcher (list* :say (init-loaded-note))))
@@ -1625,7 +1675,8 @@ the state is saved on the way out."
                        (server-notes server))))
              (setf (server-saving server) t)
              (tty:hear-the-end t)
-             (keep-saving server))
+             (keep-saving server)
+             (keep-checking-for-releases server))
            (server-listen server)
            (when (and name (not (session-named server name)))
              (add-session server command :name name :rows rows :cols cols))

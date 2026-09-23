@@ -51,6 +51,7 @@
    #:drop-watcher
    #:server-step
    #:serve
+   #:*version*
    #:add-session
    #:session-name
    #:session-layout

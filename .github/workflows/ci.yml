@@ -1,3 +1,6 @@
+# The make targets, on each platform a release is built for. Nothing is
+# defined here that the Makefile does not: only how sbcl and ocicl get onto
+# the runner.
 name: CI
 
 on:
@@ -9,35 +12,23 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-22.04, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: install sbcl (linux)
+      - name: sbcl and ocicl (linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y sbcl
-
-      - name: install sbcl (macos)
-        if: runner.os == 'macOS'
-        run: brew install sbcl
-
-      - name: install ocicl
         run: |
-          asset=$(case "${{ runner.os }}" in
-            Linux) echo linux ;;
-            macOS) echo darwin ;;
-          esac)
-          url=$(curl -fsSL https://api.github.com/repos/ocicl/ocicl/releases/latest \
-                | grep -o "https://[^\"]*${asset}[^\"]*" | head -1)
-          curl -fsSL -o /usr/local/bin/ocicl "$url"
-          chmod +x /usr/local/bin/ocicl
+          sudo apt-get update && sudo apt-get install -y sbcl
+          curl -fsSL https://github.com/ocicl/ocicl/releases/download/v2.19.1/ocicl-2.19.1-linux-amd64.tar.gz | tar xz ./ocicl
+          sudo install -m 755 ocicl /usr/local/bin/ocicl && rm ocicl
 
-      - name: install fiveam
-        run: ocicl install fiveam
+      - name: sbcl and ocicl (macos)
+        if: runner.os == 'macOS'
+        run: brew install sbcl ocicl
 
-      - name: test
-        run: make FOREIGN=1 test
-
-      - name: test-term
-        run: make FOREIGN=1 test-term
+      - run: make FOREIGN=1 deps
+      - run: make FOREIGN=1 test
+      - run: make FOREIGN=1 test-term
+      - run: make FOREIGN=1 atty && ./atty version

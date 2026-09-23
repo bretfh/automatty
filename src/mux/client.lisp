@@ -160,6 +160,13 @@ them again."
 This is the seam: anything that can write cells can be put on top, and nothing
 else needs to know about it."))
 
+(defvar *successor* nil
+  "Where the server said its next one would be, when it said it was
+restarting: what a client becomes to match it.")
+
+(defvar *version-said* nil
+  "Whether this client has said that the server is another build: once.")
+
 (defvar *drawing-for* nil
   "The client whatever is being drawn over its session belongs to. Something on
 top that shows what the server said about the panes reads it from here.")
@@ -371,7 +378,21 @@ looks like, not why it happened."
         (:name-window-of
          (destructuring-bind (session n label) (rest form)
            (ask-a-window-name client session n label)))
-        (:bye (done-with client (second form)))
+        ;; a server from another build: it works, since neither end takes
+        ;; the other apart by its exact shape, but it is said once, with what
+        ;; brings the two together
+        (:version
+         (let ((theirs (second form)))
+           (unless (or (equal theirs *version*) *version-said*)
+             (setf *version-said* t)
+             (show-note client "version"
+                        (format nil "This atty is ~A; the server holding this session is ~A.~%~
+                                     atty restart-server starts it again from this build."
+                                *version* theirs)
+                        :face :warning))))
+        (:bye (done-with client (second form))
+              (when (eq (second form) :restarting)
+                (setf *successor* (third form))))
         (t nil)))
 
 (defun rehash-session (table old new)

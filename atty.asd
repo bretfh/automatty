@@ -119,6 +119,7 @@
                              (:file "readers")
                              (:file "settings")
                              (:file "init")
-                             (:file "state"))
+                             (:file "state")
+                             (:file "release"))
                 :perform (asdf:test-op (o c)
                                        (uiop:symbol-call :atty/test :run-them)))

@@ -9,6 +9,10 @@
 (defvar *init-problem* nil
   "Why the init file did not load, or nil when it did or there is none.")
 
+(defvar *version* "unknown"
+  "Which build this is: what git describe said when it was made, set by
+build.lisp. A tag makes it a version; without one it is a commit.")
+
 (defvar *settings* nil
   "Every setting in the order it was defined: (key symbol default doc check).")
 
@@ -140,6 +144,11 @@ work up again, said on the rule under what it showed: (\"claude\" . \"claude
                                value))
              (error "~S is not a list of (\"program\" . \"command\")" value))
            value))
+
+(defsetting +check-for-updates+ t
+  "Whether the server asks, once a day, whether a newer release is out, and
+says so to the next client to attach. Nil never reaches the network for it."
+  :check (lambda (value) (and value t)))
 
 (defsetting +saved-scrollback+ 10000
   "How many rows of a pane's scrollback are saved to disk."

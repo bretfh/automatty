@@ -349,9 +349,9 @@ it, a zoom in the third. Answers the first session."
       (say-to wire (list :open "0" nil nil 10 40 t))
       (until 5 (lambda () (find :hello (heard-back wire) :key #'first)))
       (say-to wire (list :restart))
-      (is-true (until 5 (lambda () (find '(:bye :restarting) (heard-back wire) :test #'equal))))
       ;; a server loaded into a lisp is not a program and cannot start itself
       ;; again; it says so, and whoever asked starts it
+      (is-true (until 5 (lambda () (find '(:bye :restarting nil) (heard-back wire) :test #'equal))))
       (is-true (until 5 (lambda () (find '(:restarting nil) (heard-back wire) :test #'equal))))
       (is-true (until 5 (lambda () (not (probe-file path)))) "the server did not stop")
       (is (eql 1 (length (mux:saved-sessions (file-namestring path)))))

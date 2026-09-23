@@ -669,6 +669,147 @@ paste itself makes before the program has started on it."
       (error "could not fetch ~A" url))
     (get-output-stream-string out)))
 
+;;; Releases: where they are, which is the latest, and putting one here.
+
+(defun releases-url ()
+  "Where the releases are downloaded from; ATTY_RELEASES_URL says another
+place, a file: one in a test."
+  (let ((said (sb-ext:posix-getenv "ATTY_RELEASES_URL")))
+    (string-right-trim "/" (if (and said (plusp (length said)))
+                               said
+                               "https://github.com/bretfh/automatty/releases"))))
+
+(defun latest-release-url ()
+  "What says which release is the latest: github's api, or <ATTY_RELEASES_URL>/latest."
+  (if (sb-ext:posix-getenv "ATTY_RELEASES_URL")
+      (format nil "~A/latest" (releases-url))
+      "https://api.github.com/repos/bretfh/automatty/releases/latest"))
+
+(defun tag-in (json)
+  "The tag_name in what github says of a release, without reading json."
+  (let ((at (search "\"tag_name\"" json)))
+    (when at
+      (let* ((open (position #\" json :start (+ at (length "\"tag_name\"") 1)))
+             (close (and open (position #\" json :start (1+ open)))))
+        (and open close (subseq json (1+ open) close))))))
+
+(defun latest-release ()
+  "The tag of the latest release, or nil when nothing says."
+  (tag-in (fetched (latest-release-url))))
+
+(defun release-asset (tag)
+  "What the tarball for TAG on this platform is called."
+  (format nil "atty-~A-~A.tar.gz" tag (platform-name)))
+
+(defun fetch-to-file (url path)
+  (let ((process (sb-ext:run-program "curl" (list "-fsSL" "--max-time" "600" "-o" (namestring path) url)
+                                     :search t :output nil :error nil)))
+    (unless (eql 0 (sb-ext:process-exit-code process))
+      (error "could not fetch ~A" url))
+    path))
+
+(defun sha256-of (path)
+  "The sha256 of the file at PATH, by whichever of sha256sum and shasum is
+here: sbcl has none of its own, and one of the two is wherever curl is."
+  (dolist (command (list (list "sha256sum" (namestring path))
+                         (list "shasum" "-a" "256" (namestring path)))
+                   (error "neither sha256sum nor shasum is here to check the download"))
+    (let* ((out (make-string-output-stream))
+           (process (ignore-errors
+                     (sb-ext:run-program (first command) (rest command)
+                                         :search t :output out :error nil))))
+      (when (and process (eql 0 (sb-ext:process-exit-code process)))
+        (let ((said (get-output-stream-string out)))
+          (return (subseq said 0 (position #\Space said))))))))
+
+(defun sum-listed (sums name)
+  "The sum SHA256SUMS gives for NAME."
+  (with-input-from-string (in sums)
+    (loop :for line := (read-line in nil)
+          :while line
+          :do (let ((at (position #\Space line)))
+                (when (and at (string= name (string-left-trim " *" (subseq line at))))
+                  (return (subseq line 0 at)))))))
+
+(defun owner-of (path)
+  "Who put the program at PATH there, and so who replaces it: :atty when it
+is this user's to write, else the package manager it came from. Answers the
+owner and what they run to update it."
+  (let* ((real (namestring (or (ignore-errors (truename path)) path)))
+         (dir (directory-namestring real))
+         (writable (handler-case (progn (sb-posix:access real sb-posix:w-ok)
+                                        (sb-posix:access dir sb-posix:w-ok)
+                                        t)
+                     (error () nil))))
+    (cond ((search "/gnu/store/" real)
+           (values :guix "guix pull && guix upgrade atty"))
+          ((search "/nix/store/" real)
+           (values :nix "nix profile upgrade atty"))
+          ((search "/Cellar/" real)
+           (values :brew "brew upgrade atty"))
+          ((and (not writable) (eql 0 (search "/usr/" real)))
+           (values :distro "the package manager that put it there, apt, dnf or pacman, upgrades atty"))
+          ((not writable)
+           (values :somebody (format nil "~A is not yours to write; make FOREIGN=1 install PREFIX=$HOME/.local puts one where it is"
+                                     real)))
+          (t (values :atty "atty update")))))
+
+(defun release-note (tag)
+  "One line for whoever attaches next: a release is out, and what brings it here."
+  (multiple-value-bind (owner how) (owner-of (or (self) ""))
+    (if (eq owner :atty)
+        (format nil "atty ~A is out; atty update brings it here" tag)
+        (format nil "atty ~A is out; ~A, then atty restart-server" tag how))))
+
+(defun install-release (tag me)
+  "Fetch the tarball for TAG, check it against SHA256SUMS, and put its atty
+where ME is, in one rename, so ME is at every moment a whole program. The
+work happens beside ME, on the same filesystem, and is gone afterwards."
+  (let* ((asset (release-asset tag))
+         (dir (format nil "~A.update-~D/" me (sb-posix:getpid))))
+    (ensure-directories-exist dir)
+    (unwind-protect
+         (let ((tarball (fetch-to-file (format nil "~A/download/~A/~A" (releases-url) tag asset)
+                                       (merge-pathnames asset dir)))
+               (sums (fetched (format nil "~A/download/~A/SHA256SUMS" (releases-url) tag))))
+           (let ((listed (sum-listed sums asset))
+                 (got (sha256-of tarball)))
+             (unless listed (error "SHA256SUMS for ~A does not list ~A" tag asset))
+             (unless (string-equal listed got)
+               (error "~A does not match its sum: it is ~A, SHA256SUMS says ~A" asset got listed)))
+           (let ((process (sb-ext:run-program "tar" (list "xzf" (namestring tarball) "-C" dir)
+                                              :search t :output nil :error nil)))
+             (unless (eql 0 (sb-ext:process-exit-code process))
+               (error "could not unpack ~A" asset)))
+           (let ((new (merge-pathnames "atty" dir)))
+             (unless (probe-file new) (error "~A holds no atty" asset))
+             (sb-posix:chmod (namestring new) #o755)
+             (sb-posix:rename (namestring new) (namestring me))))
+      (ignore-errors (uiop:delete-directory-tree (pathname dir) :validate t)))))
+
+(defun update-atty (&key check)
+  "atty update: the latest release put where this program is, and the server
+started again from it, keeping everything. With CHECK only says whether there
+is one. When the program is a package manager's, says what to run instead."
+  (let ((latest (or (latest-release) (error "nothing says what the latest release is"))))
+    (cond ((equal latest *version*)
+           (format t "~&atty ~A is the latest release~%" *version*))
+          (check
+           (format t "~&this is atty ~A; the latest release is ~A~%" *version* latest)
+           (sb-ext:quit :unix-status 1))
+          (t
+           (let ((me (or (self) (error "this atty is not a program to replace; it is in a lisp"))))
+             (multiple-value-bind (owner how) (owner-of me)
+               (unless (eq owner :atty)
+                 (format t "~&atty ~A is out. ~A; then atty restart-server brings the server up to it~%"
+                         latest how)
+                 (sb-ext:quit :unix-status 2)))
+             (install-release latest me)
+             (format t "~&atty ~A → ~A" *version* latest)
+             (if (answering-p (where-the-server-is) 1)
+                 (format t "; the server is back with ~D session~:P~%" (restart-the-server))
+                 (format t "~%")))))))
+
 (defun update-readers ()
   (let* ((base (catalog-url))
          (index (with-standard-io-syntax
@@ -692,10 +833,10 @@ paste itself makes before the program has started on it."
           (format t "~&~A ~:[did not answer~;loaded ~:*~D~]~%"
                   (file-namestring path) (and answer (length (second answer)))))))))
 
-(defun spawn-a-server (path)
-  "Another of this program, told to serve at PATH, out of reach of this
-terminal. Answers its pid."
-  (let ((me (self)))
+(defun spawn-a-server (path &optional (program (self)))
+  "Another of this program, or of PROGRAM, told to serve at PATH, out of
+reach of this terminal. Answers its pid."
+  (let ((me program))
     (if me
         (pty:spawn-in-its-own-session me (list "-L" (server-name) "serve")
                                       :output (log-path))
@@ -739,15 +880,16 @@ waits, and comes back. Answers how many sessions came back."
   (let ((path (where-the-server-is)))
     (unless (answering-p path)
       (error "no server is running"))
-    (let* ((said (asked path '((:restart)) :done (lambda (f) (eq :restarting (first f)))))
+    (let* ((said (asked path (list (list :restart (self)))
+                        :done (lambda (f) (eq :restarting (first f)))))
            (by-itself (second (find :restarting said :key #'first))))
       (loop repeat 3000
             while (probe-file path)
             do (sleep 0.01)
             finally (when (probe-file path)
                       (error "the server did not stop; ~A says why" (log-path))))
-      ;; a server that is a program starts its successor itself; one in a
-      ;; lisp cannot, and this does
+      ;; a server that is a program starts its successor itself, and it is
+      ;; this atty when this is one; one in a lisp cannot, and this does
       (if by-itself
           (loop repeat 6000 until (answering-p path) do (sleep 0.01))
           (start-a-server))
@@ -764,14 +906,37 @@ until its name is gone, then until it answers again. Answers whether it did."
         do (sleep 0.01)
         finally (return (answering-p path 1))))
 
+(defvar *self-inode* nil
+  "The inode this program's file was when this process began: another file
+under the same name since is a newer build. The inode and not the date: a
+file put there by tar has the date it had in the tarball.")
+
+(defun inode-of (path)
+  (ignore-errors (sb-posix:stat-ino (sb-posix:stat path))))
+
+(defun become-the-successor ()
+  "After a restart whose server is another build than this, become that
+build with the same arguments and the same terminal, so the client matches
+the server it is coming back to. Answers only when there is nothing to
+become: the same file, unchanged."
+  (let ((next *successor*)
+        (me (self)))
+    (when (and next me (runnable-p next)
+               (or (not (equal (ignore-errors (truename next))
+                               (ignore-errors (truename me))))
+                   (not (eql (inode-of me) *self-inode*))))
+      (pty:become next (rest sb-ext:*posix-argv*)))))
+
 (defun attach-through-restarts (path &rest args)
   "ATTACH, and when the server says it is restarting, wait for it and attach
-again to the same session, so a restart is a pause rather than an end."
+again to the same session, so a restart is a pause rather than an end. When
+the server that comes back is another build, this becomes it first."
   (loop
     (let ((why (apply #'attach path args)))
       (unless (eq why :restarting) (return why))
       (format t "~&the server is restarting; waiting for it…~%")
-      (unless (server-back-p path) (return :no-server-back)))))
+      (unless (server-back-p path) (return :no-server-back))
+      (become-the-successor))))
 
 (defun the-server ()
   "This user's server, started when it is not running."
@@ -906,6 +1071,31 @@ since-ms idle-ms) rows."
         (:gone (error "nothing is called ~A" old))
         (t (error "no server answered"))))))
 
+(defun server-version (path)
+  "Which build the server at PATH is, when one answers: it says so when
+knocked. A server from before this said nothing, and is \"unknown\"."
+  (let ((here (knocked path 1)))
+    (and here (or (fourth here) "unknown"))))
+
+(defun platform-name ()
+  "The system and the machine this build is for, said the way uname says
+them, since that is how make names a release: darwin-arm64, linux-x86_64."
+  (format nil "~A-~A"
+          #+darwin "darwin" #+linux "linux" #-(or darwin linux) (string-downcase (software-type))
+          #+(and arm64 darwin) "arm64" #+(and arm64 (not darwin)) "aarch64"
+          #+x86-64 "x86_64" #-(or arm64 x86-64) (string-downcase (machine-type))))
+
+(defun say-the-version ()
+  "atty version: this build, the platform it is for, and the server's build
+when a server is running and is another."
+  (format t "~&atty ~A (~A, ~A ~A)~%"
+          *version* (platform-name)
+          (lisp-implementation-type) (lisp-implementation-version))
+  (let ((theirs (server-version (where-the-server-is))))
+    (when (and theirs (not (equal theirs *version*)))
+      (format t "~&the server is ~A; atty restart-server starts it again from this build~%"
+              theirs))))
+
 (defun list-sessions ()
   (let ((rows (the-sessions))
         (clients (the-clients))
@@ -933,7 +1123,11 @@ since-ms idle-ms) rows."
             (loop :for (name windows panes at) :in saved
                   :do (format t "~&~12A ~D window~:P  ~D pane~:P  saved ~A; not running, atty ~A brings it back~%"
                               name windows panes (day-and-time at) name))
-            (format t "~&nothing is running~%"))))))
+            (format t "~&nothing is running~%"))))
+    (let ((theirs (and rows (server-version (where-the-server-is)))))
+      (when (and theirs (not (equal theirs *version*)))
+        (format t "~&the server is ~A and this atty is ~A; atty restart-server~%"
+                theirs *version*)))))
 
 (defun cwd ()
   (ignore-errors (sb-posix:getcwd)))
@@ -962,6 +1156,8 @@ they are not there, its first pane called LABEL."
   (format s "  atty serve           the server itself, in the foreground~%")
   (format s "  atty -L <server> ... any of these, against another server than your own~%")
   (format s "  atty help init       what ~~/.config/atty/init.lisp can say, and every setting~%")
+  (format s "  atty version         which build this is, and the server's when it is another~%")
+  (format s "  atty update [--check] the latest release, put where this atty is, and the server restarted from it~%")
   (format s "  atty agent list [--blocked] [--session <s>] [--json]   what every pane is doing~%")
   (format s "  atty agent spawn <session> [--name <n>] [--cwd <d>] [--window <n> | --new-window] -- <command>   a new pane~%")
   (format s "  atty agent name <session>:<pane> <name>    what to call it~%")
@@ -1021,10 +1217,11 @@ foreground. With a name it holds that session from the start."
           ;; asked to restart: the name is gone and the state is on disk, and
           ;; the next server is this program again, started by the one leaving
           ;; so that nobody has to stay around to do it
-          (when (server-restarting server)
-            (spawn-a-server path)))))))
+          (when (server-successor server)
+            (spawn-a-server path (server-successor server))))))))
 
 (defun main (&optional (args (rest sb-ext:*posix-argv*)))
+  (setf *self-inode* (and (self) (inode-of (self))))
   (handler-case
       (let ((*server-name* *server-name*)
             (*fresh* (and (member "--fresh" args :test #'string=) t))
@@ -1038,6 +1235,10 @@ foreground. With a name it holds that session from the start."
           (cond
             ((null what) (run))
             ((string= what "list") (list-sessions))
+            ((or (string= what "version") (string= what "--version") (string= what "-V"))
+             (say-the-version))
+            ((string= what "update")
+             (update-atty :check (member "--check" args :test #'string=)))
             ((string= what "clients") (list-clients))
             ((string= what "events") (list-events args))
             ((string= what "rename") (rename-a-session args))

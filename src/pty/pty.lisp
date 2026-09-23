@@ -131,6 +131,21 @@ layout rather than a list, so the whole family follows from the one rule."
     (sb-alien:free-alien (sb-alien:deref array i)))
   (sb-alien:free-alien array))
 
+(sb-alien:define-alien-routine ("execv" %execv) sb-alien:int
+  (path sb-alien:c-string)
+  (argv (* (* sb-alien:char))))
+
+(defun become (program arguments)
+  "Replace this process with PROGRAM run with ARGUMENTS: the same pid, the
+same terminal, the same open files, and none of what this process was. How a
+client becomes a newer build of itself. Answers only when it could not, with
+why."
+  (let ((argv (c-strings (cons (file-namestring program) arguments))))
+    (%execv program argv)
+    (let ((why (sb-int:strerror (sb-alien:get-errno))))
+      (free-c-strings argv (1+ (length arguments)))
+      (error "could not become ~A: ~A" program why))))
+
 (defvar *ptsname-lock* (sb-thread:make-mutex :name "ptsname")
   "ptsname answers out of one buffer it keeps, so only one caller may be in it.")
 

@@ -1,27 +1,42 @@
-.PHONY: repl check test test-term run bench latency mux-bench attached compare eval clean install uninstall
+.PHONY: repl check deps test test-term run bench latency mux-bench attached compare eval release clean install uninstall
 
 # Two ways to get what atty needs, and every target works under either. Guix is
-# what it develops against and what plain `make' uses. FOREIGN=1 is for a mac or
-# a linux without guix, where the lisp systems come from wherever asdf already
-# finds them. There is nothing to compile either way: atty owns no C.
+# what it develops against and what plain `make' uses: manifest.scm names the
+# lisp systems. FOREIGN=1 is for a mac or a linux without guix: ocicl.csv pins
+# the same systems and `make deps' fetches them into ./ocicl. Either way sbcl
+# runs without the user's init file and sees exactly this directory and the one
+# place the dependencies are, so what is on a machine's sbclrc or in its home
+# never reaches a build. There is nothing to compile either way: atty owns no C.
 #
-#   make test              guix
-#   make FOREIGN=1 test    whatever sbcl is already on this machine
+#   make test                       guix
+#   make FOREIGN=1 deps test        whatever sbcl and ocicl are on this machine
 FOREIGN ?=
 
 GUIX := guix shell -m manifest.scm --
 
+# asdf reads this directory for atty.asd and libatty.asd, not the tree under
+# it: what is under ocicl/ or dist/ is not atty's to find by itself
+REGISTRY = (:source-registry (:directory \"$$PWD/\") $(DEP_TREE) :ignore-inherited-configuration)
+
 ifeq ($(FOREIGN),)
   IN   := $(GUIX) sh -c
-  ENV  := CL_SOURCE_REGISTRY="$$PWD//:$$GUIX_ENVIRONMENT/share/common-lisp//" ASDF_OUTPUT_TRANSLATIONS="/:$$HOME/.cache/common-lisp/atty/"
-  # --no-userinit: deps come from guix and this tree only; the user's sbclrc
-  # must not leak into a atty build.
+  DEP_TREE := (:tree \"$$GUIX_ENVIRONMENT/share/common-lisp/\")
   SBCL := sbcl --no-userinit --eval "(require :asdf)"
 else
   IN   := sh -c
-  ENV  := CL_SOURCE_REGISTRY="$$PWD//:$$CL_SOURCE_REGISTRY" ASDF_OUTPUT_TRANSLATIONS="/:$$HOME/.cache/common-lisp/atty/"
-  SBCL := sbcl --eval "(require :asdf)"
+  DEP_TREE :=
+  # the ocicl runtime finds ./ocicl.csv and the systems under ./ocicl; loading
+  # it here rather than from the sbclrc is what keeps the sbclrc out of it
+  OCICL_RUNTIME ?= $(HOME)/.local/share/ocicl/ocicl-runtime.lisp
+  SBCL := sbcl --no-userinit --eval "(require :asdf)" --load "$(OCICL_RUNTIME)"
 endif
+ENV := CL_SOURCE_REGISTRY="$(REGISTRY)" ASDF_OUTPUT_TRANSLATIONS="/:$$HOME/.cache/common-lisp/atty/"
+
+# the build says which commit it is; a tag makes that a version
+VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo unknown)
+OS      := $(shell uname -s | tr A-Z a-z)
+ARCH    := $(shell uname -m)
+SHA256  := $(shell command -v sha256sum >/dev/null 2>&1 && echo sha256sum || echo "shasum -a 256")
 
 # what make run puts on the pty, quoted so a shell does not read it first
 CMD ?= ls --color=always -la /
@@ -33,6 +48,18 @@ ROUNDS ?= 5
 
 repl:
 	$(IN) '$(ENV) $(SBCL) --eval "(asdf:load-system :atty/all)"'
+
+# the lisp systems atty needs, where this build looks for them. Under guix
+# they are the manifest's and there is nothing to do. Otherwise ocicl fetches
+# what ocicl.csv pins into ./ocicl, and sets itself up first when it never has.
+deps:
+ifeq ($(FOREIGN),)
+	@echo "guix has them: manifest.scm"
+else
+	@command -v ocicl >/dev/null 2>&1 || { echo "atty needs ocicl: brew install ocicl, or https://github.com/ocicl/ocicl/releases"; exit 1; }
+	@test -f "$(OCICL_RUNTIME)" || ocicl setup
+	ocicl install
+endif
 
 # load everything and say so, without running anything
 check:
@@ -64,7 +91,15 @@ latency:
 # the program. ./atty is the whole of it: run it, put it on PATH, copy it to
 # another machine. Everything it does is its own argument, not a make target.
 atty: build.lisp atty.asd libatty.asd $(wildcard src/*/*.lisp) $(wildcard readers/*/*/reader.lisp)
-	$(IN) '$(ENV) ATTY_OUT="$$PWD/atty" $(SBCL) --non-interactive --load build.lisp'
+	$(IN) '$(ENV) ATTY_OUT="$$PWD/atty" ATTY_VERSION="$(VERSION)" $(SBCL) --non-interactive --load build.lisp'
+
+# the binary as a release carries it: one tarball named for the version and
+# the platform, and the sum to check it by. A tag workflow uploads these.
+release: atty
+	mkdir -p dist
+	tar czf dist/atty-$(VERSION)-$(OS)-$(ARCH).tar.gz atty
+	cd dist && $(SHA256) atty-$(VERSION)-$(OS)-$(ARCH).tar.gz > SHA256SUMS
+	@echo "dist/atty-$(VERSION)-$(OS)-$(ARCH).tar.gz"
 
 # builds atty and puts it on PATH. PREFIX defaults to /usr/local, which usually
 # wants root; PREFIX=$$HOME/.local avoids that if that is already on PATH.
@@ -99,4 +134,4 @@ eval:
 	FORM='$(FORM)' $(IN) '$(ENV) $(SBCL) --disable-debugger --eval "(asdf:load-system :atty/test)" --eval "(in-package :atty/test)" --eval "(eval (read-from-string (uiop:getenv \"FORM\")))" --quit'
 
 clean:
-	rm -rf $(BENCH_DIR) atty "$$HOME/.cache/common-lisp/atty"
+	rm -rf $(BENCH_DIR) atty dist "$$HOME/.cache/common-lisp/atty"
