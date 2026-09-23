@@ -165,7 +165,7 @@ standing in for one, and answer how many bytes that was."
     (unwind-protect
          (progn
            (loop while (and (< (nanos) deadline)
-                            (mux:client-going (rig-client rig)))
+                            (mux:client-running (rig-client rig)))
                  do (mux:client-step (rig-client rig) 2)
                     (let ((got (rig-draw rig)))
                       (when (plusp got) (incf host got) (incf frames))))

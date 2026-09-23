@@ -7,8 +7,8 @@
 ;;; reading a form straight off the descriptor would stall every pane in the
 ;;; server on one message that arrived in two pieces.
 
-(defparameter +scratch+ 65536)
-(defparameter +biggest+ (* 16 1024 1024))
+(defparameter +read-chunk-size+ 65536)
+(defparameter +max-message-size+ (* 16 1024 1024))
 
 (deftype bytes () '(simple-array (unsigned-byte 8) (*)))
 
@@ -20,12 +20,12 @@
   (out (make-array 4096 :element-type '(unsigned-byte 8)) :type bytes)
   (end 0 :type fixnum)
   (sent 0 :type fixnum)
-  (scratch (make-array +scratch+ :element-type '(unsigned-byte 8)) :type bytes)
+  (scratch (make-array +read-chunk-size+ :element-type '(unsigned-byte 8)) :type bytes)
   (owner nil)
   (in-bytes 0 :type fixnum)
   (open t :type boolean))
 
-(defun grown (vec need)
+(defun grow-buffer (vec need)
   (declare (type bytes vec) (type fixnum need))
   (if (>= (length vec) need)
       vec
@@ -49,7 +49,7 @@ somebody else."
           (ignore-errors (sb-bsd-sockets:socket-close owner))
           (ignore-errors (sb-unix:unix-close (wire-fd wire)))))))
 
-(defun face-said (face)
+(defun encode-face (face)
   (when face
     (list (term:face-fg face) (term:face-bg face)
           (term:face-bold face) (term:face-faint face) (term:face-italic face)
@@ -57,7 +57,7 @@ somebody else."
           (term:face-blink face)
           (term:face-inverse face) (term:face-conceal face) (term:face-crossed face))))
 
-(defun said-face (said)
+(defun decode-face (said)
   (when said
     (destructuring-bind (fg bg bold faint italic underline under-color blink
                          inverse conceal crossed)
@@ -70,7 +70,7 @@ somebody else."
                           :inverse (and inverse t) :conceal (and conceal t)
                           :crossed (and crossed t)))))
 
-(defun runs-said (screen runs)
+(defun encode-runs (screen runs)
   "RUNS of SCREEN as what goes on the wire: each run a row, a column and the
 spans of one face in it, and the faces themselves said once for the frame.
 
@@ -83,7 +83,7 @@ first could not be picked up from a different terminal."
         (out nil))
     (labels ((number-of (face)
                (or (gethash face faces)
-                   (progn (push (face-said face) table)
+                   (progn (push (encode-face face) table)
                           (setf (gethash face faces) n)
                           (incf n)
                           (1- n)))))
@@ -106,9 +106,9 @@ first could not be picked up from a different terminal."
           (push (list (tty:run-row run) (tty:run-start run) (nreverse spans)) out)))
       (values (nreverse out) (coerce (nreverse table) 'simple-vector)))))
 
-(defun said-into-screen (screen said faces)
+(defun decode-runs-into-screen (screen said faces)
   "Put what came off the wire into SCREEN, and answer the runs it covered."
-  (let ((seen (map 'simple-vector #'said-face faces)))
+  (let ((seen (map 'simple-vector #'decode-face faces)))
     (loop for (y start spans) in said
           collect (let ((row (tty:screen-row screen y))
                         (x start))
@@ -129,7 +129,7 @@ first could not be picked up from a different terminal."
          (head (sb-ext:string-to-octets (format nil "~D~C" (length bytes) #\Newline)
                                         :external-format :latin-1))
          (need (+ (wire-end wire) (length head) (length bytes))))
-    (setf (wire-out wire) (grown (wire-out wire) need))
+    (setf (wire-out wire) (grow-buffer (wire-out wire) need))
     (replace (wire-out wire) head :start1 (wire-end wire))
     (incf (wire-end wire) (length head))
     (replace (wire-out wire) bytes :start1 (wire-end wire))
@@ -160,7 +160,7 @@ it all got out."
             (wire-sent wire) 0))
     (zerop (wire-pending wire))))
 
-(defun wire-fill (wire)
+(defun wire-receive (wire)
   "Read what is there without waiting. Answers nil when the other end is gone."
   (let ((buf (wire-scratch wire))
         (got 0))
@@ -171,7 +171,7 @@ it all got out."
                                (length buf)))
         (cond
           ((and n (plusp n))
-           (setf (wire-in wire) (grown (wire-in wire) (+ (wire-have wire) n)))
+           (setf (wire-in wire) (grow-buffer (wire-in wire) (+ (wire-have wire) n)))
            (replace (wire-in wire) buf :start1 (wire-have wire) :end2 n)
            (incf (wire-have wire) n)
            (incf (wire-in-bytes wire) n)
@@ -186,15 +186,15 @@ it all got out."
 (defvar *reading-in* nil)
 (defvar *reads* 0)
 
-(defparameter +most-names+ 4096
+(defparameter +max-interned-names+ 4096
   "How many names a peer may make up before the package it makes them in is
 thrown away and started again.")
 
 (defun too-many-names-p (package)
   (> (loop :for s :being :the :present-symbols :of package :count s)
-     +most-names+))
+     +max-interned-names+))
 
-(defun reading-package ()
+(defun message-package ()
   "The package a message is read in.
 
 Not the mux: a message names symbols, and reading them where the program's own
@@ -212,36 +212,36 @@ naming something new every message cannot grow this image without end."
           (make-package (symbol-name (gensym "ATTY/WIRE")) :use '(#:common-lisp))))
   *reading-in*)
 
-(defun wire-take (wire)
+(defun wire-read-message (wire)
   "The next whole message, or nil when what has come in is not yet one."
   (let* ((in (wire-in wire))
          (have (wire-have wire))
          (at (wire-read wire)))
     (let ((eol (loop for i from at below have
                      when (= (aref in i) 10) return i)))
-      (unless eol (return-from wire-take nil))
+      (unless eol (return-from wire-read-message nil))
       (let ((size 0))
         (loop for i from at below eol
               for b = (aref in i)
               do (unless (<= 48 b 57)
                    (error "a message said its length was not a number"))
                  (setf size (+ (* 10 size) (- b 48))))
-        (when (> size +biggest+)
+        (when (> size +max-message-size+)
           (error "a message said it was ~D bytes" size))
         (let ((from (1+ eol)))
           (when (< (- have from) size)
-            (return-from wire-take nil))
+            (return-from wire-read-message nil))
           (let ((text (sb-ext:octets-to-string in :external-format :utf-8
                                                   :start from :end (+ from size))))
             (setf (wire-read wire) (+ from size))
             (if (= (wire-read wire) have)
                 (setf (wire-have wire) 0
                       (wire-read wire) 0)
-                (when (> (wire-read wire) +scratch+)
+                (when (> (wire-read wire) +read-chunk-size+)
                   (replace in in :start2 (wire-read wire) :end2 have)
                   (setf (wire-have wire) (- have (wire-read wire))
                         (wire-read wire) 0)))
             (with-standard-io-syntax
               (let ((*read-eval* nil)
-                    (*package* (reading-package)))
+                    (*package* (message-package)))
                 (read-from-string text)))))))))

@@ -47,14 +47,21 @@
   "How a command asked for by name is run: a function of the name, set by
 whatever defines the commands.")
 
+(defvar *handler-names* (make-hash-table :test 'eq :weakness :key :synchronized t))
+
+(defun handler-name (handler)
+  (values (gethash handler *handler-names*)))
+
 (defun as-handler (does)
   "What a key does, as something to call: a function, a command's name, or a
 form to evaluate."
   (typecase does
     (null nil)
     (function does)
-    (string (lambda () (if *named* (funcall *named* does)
-                           (error "nothing knows a command called ~S" does))))
+    (string (let ((handler (lambda () (if *named* (funcall *named* does)
+                                          (error "nothing knows a command called ~S" does)))))
+              (setf (gethash handler *handler-names*) does)
+              handler))
     (cons (lambda () (eval does)))
     (t (error "~s is not something a press can do." does))))
 
@@ -74,6 +81,15 @@ form to evaluate."
   (let ((m (as-mode it)) (chord (%spelled chord)))
     (remhash chord (mode-keys m))
     chord))
+
+(defun mode-bindings (it)
+  (loop :for chord :being :the :hash-keys :of (mode-keys (as-mode it)) :using (hash-value does)
+        :collect (cons chord does)))
+
+(defun set-binding (it chord handler)
+  (if handler
+      (setf (gethash chord (mode-keys (as-mode it))) handler)
+      (remhash chord (mode-keys (as-mode it)))))
 
 (defun global-set-key (chord does) (define-key (global-map) chord does))
 

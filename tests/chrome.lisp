@@ -22,17 +22,17 @@
 (test a-key-cap-and-a-hint-are-buttons-that-run-what-they-say
   (let* ((tree (atty/ui:row :spacing 1
                             (mux::keycap "1" "Yes" :runs '(:answer "todo" 4 1))
-                            (mux::hint "RET" "go" :runs "queue go")))
+                            (mux::hint "RET" "go" :runs "queue goto")))
          (screen (painted tree 40 1)))
     (is (search " 1 Yes " (shown screen 0)))
     (is (equal '(:answer "todo" 4 1) (mux::bar-button-runs (mux::button-at tree 0 2))))
-    (is (equal "queue go" (mux::bar-button-runs (mux::button-at tree 0 10))))))
+    (is (equal "queue goto" (mux::bar-button-runs (mux::button-at tree 0 10))))))
 
 (test hints-run-their-commands-when-clicked
-  (let* ((tree (mux::hints 'atty::queue-mode 'atty::queue-go "go there" "1-9" "answer"))
+  (let* ((tree (mux::hints 'atty::queue-mode 'atty::queue-goto "go there" "1-9" "answer"))
          (screen (painted tree 60 1)))
     (is (search "go there" (shown screen 0)))
-    (is (equal "queue go" (mux::bar-button-runs (mux::button-at tree 0 2))))
+    (is (equal "queue goto" (mux::bar-button-runs (mux::button-at tree 0 2))))
     (is (null (mux::bar-button-runs (mux::button-at tree 0 20)))
         "a key nothing is bound to runs nothing")))
 
@@ -91,19 +91,19 @@
 
 (test who-is-said-by-glyph
   (let ((client (mux::%make-client :id 7)))
-    (is (equal "◆ here" (mux::who-text '(:client 7 "/dev/ttys042") client)))
-    (is (equal "⌨ ttys051" (mux::who-text '(:client 9 "/dev/ttys051") client)))
-    (is (equal "⌨ client 9" (mux::who-text '(:client 9 nil) client)))
-    (is (equal "⌁ todo:1.2" (mux::who-text '(:pane "todo:1.2") client)))
-    (is (equal "$ cli" (mux::who-text '(:cli) client)))
-    (is (eq :here (mux::who-face '(:client 7 "/dev/ttys042") client)))
-    (is (eq :client (mux::who-face '(:client 9 "/dev/ttys051") client)))))
+    (is (equal "◆ here" (mux::format-actor '(:client 7 "/dev/ttys042") client)))
+    (is (equal "⌨ ttys051" (mux::format-actor '(:client 9 "/dev/ttys051") client)))
+    (is (equal "⌨ client 9" (mux::format-actor '(:client 9 nil) client)))
+    (is (equal "⌁ todo:1.2" (mux::format-actor '(:pane "todo:1.2") client)))
+    (is (equal "$ cli" (mux::format-actor '(:cli) client)))
+    (is (eq :here (mux::actor-face '(:client 7 "/dev/ttys042") client)))
+    (is (eq :client (mux::actor-face '(:client 9 "/dev/ttys051") client)))))
 
 (test a-toolbar-holds-its-controls-and-puts-the-rest-at-the-right
   (let* ((tree (mux::toolbar (mux::selector "sort" "oldest first" :runs :sort :key "s")
                              (mux::toggle "every session" t :runs '(:toggle :all) :key "a")
                              :right
-                             (mux::keycap "↵" "go" :runs "queue go")))
+                             (mux::keycap "↵" "go" :runs "queue goto")))
          (screen (painted tree 80 1))
          (line (shown screen 0)))
     (is (search "sort ▾  oldest first s" line) "~S" line)
@@ -142,7 +142,7 @@
 (test rolling-up-adds-the-output-and-keeps-the-worst-state
   (let* ((a (append (make-list 14 :initial-element (cons 0 nil)) (list (cons 3 :working) (cons 1 :idle))))
          (b (append (make-list 14 :initial-element (cons 0 nil)) (list (cons 2 nil) (cons 0 :blocked))))
-         (up (mux::roll-up (list a b))))
+         (up (mux::merge-cells (list a b))))
     (is (= 16 (length up)))
     (is (equal '(5 . :working) (nth 14 up)))
     (is (equal '(1 . :blocked) (nth 15 up)) "asking outranks everything else")

@@ -6,7 +6,7 @@
 ;;; asked for by, and a line saying what it is. The line is what `atty help
 ;;; init' prints, so what is settable and what the docs say are one list.
 
-(defvar *init-problem* nil
+(defvar *init-error* nil
   "Why the init file did not load, or nil when it did or there is none.")
 
 (defvar *version* "unknown"
@@ -16,7 +16,7 @@ build.lisp. A tag makes it a version; without one it is a commit.")
 (defvar *settings* nil
   "Every setting in the order it was defined: (key symbol default doc check).")
 
-(defun setting-key-of (symbol)
+(defun setting-key (symbol)
   "+WHEEL-ROWS+ is asked for as :wheel-rows."
   (intern (string-trim "+*" (symbol-name symbol)) :keyword))
 
@@ -25,7 +25,7 @@ build.lisp. A tag makes it a version; without one it is a commit.")
 somebody offered, answers the value to keep or signals why not."
   `(progn
      (defparameter ,name ,default ,doc)
-     (let ((entry (list (setting-key-of ',name) ',name ,default ,doc ,check)))
+     (let ((entry (list (setting-key ',name) ',name ,default ,doc ,check)))
        (setf *settings* (append (remove (first entry) *settings* :key #'first)
                                 (list entry))))
      ',name))
@@ -65,15 +65,15 @@ slip in an init file says so rather than doing nothing."
   "Run DOES with the new value whenever SYMBOL is set through CONFIGURE."
   (setf (getf (symbol-plist symbol) 'after-setting) does))
 
-(defun a-number (least)
+(defun check-number (least)
   (lambda (value)
     (unless (and (integerp value) (>= value least))
       (error "~S is not a whole number of at least ~D" value least))
     value))
 
-(defun a-flag (value) (and value t))
+(defun check-boolean (value) (and value t))
 
-(defun a-prefix (value)
+(defun check-prefix (value)
   "The prefix as a character: given as one, or as a chord like \"C-a\"."
   (etypecase value
     (character value)
@@ -94,35 +94,35 @@ slip in an init file says so rather than doing nothing."
 
 (defsetting +prefix+ (code-char 2)
   "The key that says the next one is for atty rather than for the pane; C-b."
-  :check #'a-prefix)
+  :check #'check-prefix)
 
 (defsetting +wheel-rows+ 3
   "How many rows one notch of the wheel scrolls."
-  :check (a-number 1))
+  :check (check-number 1))
 
 (defsetting +hold-after+ 350
   "Milliseconds an arrow or the track of a scrollbar is held before it repeats."
-  :check (a-number 0))
+  :check (check-number 0))
 
 (defsetting +hold-every+ 50
   "Milliseconds between repeats once a held arrow or track does."
-  :check (a-number 1))
+  :check (check-number 1))
 
 (defsetting +scrollbars-by-default+ t
   "Whether a new session's panes have scrollbars; toggle scrollbars changes one session."
-  :check #'a-flag)
+  :check #'check-boolean)
 
 (defsetting +bar-by-default+ t
   "Whether a new session has the bar; C-b t changes one session."
-  :check #'a-flag)
+  :check #'check-boolean)
 
 (defsetting +max-scrollback+ 10000
   "How many rows behind its screen a pane keeps."
-  :check (a-number 0))
+  :check (check-number 0))
 
 (defsetting +log-length+ 256
   "How many entries a pane's log of who typed into it keeps."
-  :check (a-number 2))
+  :check (check-number 2))
 
 (defsetting +restore-command+ :shell
   "What a pane brought back from disk runs: :shell restarts a shell and stands a
@@ -152,19 +152,19 @@ says so to the next client to attach. Nil never reaches the network for it."
 
 (defsetting +saved-scrollback+ 10000
   "How many rows of a pane's scrollback are saved to disk."
-  :check (a-number 0))
+  :check (check-number 0))
 
 (defsetting +save-quiet-after+ 5000
   "Milliseconds a pane has to be quiet before what it holds is saved."
-  :check (a-number 0))
+  :check (check-number 0))
 
 (defsetting +save-at-most-every+ 60000
   "Milliseconds between saves of a pane that never goes quiet."
-  :check (a-number 1000))
+  :check (check-number 1000))
 
 ;;; The theme is a setting that is not a variable of atty's: it is the ui's.
 
-(defun a-theme (value)
+(defun check-theme (value)
   (let ((name (intern (string-upcase (string value)) :keyword)))
     (unless (member name (atty/ui:themes))
       (error "there is no theme called ~S; there are ~{~(~S~)~^, ~}" value (atty/ui:themes)))
@@ -172,7 +172,7 @@ says so to the next client to attach. Nil never reaches the network for it."
 
 (defsetting +theme+ :ef-dream
   "Which theme the frames, the bar and the overlays are coloured by."
-  :check #'a-theme)
+  :check #'check-theme)
 
 (after-setting '+theme+ (lambda (name) (setf (atty/ui:active) name)))
 
@@ -182,7 +182,7 @@ says so to the next client to attach. Nil never reaches the network for it."
 
 (defvar *hooks* nil "Every hook: (name symbol doc).")
 
-(declaim (ftype function show-broke))
+(declaim (ftype function show-error))
 
 (defmacro defhook (name doc)
   (let ((symbol (intern (format nil "*~A-HOOK*" (symbol-name name)))))
@@ -217,7 +217,7 @@ says so to the next client to attach. Nil never reaches the network for it."
       (handler-case (progn (apply does args) (incf ran))
         (error (e)
           (if client
-              (show-broke client (format nil "the ~(~A~) hook" name) e)
+              (show-error client (format nil "the ~(~A~) hook" name) e)
               (format *error-output* "~&atty: the ~(~A~) hook came apart: ~A~%" name e)))))))
 
 (defhook session-made "A session was made: (session).")

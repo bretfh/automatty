@@ -14,7 +14,7 @@ this, the way a command in an editor reads which buffer it is in.")
 (defvar *commands* (make-hash-table :test 'equal)
   "Every command, by the name it is asked for by.")
 
-(declaim (ftype function show-broke))
+(declaim (ftype function show-error))
 
 (defvar *unlisted* (make-hash-table :test 'equal)
   "Commands that are not offered when asking for one by name: the ones that only
@@ -27,6 +27,10 @@ beside each.")
 (defvar *command-groups* (make-hash-table :test 'equal)
   "What each command acts on, by name: panes, windows, sessions, agents,
 reading or asking. The keys help groups by it.")
+
+(defvar *loading-init* nil)
+
+(defvar *init-commands* (make-hash-table :test 'equal))
 
 (defmacro defcommand (name &body body)
   "Define a command, and register it under its name with the dashes read as
@@ -46,6 +50,7 @@ BODY is one line on what it does, shown beside it when it is offered."
          ,@(when doc `((setf (gethash ,said *command-docs*) ,doc)))
          ,@(when group `((setf (gethash ,said *command-groups*) ',group)))
          ,@(when (member :unlisted marks) `((setf (gethash ,said *unlisted*) t)))
+         (when *loading-init* (setf (gethash ,said *init-commands*) t))
          ',name))))
 
 (defun command-doc (name) (gethash name *command-docs*))
@@ -58,86 +63,44 @@ from a prompt, which is where being asked for a command happens."
               :unless (and offered (gethash name *unlisted*)) :collect name)
         #'string<))
 
-(defun tried (does what)
+(defun call-guarded (does what)
   "Run DOES. One that comes apart is shown rather than fatal: these run in the
 client, which is holding somebody's terminal in raw mode, and letting a bad one
 out would take the screen with it."
   (handler-case (funcall does)
     (error (e)
-      (when *client* (show-broke *client* what e))
+      (when *client* (show-error *client* what e))
       nil)))
 
-(defun run-command (name &optional (client *client*))
+(defgeneric run-for (client name))
+
+(defmethod run-for (client name)
   (let ((does (gethash name *commands*))
         (*client* client))
-    (when does (tried does name))))
+    (when does (call-guarded does name))))
 
-(setf atty/mode:*run* (lambda (does) (tried does (or (atty/mode:pending) "that key"))))
+(defun run-command (name &optional (client *client*))
+  (run-for client name))
+
+(setf atty/mode:*run* (lambda (does) (call-guarded does (or (atty/mode:pending) "that key"))))
 
 (setf atty/mode:*named* (lambda (name)
                           (if (gethash name *commands*)
                               (run-command name)
                               (error "there is no command called ~S" name))))
 
-;;; What libatty calls a key, and what a mode calls one.
-
-(defparameter +key-names+
-  '((:up . "Up") (:down . "Down") (:left . "Left") (:right . "Right")
-    (:home . "Home") (:end . "End") (:insert . "Insert") (:delete . "Delete")
-    (:page-up . "PageUp") (:page-down . "PageDown")
-    (:enter . "RET") (:tab . "TAB") (:backspace . "DEL") (:escape . "Escape")))
-
-(defun key-named (what)
-  (or (cdr (assoc what +key-names+))
-      (string-capitalize (symbol-name what))))
-
-(defun key-of (event)
-  "A key as the emulator reads it, as a key as a mode knows it."
-  (etypecase event
-    (character
-     (let ((code (char-code event)))
-       (cond ((= code 27) (atty/mode:make-key "Escape"))
-             ((= code 13) (atty/mode:make-key "RET"))
-             ((= code 9) (atty/mode:make-key "TAB"))
-             ((= code 127) (atty/mode:make-key "DEL"))
-             ((= code 32) (atty/mode:make-key "SPC"))
-             ((< code 32) (atty/mode:make-key (string (code-char (+ 96 code)))
-                                            :ctrl t))
-             (t (atty/mode:make-key (string event))))))
-    (cons
-     (let ((mods (rest event)))
-       (atty/mode:make-key (key-named (first event))
-                         :ctrl (and (member :ctrl mods) t)
-                         :meta (and (member :meta mods) t)
-                         :shift (and (member :shift mods) t))))))
-
-(defvar *mouse-at* nil
-  "Where the click a command is running for landed, as (X . Y). Read the way
-*CLIENT* is, rather than passed: a mouse binding takes no arguments either.")
-
-(defvar *mouse-event* nil
-  "The whole of what the mouse did, as the terminal said it: which button, and
-what was held down with it. Beside *MOUSE-AT*, for the commands that pass a
-click on rather than act on where it was.")
-
-(defun mouse-key-of (event)
-  "A decoded mouse EVENT as a key a mode can bind: a button going down, the
-same with -up when it comes back, with -drag while it moves held down, and the
-wheel either way. Nil for what has no name, which is the pointer moving with
-nothing held. Unlike KEY-OF, EVENT's tail is a plist, not a list of the
-modifiers that are down, so it is read with GETF rather than MEMBER."
-  (let* ((e (rest event))
-         (wheel (getf e :wheel))
-         (button (case (getf e :button) (:left 1) (:middle 2) (:right 3)))
-         (sym (cond
-                (wheel (format nil "wheel-~(~A~)" wheel))
-                ((null button) nil)
-                (t (format nil "mouse-~D~A" button
-                           (cond ((getf e :drag) "-drag")
-                                 ((getf e :release) "-up")
-                                 (t "")))))))
-    (when sym
-      (atty/mode:make-key sym :ctrl (getf e :ctrl) :meta (getf e :meta)
-                             :shift (getf e :shift)))))
-
 (atty/mode:define-mode pane-mode ())
+
+(defparameter +palette-kinds+
+  '((#\: "commands" "commands")
+    (#\@ "windows" "switch window")
+    (#\# "clients" "clients")
+    (#\/ "find" "find in pane"))
+  "The palette's kinds: the prefix that opens each, what its tab says, and
+the command that opens it.")
+
+(defparameter +palette-prefixes+
+  (mapcar (lambda (kind) (cons (first kind) (third kind))) +palette-kinds+)
+  "The prefix that opens each kind of prompt, and the command that opens it.
+Typing one as the first character of an empty query, in a prompt of a
+different kind, switches to it instead of being searched for.")

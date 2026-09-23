@@ -158,3 +158,60 @@
            (dolist (row verdict)
              (format say "  ~(~12A~) ~(~A~)~{ ~S~}~%" (first row) (second row) (cddr row)))
            (agent:verdict-passed-p verdict)))))))
+
+(defun readers-command (args)
+  (let ((what (first args)))
+    (cond
+      ((or (null what) (string= what "list"))
+       (dolist (reader agent:*readers*)
+         (format t "~&~A~{ ~A~}~%" (agent:reader-name reader) (agent::reader-versions reader))))
+      ((string= what "index")
+       (let ((dir (or (second args) "readers/")))
+         (format t "~&~{~A~%~}" (agent:write-index dir))))
+      ((string= what "update") (update-readers))
+      ((string= what "verify")
+       (let ((dirs (corpus-dirs (or (second args) "readers/"))))
+         (unless dirs (error "no corpora under ~A" (or (second args) "readers/")))
+         (unless (every #'identity (mapcar #'verify-corpus dirs))
+           (sb-ext:quit :unix-status 1))))
+      (t (error "atty readers list, index, update or verify; not ~A" what)))))
+
+(defun catalog-url ()
+  (let ((said (sb-ext:posix-getenv "ATTY_READERS_URL")))
+    (string-right-trim "/" (if (and said (plusp (length said)))
+                               said
+                               "https://raw.githubusercontent.com/bretfh/automatty/main/readers"))))
+
+(defun update-readers ()
+  (let* ((base (catalog-url))
+         (index (with-standard-io-syntax
+                  (let ((*read-eval* nil))
+                    (read-from-string (fetch-url (format nil "~A/index.sexp" base))))))
+         (entries (getf (nthcdr 2 index) :readers))
+         (texts (mapcar (lambda (entry) (fetch-url (format nil "~A/~A/reader.lisp" base entry)))
+                        entries)))
+    (multiple-value-bind (loaded refused)
+        (let ((agent:*readers* nil)) (agent:register-reader-texts texts))
+      (dolist (why refused) (format *error-output* "~&atty: refused ~A~%" why))
+      (format t "~&~D from ~A~{~%  ~A~}~%" (length loaded) base loaded)
+      (dolist (path (remove-duplicates
+                     (remove-if-not #'server-alive-p
+                                    (cons (server-socket-path)
+                                          (mapcar #'second (other-servers))))
+                     :test #'string=))
+        (let* ((said (request path (list (list :readers-load texts))
+                            :done (lambda (f) (eq :readers-loaded (first f)))))
+               (answer (find :readers-loaded said :key #'first)))
+          (format t "~&~A ~:[did not answer~;loaded ~:*~D~]~%"
+                  (file-namestring path) (and answer (length (second answer)))))))))
+
+(defun record-reader (args)
+  "atty record <agent> [<dir>]: record a corpus and extend the nearest reader."
+  (unless (second args) (error "atty record <agent> [<dir>]"))
+  (multiple-value-bind (dir expect)
+      (record-agent (second args) :into (or (third args) "readers/"))
+    (unless (verify-corpus dir) (sb-ext:quit :unix-status 1))
+    (let ((made (extend-reader dir expect)))
+      (when made
+        (format t "~&it reads the way the nearest reader says, so ~A joins it: ~A~%"
+                (getf (nthcdr 2 expect) :version) (namestring made))))))

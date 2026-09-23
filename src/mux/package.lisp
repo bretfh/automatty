@@ -10,15 +10,15 @@
    #:wire-open
    #:wire-close
    #:wire-send
-   #:wire-fill
-   #:wire-take
+   #:wire-receive
+   #:wire-read-message
    #:wire-flush
    #:wire-pending
    #:wire-in-bytes
-   #:face-said
-   #:said-face
-   #:runs-said
-   #:said-into-screen
+   #:encode-face
+   #:decode-face
+   #:encode-runs
+   #:decode-runs-into-screen
 
    #:pane
    #:make-pane
@@ -30,7 +30,7 @@
    #:pane-running
    #:pane-dirty
    #:pane-drain
-   #:pane-say
+   #:pane-write
    #:pane-resize
    #:pane-command
    #:pane-agent
@@ -40,11 +40,11 @@
    #:*interval*
    #:make-server
    #:server-close
-   #:server-going
+   #:server-running
    #:server-sessions
-   #:server-knocking
+   #:server-pending-watchers
    #:watcher-wire
-   #:watcher-here
+   #:watcher-interactive
    #:server-command
    #:session-named
    #:join-session
@@ -70,12 +70,12 @@
    #:window-of
    #:pane-number
    #:pane-address-of
-   #:add-window
-   #:go-to-window
-   #:step-window
-   #:close-a-window
-   #:name-a-window
-   #:window-called
+   #:session-add-window
+   #:session-select-window
+   #:session-cycle-window
+   #:session-close-window
+   #:session-rename-window
+   #:session-nth-window
    #:session-observe
    #:session-socket
    #:agent-rows
@@ -83,20 +83,20 @@
    #:make-split
    #:split-way
    #:split-parts
-   #:panes-in
-   #:put-beside
-   #:without-pane
+   #:layout-panes
+   #:layout-insert
+   #:layout-remove
    #:layout-tree
-   #:split-the-session
-   #:close-the-pane
-   #:focus-the-next
-   #:only-the-pane
-   #:+understood+
+   #:session-split
+   #:session-close-pane
+   #:session-focus-next
+   #:session-delete-other-panes
+   #:message-types #:define-message-handler #:message-handlers
    #:session-screen
    #:session-rows
    #:session-cols
    #:session-watchers
-   #:session-barp
+   #:session-bar-p
    #:session-tree
    #:pane-view
    #:view-pane
@@ -110,29 +110,29 @@
    #:defhook #:add-hook #:remove-hook #:run-hook
    #:+wheel-rows+ #:+max-scrollback+ #:+scrollbars-by-default+ #:+bar-by-default+
    #:+restore-command+ #:+saved-scrollback+ #:+save-quiet-after+ #:+save-at-most-every+
-   #:bind-prefixed-keys
-   #:*init-problem* #:load-user-init #:user-init-file #:config-dir #:init-help
-   #:*state-home* #:state-dir #:pane-said #:said-pane #:tree-said #:restore-state
-   #:save-tree #:save-pane #:save-everything #:save-what-is-due #:move-state-aside #:saved-sessions #:forget-saved-session
+   #:bind-prefix-keys
+   #:*init-error* #:load-user-init #:user-init-file #:config-dir #:init-help
+   #:*state-home* #:state-dir #:encode-pane #:decode-pane #:encode-tree #:restore-state
+   #:save-tree #:save-pane #:save-all #:save-due #:move-state-aside #:saved-sessions #:delete-saved-session
    #:write-form-atomically #:read-state-file
-   #:+was-known+
-   #:client-knows
-   #:tell-the-server
+   #:+base-message-types+
+   #:client-message-types
+   #:send-to-server
    #:make-client
    #:client-close
    #:client-step
-   #:client-going
-   #:client-why
+   #:client-running
+   #:client-exit-reason
    #:client-screen
    #:client-wire
-   #:client-over
-   #:client-over-put
-   #:client-over-drop
+   #:client-overlays
+   #:client-push-overlay
+   #:client-pop-overlay
    #:client-dirty
-   #:client-show
-   #:draw-over
+   #:client-draw
+   #:draw-overlay
    #:mode-of
-   #:unbound
+   #:overlay-unbound-key
    #:client-mode
    #:client-rows
    #:client-cols
@@ -144,14 +144,14 @@
    #:*unlisted*
    #:command-names
    #:*client*
-   #:key-of
+   #:event-key
    #:pane-mode
    #:run-command
 
    #:note
    #:make-note
    #:show-note
-   #:show-broke
+   #:show-error
 
    #:prompt
    #:make-prompt
@@ -160,26 +160,26 @@
    #:prompt-showing
    #:prompt-chosen
    #:prompt-tree
-   #:ask
-   #:ask-a-command
+   #:open-prompt
+   #:prompt-command
    #:matches
    #:score
 
-   #:mux-dir
+   #:socket-directory
    #:socket-path
    #:log-path
    #:record-agent
    #:verify-corpus
    #:corpus-dirs
-   #:where-the-server-is
+   #:server-socket-path
    #:*server-name*
-   #:knocked
+   #:probe-socket
    #:other-servers
-   #:the-sessions
-   #:stop-a-session
+   #:request-sessions
+   #:request-stop-session
    #:list-sessions
-   #:stop-a-server
-   #:asked
-   #:agents-here
-   #:run
+   #:stop-server
+   #:request
+   #:server-agent-rows
+   #:attach-or-create
    #:main))

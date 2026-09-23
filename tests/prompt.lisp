@@ -24,11 +24,11 @@
 (defun pressing (p &rest chords)
   "Put P up on a client and press the chords at it, as the loop would."
   (let ((client (mux::%make-client)))
-    (mux:client-over-put client p)
+    (mux:client-push-overlay client p)
     (dolist (chord chords p)
       (let ((mux:*client* client)
             (atty/mode:*pending* nil)
-            (atty/mode:*unbound* (lambda (c) (mux:unbound p c client))))
+            (atty/mode:*unbound* (lambda (c) (mux:overlay-unbound-key p c client))))
         (atty/mode:press chord (atty/mode:mode-named (mux:client-mode client)))))))
 
 (test moving-through-what-is-offered-stops-at-the-ends
@@ -54,7 +54,7 @@
   (let ((screen (tty:make-screen :width 30 :height 10))
         (p (mux:make-prompt "run" '("detach" "redraw" "rename"))))
     (setf (mux:prompt-query p) "re")
-    (mux:draw-over p screen)
+    (mux:draw-overlay p screen)
     (let ((rows (loop :for y :below 10
                       :collect (string-right-trim " " (shown screen y)))))
       (is (find-if (lambda (r) (search "run" r)) rows) "no title: ~S" rows)
@@ -72,7 +72,7 @@
         (p (mux:make-prompt "run" '("one"))))
     (dotimes (x 30)
       (setf (term:row-char (tty:screen-row screen 0) x) #\x))
-    (mux:draw-over p screen)
+    (mux:draw-overlay p screen)
     (is (equal (make-string 30 :initial-element #\x) (shown screen 0))
         "the prompt drew over the top of the screen")))
 
@@ -94,15 +94,15 @@
   (let ((client (mux::%make-client))
         (p (mux:make-prompt "run" '("one" "two"))))
     (is (eq 'mux:pane-mode (mux:client-mode client)))
-    (mux:client-over-put client p)
+    (mux:client-push-overlay client p)
     (is (eq 'mux::prompt-mode (mux:client-mode client))
         "the prompt did not put the client in its own mode")
-    (mux:client-over-put client (mux:make-note "hm" '("a line")))
+    (mux:client-push-overlay client (mux:make-note "hm" '("a line")))
     (is (eq 'mux::note-mode (mux:client-mode client)))
-    (mux:client-over-drop client (first (mux:client-over client)))
+    (mux:client-pop-overlay client (first (mux:client-overlays client)))
     (is (eq 'mux::prompt-mode (mux:client-mode client))
         "dropping the note did not go back to the prompt underneath")
-    (mux:client-over-drop client p)
+    (mux:client-pop-overlay client p)
     (is (eq 'mux:pane-mode (mux:client-mode client)))))
 
 (test a-pane-chord-does-not-fire-while-a-prompt-is-up
@@ -129,32 +129,32 @@
 (test a-sequence-that-is-no-key-is-passed-over
   (let ((client (mux::%make-client))
         (p (mux:make-prompt "run" '("one" "two" "three"))))
-    (mux:client-over-put client p)
-    (mux::client-pressed client (csi "<0;12;34M"))
+    (mux:client-push-overlay client p)
+    (mux::client-handle-key client (csi "<0;12;34M"))
     (is (equal "" (mux:prompt-query p))
         "a mouse report was read as something typed")
     (is (eql 0 (mux:prompt-index p)))
-    (mux::client-pressed client (csi "B"))
+    (mux::client-handle-key client (csi "B"))
     (is (eql 1 (mux:prompt-index p))
         "the Down after it did not arrive")))
 
 (test a-sequence-split-across-two-reads-is-still-one-key
   (let ((client (mux::%make-client))
         (p (mux:make-prompt "run" '("one" "two" "three"))))
-    (mux:client-over-put client p)
-    (mux::client-pressed client (esc "["))
+    (mux:client-push-overlay client p)
+    (mux::client-handle-key client (esc "["))
     (is (equal "" (mux:prompt-query p)) "half a sequence was read as text")
     (is (eql 0 (mux:prompt-index p)))
-    (mux::client-pressed client "B")
+    (mux::client-handle-key client "B")
     (is (eql 1 (mux:prompt-index p))
         "the two halves did not make one Down")))
 
 (test moving-in-the-prompt-asks-for-the-screen-again
   (let ((client (mux::%make-client))
         (p (mux:make-prompt "run" '("one" "two" "three"))))
-    (mux:client-over-put client p)
+    (mux:client-push-overlay client p)
     (setf (mux:client-dirty client) nil)
-    (mux::client-pressed client (csi "B"))
+    (mux::client-handle-key client (csi "B"))
     (is (eql 1 (mux:prompt-index p)))
     (is-true (mux:client-dirty client)
              "the prompt moved and nothing was redrawn")))
@@ -176,11 +176,11 @@
   (multiple-value-bind (in out) (sb-posix:pipe)
     (unwind-protect
          (dolist (name (mux:command-names nil))
-           (let* ((client (mux::%make-client :knows mux:+understood+
+           (let* ((client (mux::%make-client :message-types (mux:message-types)
                                              :to out
                                              :wire (mux:make-wire out))))
              (mux:run-command name client)
-             (let ((note (find "not here" (mux:client-over client)
+             (let ((note (find "not here" (mux:client-overlays client)
                                :key (lambda (it) (and (typep it 'mux:note)
                                                       (mux::note-title it)))
                                :test #'equal)))

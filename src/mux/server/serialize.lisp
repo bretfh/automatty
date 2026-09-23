@@ -9,8 +9,6 @@
 ;;; panes. The programs in them cannot be kept, only what they showed and where
 ;;; they were; those are started again.
 
-(declaim (ftype function a-shell server-name a-name))
-
 (defparameter +state-version+ 1)
 
 (defvar *state-home* nil
@@ -28,7 +26,7 @@ the tests so they never touch anybody's real state.")
   "Where the server called NAME keeps its state, made if it is not there and
 shut to everybody else: a saved screen is somebody's shell history."
   (let ((dir (ensure-directories-exist
-              (merge-pathnames (format nil "atty/~A/panes/" (a-name name "a server"))
+              (merge-pathnames (format nil "atty/~A/panes/" (server-file-name name "a server"))
                                (state-home)))))
     (ignore-errors (sb-posix:chmod (namestring (merge-pathnames "../" dir)) #o700))
     (uiop:ensure-directory-pathname (merge-pathnames "../" dir))))
@@ -84,7 +82,7 @@ may know it."
                         (with-open-file (in path :external-format :utf-8)
                           (with-standard-io-syntax
                             (let ((*read-eval* nil)
-                                  (*package* (reading-package)))
+                                  (*package* (message-package)))
                               (read in))))
                       (error () :truncated))))
           (cond
@@ -105,12 +103,12 @@ may know it."
   "Which entry of TABLE FACE is, put there if it is not yet. Nought is no face."
   (if (or (null face) (term:face-default-p face))
       0
-      (let ((said (face-said face)))
+      (let ((said (encode-face face)))
         (or (gethash said faces)
             (progn (vector-push-extend said table)
                    (setf (gethash said faces) (1- (fill-pointer table))))))))
 
-(defun row-said (row faces table)
+(defun encode-row (row faces table)
   "ROW as (width spans), a span being (face-index . text). What is blank in no
 face at the end is left off."
   (let* ((width (term:row-width row))
@@ -131,8 +129,8 @@ face at the end is left off."
                 (setf from x)))
     (list width (nreverse spans))))
 
-(defun said-row (said seen)
-  "A fresh row from what ROW-SAID answered, SEEN being the faces as objects."
+(defun decode-row (said seen)
+  "A fresh row from what ENCODE-ROW answered, SEEN being the faces as objects."
   (destructuring-bind (width spans) said
     (let ((row (term:make-row width))
           (x 0))
@@ -168,7 +166,7 @@ face at the end is left off."
           :return y
         :finally (return -1)))
 
-(defun ages (entries now)
+(defun relative-ages (entries now)
   "ENTRIES, each beginning with a moment on the monotonic clock, with that
 moment said as how long ago it was: the clock means nothing to another process."
   (mapcar (lambda (entry) (cons (max 0 (- now (first entry))) (rest entry))) entries))
@@ -176,7 +174,7 @@ moment said as how long ago it was: the clock means nothing to another process."
 (defun moments (entries now)
   (mapcar (lambda (entry) (cons (- now (first entry)) (rest entry))) entries))
 
-(defun pane-said (pane now)
+(defun encode-pane (pane now)
   "PANE as it goes to disk: what it ran and where, what it was called, its
 log, and every row it holds, oldest first, with the faces said once."
   (let* ((term (pane-term pane))
@@ -186,14 +184,14 @@ log, and every row it holds, oldest first, with the faces said once."
          (kept (term:term-scrollback-size term))
          (from (max 0 (- kept +saved-scrollback+)))
          (behind (loop :for i :from from :below kept
-                       :collect (row-said (term:term-scrollback-row term i) faces table)))
+                       :collect (encode-row (term:term-scrollback-row term i) faces table)))
          (shown (loop :for y :from 0 :to (last-shown-row term)
-                      :collect (row-said (main-row term y) faces table)))
+                      :collect (encode-row (main-row term y) faces table)))
          ;; a full-screen program's screen is what was in front of somebody
          ;; when the server stopped, and the main screen is what was under it
          (over (and (term:term-in-alt-screen term)
                     (loop :for y :from 0 :to (last-row-on term)
-                          :collect (row-said (term:term-grid-row term y) faces table)))))
+                          :collect (encode-row (term:term-grid-row term y) faces table)))))
     (list :atty-pane +state-version+
           :id (pane-id pane)
           :saved (get-universal-time)
@@ -206,11 +204,11 @@ log, and every row it holds, oldest first, with the faces said once."
           :alt-screen (and (term:term-in-alt-screen term) t)
           :programs (pane-programs pane)
           :title (term:term-title term)
-          :queued (pane-queued pane)
+          :queued (pane-pending-prompt pane)
           :told (and (agent::agent-told agent) (agent:agent-heard agent))
           :since-clock (agent:agent-since-clock agent)
-          :states (ages (agent:agent-history agent) now)
-          :log (ages (pane-log pane) now)
+          :states (relative-ages (agent:agent-history agent) now)
+          :log (relative-ages (pane-log pane) now)
           :faces (coerce table 'simple-vector)
           :behind behind
           :screen shown
@@ -219,35 +217,27 @@ log, and every row it holds, oldest first, with the faces said once."
 (defun shell-command-p (command)
   (member (program-name command) +shells+ :test #'string=))
 
-(defun command-to-restore (form)
+(defun restore-command (form)
   "What a pane brought back from FORM runs, by +RESTORE-COMMAND+."
   (let ((command (getf (nthcdr 2 form) :command))
         (policy +restore-command+))
     (cond ((eq policy :same) command)
-          ((functionp policy) (or (funcall policy form) (a-shell)))
+          ((functionp policy) (or (funcall policy form) (default-shell)))
           ((and command (shell-command-p command)) command)
-          (t (a-shell)))))
+          (t (default-shell)))))
 
 (defun resume-command (command)
   "What picks up the work of a pane that ran COMMAND, when something is known to."
   (cdr (assoc (program-name command) +resume-commands+ :test #'string=)))
 
-(defun restored-note (saved command directory same)
+(defun restore-rule-text (saved command directory same)
   "What the rule under a restored pane says: when, and when its program is not
 what ran there, what did, where, and what brings it back."
   (format nil "restored ~A~@[ · was: ~A~]~@[ in ~A~]~@[ · ~A picks it up~]"
-          (day-and-time (or saved (get-universal-time)))
+          (format-day-time (or saved (get-universal-time)))
           (and (not same) command)
-          (and (not same) directory (short-directory directory))
+          (and (not same) directory (abbreviate-directory directory))
           (and (not same) (resume-command command))))
-
-(defun short-directory (directory)
-  "DIRECTORY with the home directory said as ~."
-  (let ((home (namestring (user-homedir-pathname)))
-        (said (namestring directory)))
-    (if (and (> (length said) (length home)) (string= home said :end2 (length home)))
-        (concatenate 'string "~/" (subseq said (length home)))
-        (string-right-trim "/" said))))
 
 (defun divider-row (width text)
   "A row of rule with TEXT set into it, drawn faint: what says where what was
@@ -263,18 +253,10 @@ brought back ends and what the program started since begins."
           :do (setf (term:row-char row x) ch))
     row))
 
-(defun day-and-time (universal-time)
-  (multiple-value-bind (s m h day month) (decode-universal-time universal-time)
-    (declare (ignore s))
-    (format nil "~D ~A ~2,'0D:~2,'0D" day
-            (nth (1- month) '("Jan" "Feb" "Mar" "Apr" "May" "Jun"
-                              "Jul" "Aug" "Sep" "Oct" "Nov" "Dec"))
-            h m)))
-
-(defun push-rows (term rows)
+(defun push-rows-to-scrollback (term rows)
   (dolist (row rows) (term:push-scrollback term row)))
 
-(defun show-rows (term rows)
+(defun write-rows-to-term (term rows)
   "ROWS onto TERM's screen from the cursor down, one a line, the cursor left at
 the start of the line after the last: as though the program had written them.
 What goes off the top goes behind, the way it would have."
@@ -286,15 +268,15 @@ What goes off the top goes behind, the way it would have."
       (setf (term:term-cursor-x term) 0)
       (term:term-line-feed term))))
 
-(defun said-pane (form now)
-  "A pane from what PANE-SAID wrote, with everything it held behind a screen
+(defun decode-pane (form now)
+  "A pane from what ENCODE-PANE wrote, with everything it held behind a screen
 its program starts afresh on. Answers the pane and a note when anything about
 it could not be as it was."
   (destructuring-bind (&key id saved command directory label named rows cols
                             programs title queued told since-clock states log
                             faces behind screen over &allow-other-keys)
       (nthcdr 2 form)
-    (let* ((runs (command-to-restore form))
+    (let* ((runs (restore-command form))
            (same (equal runs command))
            (directory (and directory (probe-file directory) directory))
            (note (and (getf (nthcdr 2 form) :directory) (null directory)
@@ -302,23 +284,23 @@ it could not be as it was."
                               id (getf (nthcdr 2 form) :directory))))
            (pane (make-pane runs :id id :rows rows :cols cols :directory directory))
            (term (pane-term pane))
-           (seen (map 'simple-vector #'said-face faces)))
+           (seen (map 'simple-vector #'decode-face faces)))
       ;; what was behind the screen goes behind it; what was on it goes on
       ;; it, a full-screen program's screen after that since it was what was
       ;; in front, with the rule under that and the program's first line
       ;; under the rule, so it looks the way it did with one line saying what
       ;; happened
-      (push-rows term (mapcar (lambda (said) (said-row said seen)) behind))
-      (show-rows term (append (mapcar (lambda (said) (said-row said seen)) screen)
-                              (mapcar (lambda (said) (said-row said seen)) over)
-                              (list (divider-row cols (restored-note saved command
+      (push-rows-to-scrollback term (mapcar (lambda (said) (decode-row said seen)) behind))
+      (write-rows-to-term term (append (mapcar (lambda (said) (decode-row said seen)) screen)
+                              (mapcar (lambda (said) (decode-row said seen)) over)
+                              (list (divider-row cols (restore-rule-text saved command
                                                                      (getf (nthcdr 2 form) :directory)
                                                                      same)))))
       (setf (pane-pushed-seen pane) (term:term-scrollback-pushed term)
             (pane-label pane) label
             (pane-named pane) named
             (pane-programs pane) programs
-            (pane-queued pane) (and same queued)
+            (pane-pending-prompt pane) (and same queued)
             (pane-log pane) (moments log now)
             (pane-log-count pane) (length log))
       (let ((agent (pane-agent pane)))
@@ -329,77 +311,77 @@ it could not be as it was."
         (agent:agent-become agent :title (or title named) :command command
                                   :programs programs))
       (unless same
-        (pane-logged pane now '(:atty) :restored (format nil "was: ~A" command)))
+        (pane-push-log pane now '(:atty) :restored (format nil "was: ~A" command)))
       (values pane note))))
 
-(defun empty-pane-for (id rows cols why)
+(defun make-empty-pane (id rows cols why)
   "A pane standing in for one whose file could not be read."
-  (let ((pane (make-pane (a-shell) :id id :rows rows :cols cols)))
-    (show-rows (pane-term pane)
+  (let ((pane (make-pane (default-shell) :id id :rows rows :cols cols)))
+    (write-rows-to-term (pane-term pane)
                (list (divider-row cols (format nil "restored; what it held is ~A" why))))
     (setf (pane-pushed-seen pane) (term:term-scrollback-pushed (pane-term pane)))
     pane))
 
 ;;; The tree as data, and back.
 
-(defun window-said (window)
+(defun encode-window (window)
   (list :label (window-label window)
-        :layout (layout-said (window-layout window))
+        :layout (encode-layout (window-layout window))
         :focus (and (window-focus window) (pane-id (window-focus window)))
         :zoomed (and (window-zoomed window) (pane-id (window-zoomed window)))))
 
-(defun session-said (session)
+(defun encode-session (session)
   (list :name (session-name session)
         :rows (session-rows session) :cols (session-cols session)
-        :bar (session-barp session) :scrollbars (session-scrollbarsp session)
-        :search-kind (session-search-kind session)
+        :bar (session-bar-p session) :scrollbars (session-scrollbars-p session)
+        :search-kind (session-field-kind session)
         :window (or (window-number session (session-window session)) 1)
-        :windows (mapcar #'window-said (session-windows session))))
+        :windows (mapcar #'encode-window (session-windows session))))
 
-(defun tree-said (server)
+(defun encode-tree (server)
   "The server's sessions, windows and panes as they go to disk: without when,
 so what it was last written as can be compared to what it is now."
   (list :atty-state +state-version+
         :server (file-namestring (server-path server))
         :panes-made *panes-made*
-        :sessions (mapcar #'session-said (server-sessions server))))
+        :sessions (mapcar #'encode-session (server-sessions server))))
 
-(defun said-layout (said panes)
-  "A layout from what LAYOUT-SAID wrote, with PANES the panes by id. A pane
+(defun decode-layout (said panes)
+  "A layout from what ENCODE-LAYOUT wrote, with PANES the panes by id. A pane
 that is not there is left out, and a split left with one part is that part."
   (cond ((integerp said) (gethash said panes))
         ((consp said)
-         (let ((parts (remove nil (mapcar (lambda (part) (said-layout part panes))
+         (let ((parts (remove nil (mapcar (lambda (part) (decode-layout part panes))
                                           (rest said)))))
            (cond ((null parts) nil)
                  ((null (rest parts)) (first parts))
                  (t (make-split (first said) parts)))))
         (t nil)))
 
-(defun said-window (form panes)
+(defun decode-window (form panes)
   (destructuring-bind (&key label layout focus zoomed &allow-other-keys) form
-    (let ((layout (said-layout layout panes)))
+    (let ((layout (decode-layout layout panes)))
       (when layout
-        (let ((in (panes-in layout)))
+        (let ((in (layout-panes layout)))
           (%make-window :label label :layout layout
                         :focus (or (find focus in :key #'pane-id) (first in))
                         :zoomed (find zoomed in :key #'pane-id)))))))
 
-(defun said-session (server form panes)
+(defun decode-session (server form panes)
   (destructuring-bind (&key name rows cols bar scrollbars search-kind window windows
                        &allow-other-keys)
       form
-    (let ((made (remove nil (mapcar (lambda (w) (said-window w panes)) windows))))
+    (let ((made (remove nil (mapcar (lambda (w) (decode-window w panes)) windows))))
       (when made
         (%make-session :name name :rows rows :cols cols
                        :socket (server-path server) :server server
-                       :barp bar :scrollbarsp scrollbars
-                       :search-kind (or search-kind 0)
+                       :bar-p bar :scrollbars-p scrollbars
+                       :field-kind (or search-kind 0)
                        :windows made
                        :window (or (and window (nth (1- window) made)) (first made))
                        :screen (tty:make-screen :width cols :height rows))))))
 
-(defun pane-ids-in (tree)
+(defun tree-pane-ids (tree)
   "Every pane id the saved TREE names, in the order the layouts name them."
   (let ((ids nil))
     (labels ((walk (said)
@@ -410,215 +392,8 @@ that is not there is left out, and a split left with one part is that part."
           (walk (getf window :layout)))))
     (nreverse ids)))
 
-(defun restore-state (server &optional (dir (server-state-dir server)))
-  "Bring back what the server called by DIR's name held when it was last
-saved. Answers the sessions, and puts what could not be as it was in the
-server's notes for whoever attaches first."
-  (multiple-value-bind (tree status) (read-state-file (tree-file dir) :atty-state)
-    (case status
-      (:missing nil)
-      (:truncated
-       (push (list (format nil "~A could not be read; nothing was brought back"
-                           (tree-file dir))
-                   :warning)
-             (server-notes server))
-       nil)
-      (:wrong-version
-       (push (list (format nil "~A was written by another build and was moved aside"
-                           (tree-file dir))
-                   :warning)
-             (server-notes server))
-       nil)
-      (t
-       (let* ((now (now-ms))
-              (panes (make-hash-table))
-              (sessions nil))
-         (dolist (id (pane-ids-in tree))
-           (multiple-value-bind (form status) (read-state-file (pane-file dir id) :atty-pane)
-             (let ((rows (session-rows-for tree id)))
-               (case status
-                 (:ok
-                  (multiple-value-bind (pane note) (said-pane form now)
-                    (setf (gethash id panes) pane)
-                    (when note (push (list note :warning) (server-notes server)))))
-                 (t
-                  (setf (gethash id panes)
-                        (empty-pane-for id (first rows) (second rows)
-                                        (if (eq status :missing) "not on disk" "unreadable")))
-                  (push (list (format nil "pane ~D came back empty: its file ~A" id
-                                      (if (eq status :missing) "was not there" "could not be read"))
-                              :warning)
-                        (server-notes server)))))))
-         (dolist (form (getf (nthcdr 2 tree) :sessions))
-           (let ((session (said-session server form panes)))
-             (when session (push session sessions))))
-         (setf sessions (nreverse sessions))
-         (setf *panes-made* (max *panes-made* (or (getf (nthcdr 2 tree) :panes-made) 0)
-                                (reduce #'max (pane-ids-in tree) :initial-value 0)))
-         (dolist (session sessions)
-           (session-compose session)
-           (dolist (pane (session-panes session))
-             (pane-start pane :environment (pane-environment session pane))))
-         (setf (server-sessions server) (append (server-sessions server) sessions)
-               (server-had-sessions server) (or (server-had-sessions server) (and sessions t))
-               (server-tree-saved server) (tree-said server))
-         (dolist (session sessions)
-           (dolist (pane (session-panes session))
-             (run-hook 'pane-started session pane)))
-         (run-hook 'server-restored server sessions)
-         sessions)))))
-
-(defun session-rows-for (tree id)
-  "The size of the session the pane ID is in, as (rows cols), for a pane that
-comes back with no file of its own."
-  (dolist (session (getf (nthcdr 2 tree) :sessions) (list 24 80))
-    (dolist (window (getf session :windows))
-      (when (member id (let ((ids nil))
-                         (labels ((walk (said)
-                                    (cond ((integerp said) (push said ids))
-                                          ((consp said) (mapc #'walk (rest said))))))
-                           (walk (getf window :layout)))
-                         ids))
-        (return-from session-rows-for
-          (list (getf session :rows) (getf session :cols)))))))
-
 ;;; Saving: the tree when it has changed, each pane when it has been quiet a
 ;;; moment or has gone unsaved long enough, and everything when the server
 ;;; stops.
 
-(defun save-tree (server &optional (dir (server-state-dir server)) force)
-  "Write the tree if it is not what was last written, or when FORCE, and drop
-the files of panes that are in no session any more. Answers whether it was
-written."
-  (let ((tree (tree-said server)))
-    (when (or force (not (equal tree (server-tree-saved server))))
-      (run-hook 'before-save server)
-      (when (write-form-atomically (tree-file dir)
-                                   (list* :atty-state +state-version+
-                                          :saved (get-universal-time)
-                                          (cddr tree)))
-        (setf (server-tree-saved server) tree)
-        (let ((live (loop :for session :in (server-sessions server)
-                          :append (mapcar #'pane-id (session-panes session)))))
-          (loop :for (id . path) :in (pane-files dir)
-                :unless (member id live) :do (ignore-errors (delete-file path))))
-        t))))
-
-(defun save-pane (server pane now &optional (dir (server-state-dir server)))
-  (when (write-form-atomically (pane-file dir (pane-id pane)) (pane-said pane now))
-    (setf (pane-saved-at pane) now)
-    t))
-
-(defun pane-changed-at (pane)
-  (max (pane-moved-at pane) (pane-touched pane)))
-
-(defun save-due-p (pane now)
-  "Whether PANE has changed since it was saved and has either been quiet for
-+SAVE-QUIET-AFTER+ or gone unsaved for +SAVE-AT-MOST-EVERY+."
-  (let ((changed (pane-changed-at pane)))
-    (and (> changed (pane-saved-at pane))
-         (or (>= (- now changed) +save-quiet-after+)
-             (>= (- now (pane-saved-at pane)) +save-at-most-every+)))))
-
-(defun save-what-is-due (server now &optional (dir (server-state-dir server)))
-  "One turn of saving: the tree if it changed, and the one pane longest owed
-a save, so no turn of the loop stalls on more than one pane's rows."
-  (save-tree server dir)
-  (let ((due (loop :for session :in (server-sessions server)
-                   :append (remove-if-not (lambda (p) (save-due-p p now))
-                                          (session-panes session)))))
-    (when due
-      (save-pane server (reduce (lambda (a b) (if (<= (pane-saved-at a) (pane-saved-at b)) a b))
-                                due)
-                 now dir))))
-
-(defun save-everything (server &optional (dir (server-state-dir server)))
-  "The tree and every pane, now. The tree is written whether or not it changed,
-so when it says it was saved is when everything was."
-  (let ((now (now-ms)))
-    (save-tree server dir t)
-    (dolist (session (server-sessions server))
-      (dolist (pane (session-panes session))
-        (save-pane server pane now dir)))))
-
-(defparameter +save-tick+ 1000
-  "Milliseconds between looks at what is owed a save.")
-
-(defun keep-saving (server)
-  "Look at what is owed a save every +SAVE-TICK+ for as long as the server
-runs, stepping over a save that comes apart: a disk that is full is not a
-reason to lose the panes."
-  (labels ((tick ()
-             (when (and (server-saving server) (server-going server))
-               (handler-case (save-what-is-due server (now-ms))
-                 (error (e) (say-what-broke e)))
-               (later server +save-tick+ #'tick))))
-    (later server +save-tick+ #'tick)))
-
-(defun pane-touch (pane)
-  "PANE changed in something other than its screen: its name, its log."
-  (setf (pane-touched pane) (now-ms)))
-
 ;;; Starting afresh, and what was saved when nothing is running.
-
-(defun move-state-aside (&optional (name (server-name)))
-  "Put the state of the server called NAME out of the way, so it starts with
-nothing. Answers where it went, or nil when there was none."
-  (let* ((dir (uiop:ensure-directory-pathname
-               (merge-pathnames (format nil "atty/~A/" (a-name name "a server")) (state-home))))
-         (aside (merge-pathnames
-                 (format nil "atty/~A.fresh-~A/" (a-name name "a server")
-                         (multiple-value-bind (s m h day month year) (get-decoded-time)
-                           (format nil "~D~2,'0D~2,'0DT~2,'0D~2,'0D~2,'0D" year month day h m s)))
-                 (state-home))))
-    (when (probe-file dir)
-      (sb-posix:rename (string-right-trim "/" (namestring dir))
-                       (string-right-trim "/" (namestring aside)))
-      aside)))
-
-(defun forget-saved-session (session-name &optional (name (server-name)))
-  "Take the session called SESSION-NAME out of what was saved for the server
-called NAME, its panes' files with it. Answers whether it was there."
-  (let ((dir (uiop:ensure-directory-pathname
-              (merge-pathnames (format nil "atty/~A/" (a-name name "a server")) (state-home)))))
-    (multiple-value-bind (tree status) (read-state-file (tree-file dir) :atty-state)
-      (when (eq status :ok)
-        (let* ((sessions (getf (nthcdr 2 tree) :sessions))
-               (gone (find session-name sessions :key (lambda (s) (getf s :name)) :test #'equal)))
-          (when gone
-            (let ((ids nil))
-              (labels ((walk (said)
-                         (cond ((integerp said) (pushnew said ids))
-                               ((consp said) (mapc #'walk (rest said))))))
-                (dolist (w (getf gone :windows)) (walk (getf w :layout))))
-              (dolist (id ids) (ignore-errors (delete-file (pane-file dir id)))))
-            (let ((left (remove gone sessions)))
-              (if left
-                  (write-form-atomically (tree-file dir)
-                                         (list* :atty-state +state-version+
-                                                :saved (get-universal-time)
-                                                (let ((rest (copy-list (cddr tree))))
-                                                  (setf (getf rest :sessions) left)
-                                                  (remf rest :saved)
-                                                  rest)))
-                  (ignore-errors (delete-file (tree-file dir)))))
-            t))))))
-
-(defun saved-sessions (&optional (name (server-name)))
-  "What was saved for the server called NAME: (name windows panes saved-at)
-rows, or nothing."
-  (let ((dir (uiop:ensure-directory-pathname
-              (merge-pathnames (format nil "atty/~A/" (a-name name "a server")) (state-home)))))
-    (multiple-value-bind (tree status) (read-state-file (tree-file dir) :atty-state)
-      (when (eq status :ok)
-        (loop :for session :in (getf (nthcdr 2 tree) :sessions)
-              :collect (list (getf session :name)
-                             (length (getf session :windows))
-                             (length (let ((ids nil))
-                                       (labels ((walk (said)
-                                                  (cond ((integerp said) (pushnew said ids))
-                                                        ((consp said) (mapc #'walk (rest said))))))
-                                         (dolist (w (getf session :windows))
-                                           (walk (getf w :layout))))
-                                       ids))
-                             (getf (nthcdr 2 tree) :saved)))))))

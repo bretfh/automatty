@@ -26,8 +26,8 @@
                  (map 'string #'code-char bytes))))
 
 (defun taken (reader)
-  (mux:wire-fill reader)
-  (mux:wire-take reader))
+  (mux:wire-receive reader)
+  (mux:wire-read-message reader))
 
 (test a-message-written-and-read-back-is-the-same-message
   (with-wires (sender reader)
@@ -35,7 +35,7 @@
       (mux:wire-send sender said)
       (is (mux:wire-flush sender))
       (is (equal said (taken reader)))
-      (is (null (mux:wire-take reader))))))
+      (is (null (mux:wire-read-message reader))))))
 
 (test two-messages-in-one-read-are-two-messages
   (with-wires (sender reader)
@@ -43,16 +43,16 @@
     (mux:wire-send sender '(:resize 40 120))
     (mux:wire-flush sender)
     (is (equal '(:keys "abc") (taken reader)))
-    (is (equal '(:resize 40 120) (mux:wire-take reader)))
-    (is (null (mux:wire-take reader)))))
+    (is (equal '(:resize 40 120) (mux:wire-read-message reader)))
+    (is (null (mux:wire-read-message reader)))))
 
 (test a-message-delivered-a-byte-at-a-time-is-one-message
   (with-wires (sender reader)
     (let ((bytes (message-bytes '(:cursor 3 4 t :block))))
       (dotimes (i (1- (length bytes)))
         (pty:pty-write-string (mux:wire-fd sender) (string (char bytes i)))
-        (mux:wire-fill reader)
-        (is (null (mux:wire-take reader))
+        (mux:wire-receive reader)
+        (is (null (mux:wire-read-message reader))
             "a message said itself before all of it had arrived"))
       (pty:pty-write-string (mux:wire-fd sender)
                             (string (char bytes (1- (length bytes)))))
@@ -80,11 +80,11 @@
          (esc "[2;1H") (format nil "~C~C" (code-char #x6F22) (code-char #x5B57)))
     (blit screen pane)
     (multiple-value-bind (said faces)
-        (mux:runs-said screen (tty:screen-diff was screen))
+        (mux:encode-runs screen (tty:screen-diff was screen))
       (let ((form (with-standard-io-syntax
                     (let ((*package* (find-package '#:atty)))
                       (read-from-string (prin1-to-string (list said faces)))))))
-        (mux:said-into-screen there (first form) (second form))))
+        (mux:decode-runs-into-screen there (first form) (second form))))
     (dotimes (y 3)
       (dotimes (x 20)
         (is (char= (char-at screen x y) (char-at there x y))
@@ -102,15 +102,15 @@
     (say pane (csi "4:3;58;5;9m") "curly" (csi "0m") (esc "[2;1H") (csi "7m") "flipped")
     (blit screen pane)
     (multiple-value-bind (said faces)
-        (mux:runs-said screen (tty:screen-diff was screen))
-      (let ((runs (mux:said-into-screen there said faces)))
+        (mux:encode-runs screen (tty:screen-diff was screen))
+      (let ((runs (mux:decode-runs-into-screen there said faces)))
         (say host (with-output-to-string (s)
                     (tty:encode-frame there runs s)))))
     (is (null (difference there host)) "~A" (difference there host))))
 
 (test what-a-peer-names-is-not-named-in-this-image
   (let ((form (let ((*read-eval* nil)
-                    (*package* (mux::reading-package)))
+                    (*package* (mux::message-package)))
                 (read-from-string "(:keys a-name-nobody-here-uses nil t)"))))
     (is (eq :keys (first form)))
     (is (null (find-symbol "A-NAME-NOBODY-HERE-USES" '#:atty))
@@ -119,10 +119,10 @@
     (is (eq t (fourth form)) "t off the wire did not read as t")))
 
 (test the-package-a-peer-names-things-in-is-thrown-away-when-it-fills
-  (let ((was (mux::reading-package)))
-    (dotimes (i (1+ mux::+most-names+))
+  (let ((was (mux::message-package)))
+    (dotimes (i (1+ mux::+max-interned-names+))
       (intern (format nil "MADE-UP-~D" i) was))
     (is-true (mux::too-many-names-p was))
     (let ((mux::*reads* 1023))
-      (is (not (eq was (mux::reading-package)))
+      (is (not (eq was (mux::message-package)))
           "a package full of made-up names was kept"))))

@@ -87,7 +87,7 @@ latency:
 
 # the program. ./atty is the whole of it: run it, put it on PATH, copy it to
 # another machine. Everything it does is its own argument, not a make target.
-atty: build.lisp atty.asd libatty.asd $(wildcard src/*/*.lisp) $(wildcard readers/*/*/reader.lisp)
+atty: build.lisp atty.asd libatty.asd $(wildcard src/*/*.lisp src/*/*/*.lisp src/*/*/*/*.lisp) $(wildcard readers/*/*/reader.lisp)
 	$(IN) '$(ENV) ATTY_OUT="$$PWD/atty" ATTY_VERSION="$(VERSION)" $(SBCL) --non-interactive --load build.lisp'
 
 # the binary as a release carries it: one tarball named for the version and

@@ -1,0 +1,148 @@
+;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
+
+(in-package #:atty/test)
+
+(def-suite server-mouse :in all)
+(in-suite server-mouse)
+
+(test a-key-names-a-button-going-down-moving-and-coming-up
+  (flet ((named (&rest event) (atty/mode:spelled (mux::mouse-event-key (cons :mouse event)))))
+    (is (equal "mouse-1" (named :button :left)))
+    (is (equal "mouse-1-up" (named :button :left :release t)))
+    (is (equal "mouse-1-drag" (named :button :left :drag t)))
+    (is (equal "mouse-3-drag" (named :button :right :drag t)))
+    (is (equal "wheel-up" (named :wheel :up)))
+    (is (equal "S-wheel-down" (named :wheel :down :shift t)))
+    (is (null (mux::mouse-event-key '(:mouse :button nil :drag t)))
+        "a pointer moving with nothing held has no name")))
+
+(test the-wheel-and-the-scroll-keys-are-bound-with-nothing-set-up
+  (flet ((bound (chord mode) (atty/mode:lookup-key chord (atty/mode:mode-named mode))))
+    (is (eq #'mux::natural-scroll-up (bound "wheel-up" 'mux:pane-mode)))
+    (is (eq #'mux::natural-scroll-down (bound "wheel-down" 'mux:pane-mode)))
+    (is (eq #'mux::scroll-up-line (bound "S-wheel-up" 'mux:pane-mode)))
+    (is (eq #'mux::mouse-dragged (bound "mouse-1-drag" 'mux:pane-mode)))
+    (is (eq #'mux::scroll-mode (bound "C-b [" 'mux:pane-mode)))
+    (is (eq #'mux::scroll-page-up (bound "PageUp" 'mux::scroll-mode)))
+    (is (eq #'mux::natural-scroll-up (bound "wheel-up" 'mux::scroll-mode))
+        "the mode for reading back lost what the pane's mode does with the wheel")))
+
+(test the-wheel-over-a-shell-reads-its-pane-back-and-typing-is-back-to-live
+  (with-a-session (session pane server "seq 1 60; sleep 30")
+    (is-true (step-until server (lambda () (search "60" (dumped pane)))))
+    (mux::session-compose session)
+    (mux::handle-wheel session :up 4 4 nil)
+    (is (eql 3 (mux::pane-scrolled pane)))
+    (mux::handle-wheel session :down 4 4 nil)
+    (mux::handle-wheel session :down 4 4 nil)
+    (is (eql 0 (mux::pane-scrolled pane)) "it went past live")
+    (mux::scroll-pane pane :page-up)
+    (is (eql 10 (mux::pane-scrolled pane)) "a page is the pane less a line to keep your place by")
+    (mux::scroll-pane pane :top)
+    (is (eql (mux::pane-history pane) (mux::pane-scrolled pane)))
+    (mux::handle-message (mux::session-server session) (mux::%make-watcher :session session) (list :keys "x"))
+    (is (eql 0 (mux::pane-scrolled pane)) "typing did not bring it back to live")))
+
+(test the-wheel-over-a-program-that-asked-for-the-mouse-is-that-programs
+  (with-a-session (session pane server
+                           "printf '\\033[?1000h\\033[?1006h'; seq 1 60; cat -v")
+    (is-true (step-until server (lambda () (and (search "60" (dumped pane))
+                                                (term:term-mouse-mode (mux:pane-term pane))))))
+    (mux::session-compose session)
+    (mux::handle-wheel session :up 4 3 nil)
+    (is (eql 0 (mux::pane-scrolled pane)) "the pane was read back under a program that wanted the wheel")
+    (is-true (step-until server (lambda () (search "[<64;5;3M" (dumped pane))))
+             "it was not told, or not told where in its own pane: ~S" (dumped pane))
+    (mux::handle-wheel session :up 4 3 '(:shift))
+    (is (eql 3 (mux::pane-scrolled pane)) "with shift held it is the pane that is read back")
+    (mux::handle-wheel session :up 29 3 nil)
+    (is (eql 6 (mux::pane-scrolled pane)) "the scrollbar is nobody's but the multiplexer's")))
+
+(test the-wheel-over-a-program-with-the-whole-screen-is-the-arrow-keys
+  (with-a-session (session pane server "printf '\\033[?1049h'; cat -v")
+    (is-true (step-until server (lambda () (term:term-in-alt-screen (mux:pane-term pane)))))
+    (mux::session-compose session)
+    (mux::handle-wheel session :down 4 3 nil)
+    (is-true (step-until server (lambda () (search "^[[B^[[B^[[B" (dumped pane))))
+             "~S" (dumped pane))))
+
+(test a-click-is-passed-on-to-a-program-that-asked-and-so-is-letting-go
+  (with-a-session (session pane server "printf '\\033[?1002h\\033[?1006h'; cat -v" :cols 60)
+    (is-true (step-until server (lambda () (term:term-mouse-mode (mux:pane-term pane)))))
+    (mux::session-compose session)
+    (let ((watcher (mux::%make-watcher)))
+      (mux::handle-pointer session watcher :press :left 4 3 nil)
+      (mux::handle-pointer session watcher :drag :left 6 4 nil)
+      (mux::handle-pointer session watcher :release :left 6 4 nil))
+    (is-true (step-until server (lambda () (search "[<0;7;4m" (dumped pane)))) "~S" (dumped pane))
+    (is (search "[<0;5;3M" (dumped pane)))
+    (is (search "[<32;7;4M" (dumped pane)))))
+
+(test an-arrow-of-the-scrollbar-held-goes-on-until-it-is-let-go
+  (with-a-session (session pane server "seq 1 200; sleep 30")
+    (is-true (step-until server (lambda () (search "200" (dumped pane)))))
+    (mux::session-compose session)
+    (let ((watcher (mux::%make-watcher)))
+      (mux::handle-pointer session watcher :press :left 29 1 nil)
+      (is (eql 1 (mux::pane-scrolled pane)) "a click on the arrow is a line")
+      (is-true (step-until server (lambda () (> (mux::pane-scrolled pane) 3)) 3)
+               "held, it did not go on")
+      (mux::handle-pointer session watcher :release :left 29 1 nil)
+      (let ((stopped (mux::pane-scrolled pane)))
+        (step-until server (lambda () nil) 1/4)
+        (is (eql stopped (mux::pane-scrolled pane)) "let go, it did not stop")))))
+
+(test the-track-pages-and-the-thumb-drags
+  (with-a-session (session pane server "seq 1 200; sleep 30")
+    (is-true (step-until server (lambda () (search "200" (dumped pane)))))
+    (mux::session-compose session)
+    (let ((watcher (mux::%make-watcher))
+          (bar (mux::pane-scrollbar session pane)))
+      (is (eq :above (mux::scrollbar-part bar 3)))
+      (mux::handle-pointer session watcher :press :left 29 3 nil)
+      (mux::handle-pointer session watcher :release :left 29 3 nil)
+      (is (eql 10 (mux::pane-scrolled pane)) "a click on the track above the thumb is a page back")
+      (mux::pane-scroll-to pane 0)
+      (let ((thumb (loop :for y :from 1 :below 12
+                         :when (eq :thumb (mux::scrollbar-part bar y)) :do (return y))))
+        (mux::handle-pointer session watcher :press :left 29 thumb nil)
+        (mux::handle-pointer session watcher :drag :left 29 2 nil)
+        (is (eql (mux::pane-history pane) (mux::pane-scrolled pane))
+            "dragged to the head of the track it is as far back as there is")
+        (mux::handle-pointer session watcher :drag :left 29 thumb nil)
+        (is (eql 0 (mux::pane-scrolled pane)) "and dragged back to where it was, live")
+        (mux::handle-pointer session watcher :release :left 29 thumb nil)))))
+
+(test the-chip-is-back-to-live
+  (with-a-session (session pane server "seq 1 200; sleep 30")
+    (is-true (step-until server (lambda () (search "200" (dumped pane)))))
+    (mux::pane-scroll-to pane 40)
+    (let* ((screen (mux::session-compose session))
+           (at (search "↓ 40 to live" (shown screen 11))))
+      (is-true at "~S" (shown screen 11))
+      (mux::handle-pointer session (mux::%make-watcher) :press :left at 11 nil)
+      (is (eql 0 (mux::pane-scrolled pane))))))
+
+(test a-session-can-give-the-column-back
+  (with-a-session (session pane server "sleep 30")
+    (mux::session-compose session)
+    (is (eql 29 (term:term-width (mux:pane-term pane))))
+    (mux::handle-message (mux::session-server session) (mux::%make-watcher :session session) (list :scrollbars :toggle))
+    (mux::session-compose session)
+    (is (eql 30 (term:term-width (mux:pane-term pane))))))
+
+(test a-wheel-at-the-terminal-reads-the-pane-back-on-the-screen-and-a-key-returns
+  ;; below the bar, since the bar says what the command was and that has a 60 in it
+  (with-server (path :command "seq 1 60; sleep 30" :rows 10 :cols 40)
+    (with-seer (seer path :rows 10 :cols 40)
+      (is-true (pump seer :until (lambda () (search "60" (seen-below-bar seer)))))
+      (type-at seer (format nil "~C[<64;5;5M" #\Escape))
+      (is-true (pump seer :want "3 to live") "~S" (seen seer))
+      (is (search "57" (seen-below-bar seer)))
+      (is (null (search "60" (seen-below-bar seer)))
+          "the foot of it is still showing: ~S" (seen seer))
+      (is (null (search "[<" (seen seer))) "the wheel left raw bytes in the pane")
+      (type-at seer "x")
+      (is-true (pump seer :until (lambda () (search "60" (seen-below-bar seer))))
+               "a key did not bring it back to live: ~S" (seen seer))
+      (is (null (search "to live" (seen seer)))))))

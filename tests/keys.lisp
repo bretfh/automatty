@@ -102,7 +102,7 @@
   (let ((left (csi "<66;3;4M")) (right (csi "<67;3;4M")))
     (is (eq :left (getf (rest (tty:escape-sequence-to-key-event left)) :wheel)))
     (is (eq :right (getf (rest (tty:escape-sequence-to-key-event right)) :wheel)))
-    (is (equal "wheel-right" (atty/mode:key-sym (mux::mouse-key-of (tty:escape-sequence-to-key-event right)))))))
+    (is (equal "wheel-right" (atty/mode:key-sym (mux::mouse-event-key (tty:escape-sequence-to-key-event right)))))))
 
 (test a-wheel-is-told-apart-from-a-button-and-keeps-its-direction
   (let ((wup (format nil "~C[<64;1;1M" #\Escape))

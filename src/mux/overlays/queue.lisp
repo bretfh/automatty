@@ -2,7 +2,7 @@
 
 (in-package #:atty)
 
-(declaim (ftype function explain-this-pane short-tty))
+(declaim (ftype function explain-pane))
 
 ;;; Needs you: every pane in every session that is asking something, oldest
 ;;; first, with what it asks and the answers it takes, and the screen of the one
@@ -45,7 +45,7 @@
 
 ;;; What the client has been told about the panes, read for the queue.
 
-(defun row-for (row now)
+(defun row-duration (row now)
   "How long ROW's pane has been what it is, now: what the server said, and the
 time since it said it."
   (let ((for (getf row :for)))
@@ -74,23 +74,10 @@ from a server that has no windows."
           (getf row :kind) (getf row :state)
           (getf (getf row :asks) :subject)))
 
-(defun rows-of (client)
-  (loop :for row :being :the :hash-values :of (client-panes client) :collect row))
-
-(defun said-by (client who)
+(defun log-actor-text (client actor)
   "WHO from a log, as this client would say it: ◆ here, ⌨ ttys051, ⌁ todo:1.2,
 $ cli."
-  (who-text who client))
-
-(defun key-in (mode command)
-  "The chord COMMAND is bound to in MODE, or its name when nothing is: a hint
-names whatever somebody has set up, not what this file set up."
-  (let* ((does (and (fboundp command) (symbol-function command)))
-         (chord (car (find does (atty/mode:keys-in-force (atty/mode:mode-named mode)) :key #'cdr))))
-    (cond ((null chord) (string-downcase (substitute #\Space #\- (symbol-name command))))
-          ((string= chord "RET") "↵")
-          ((string= chord "TAB") "⇥")
-          (t chord))))
+  (format-actor actor client))
 
 ;;; The queue.
 
@@ -100,21 +87,21 @@ names whatever somebody has set up, not what this file set up."
   (filtering nil)
   (order :oldest)                       ; :oldest or :name
   (every t)                             ; every session, or this one
-  (showing-lately t)                    ; whether what was answered lately is shown
+  (showing-recent t)                    ; whether what was answered lately is shown
   (laid nil))
 
 (defun queue-rows (q client)
   "Every pane that is asking something, the one waiting longest first or by
 name as the sort says, in every session or this one, and only those the
 filter matches."
-  (let* ((now (ms-here))
+  (let* ((now (client-ms))
          (blocked (remove-if-not (lambda (r) (and (getf r :known) (eq :blocked (getf r :state))
                                                   (or (queue-every q)
                                                       (equal (getf r :session) (client-session client)))))
-                                 (rows-of client)))
+                                 (client-pane-rows client)))
          (sorted (if (eq :name (queue-order q))
                      (sort blocked #'string< :key #'row-path)
-                     (sort blocked #'> :key (lambda (r) (or (row-for r now) 0))))))
+                     (sort blocked #'> :key (lambda (r) (or (row-duration r now) 0))))))
     (if (plusp (length (queue-query q)))
         (matches (queue-query q) sorted #'row-text)
         sorted)))
@@ -134,19 +121,19 @@ filter matches."
 waited, who else is looking at it and what it asks; the detail; the answers.
 The whole of it is a button that picks it."
   (let* ((asks (getf row :asks))
-         (looking (clients-looking-at client (getf row :session) (getf row :window))))
+         (looking (other-clients-at client (getf row :session) (getf row :window))))
     (bar-button (list :pick i)
      (atty/ui:column :align :stretch
       (gutter-row (if selected "▶" "")
                   (atty/ui:row :spacing 0
                                (atty/ui:label (row-path row) :face :strong)
                                (atty/ui:label (format nil "  ~A" (or (getf row :kind) "")) :face :quiet)
-                               (atty/ui:label (format nil "   ▲ ~A" (duration (row-for row now)))
+                               (atty/ui:label (format nil "   ▲ ~A" (format-duration (row-duration row now)))
                                               :face :state-blocked-strong)
                                (atty/ui:label (format nil "   ~A" (or (getf asks :subject) "asking something")) :face :strong)
                                (atty/ui:label (if looking
                                                   (format nil "   ⌨ ~{~A~^, ~} looking"
-                                                          (mapcar (lambda (c) (short-tty (second c) (first c))) looking))
+                                                          (mapcar (lambda (c) (format-tty (second c) (first c))) looking))
                                                   "")
                                               :face :client))
                   :selected selected)
@@ -157,8 +144,8 @@ The whole of it is a button that picks it."
                   :selected selected)
       (atty/ui:label "")))))
 
-(defun lately-line (client entry)
-  (destructuring-bind (session id age who verb summary outcome &optional clock) entry
+(defun recent-line (client entry)
+  (destructuring-bind (session id age actor verb summary outcome &optional clock) entry
     (declare (ignore clock))
     (gutter-row (atty/ui:label (if (eq outcome t) "✓ " "✗ ") :face (if (eq outcome t) :state-idle :error))
                 (atty/ui:row :spacing 0
@@ -166,10 +153,10 @@ The whole of it is a button that picks it."
                                                                        (and row (row-path row)))
                                                                      (format nil "~A:~D" session id)))
                                             :face :quiet)
-                             (atty/ui:label (format nil "~(~A~) ~A" verb (shortened-to (or summary "") 30)))
+                             (atty/ui:label (format nil "~(~A~) ~A" verb (truncate-string (or summary "") 30)))
                              (atty/ui:label (if (eq outcome t) "   " "   refused   ") :face :error)
-                             (who who client :pad 18)
-                             (atty/ui:label (format nil "  ~A ago" (duration age)) :face :quiet)))))
+                             (actor-label actor client :pad 18)
+                             (atty/ui:label (format nil "  ~A ago" (format-duration age)) :face :quiet)))))
 
 (defun queue-preview (client row)
   (let ((screen (and row (gethash (cons (getf row :session) (getf row :id))
@@ -186,29 +173,29 @@ The whole of it is a button that picks it."
 
 (defun queue-window (q client rows)
   "Which questions fit: the first shown and how many, the chosen one among them."
-  (let* ((lately (if (and (queue-showing-lately q) (client-lately client))
-                     (1+ (length (client-lately client)))
+  (let* ((recent (if (and (queue-showing-recent q) (client-recent client))
+                     (1+ (length (client-recent client)))
                      0))
-         (room (max +question-rows+ (- (client-rows client) 6 lately)))
+         (room (max +question-rows+ (- (client-rows client) 6 recent)))
          (most (max 1 (floor room +question-rows+)))
          (from (max 0 (min (- (length rows) most) (- (queue-index q) (floor most 2))))))
     (values from most)))
 
 (defun queue-tree (q client)
-  (let* ((now (ms-here))
+  (let* ((now (client-ms))
          (rows (queue-rows q client))
          (chosen (nth (queue-index q) rows))
-         (oldest (and rows (row-for (first rows) now))))
+         (oldest (and rows (row-duration (first rows) now))))
     (overlay-tree
      :title "needs you"
-     :path (atty/ui:label (format nil "~D waiting~@[ · oldest ~A~]" (length rows) (and oldest (duration oldest)))
+     :path (atty/ui:label (format nil "~D waiting~@[ · oldest ~A~]" (length rows) (and oldest (format-duration oldest)))
                           :face :quiet)
      :toolbar (toolbar (selector "sort" (if (eq :name (queue-order q)) "by name" "oldest first") :runs '(:sort) :key "s")
                        (toggle "every session" (queue-every q) :runs '(:toggle :every) :key "a")
-                       (toggle "answered lately" (queue-showing-lately q) :runs '(:toggle :lately) :key "l")
+                       (toggle "answered lately" (queue-showing-recent q) :runs '(:toggle :lately) :key "l")
                        (field "/" (queue-query q) :cursor (queue-filtering q) :runs '(:filter) :width 24)
                        :right
-                       (keycap "↵" "go" :runs "queue go")
+                       (keycap "↵" "go" :runs "queue goto")
                        (keycap "e" "why" :runs "queue explain")
                        (keycap "r" "read" :runs "queue read")
                        (keycap "p" "prompt" :runs "queue prompt"))
@@ -224,24 +211,24 @@ The whole of it is a button that picks it."
                                 :collect (queue-item client row now i (= i (queue-index q))))
                           (list (atty/ui:label "   nothing needs you" :face :quiet)
                                 (atty/ui:label "")))
-                      (when (and (queue-showing-lately q) (client-lately client))
+                      (when (and (queue-showing-recent q) (client-recent client))
                         (cons (section "answered lately")
-                              (mapcar (lambda (e) (lately-line client e)) (client-lately client))))
+                              (mapcar (lambda (e) (recent-line client e)) (client-recent client))))
                       (list (atty/ui:gap :expand 1))))
               (rail from most (max 1 (length rows)))
               (atty/ui:rule :upright t :face :card)
               (queue-preview client chosen)))
      :hints (hints 'queue-mode "↑↓" "choose" "1-9" "answer in place"
-                   'queue-go "go there" 'queue-explain "why it thinks so" 'queue-read "read"
+                   'queue-goto "go there" 'queue-explain "why it thinks so" 'queue-read "read"
                    'queue-prompt "prompt instead" 'queue-filter "filter"))))
 
-(defmethod draw-over ((q queue) screen)
-  (let ((client *drawing-for*))
+(defmethod draw-overlay ((q queue) screen)
+  (let ((client *overlay-client*))
     (setf (queue-index q) (max 0 (min (queue-index q)
                                       (1- (length (queue-rows q client))))))
-    (setf (queue-laid q) (draw-overlay (queue-tree q client) client screen))))
+    (setf (queue-laid q) (draw-overlay-tree (queue-tree q client) client screen))))
 
-(defmethod laid-tree ((q queue)) (queue-laid q))
+(defmethod overlay-laid-tree ((q queue)) (queue-laid q))
 
 (atty/mode:define-mode queue-mode ())
 
@@ -252,15 +239,15 @@ The whole of it is a button that picks it."
 (defmethod mode-of ((q queue))
   (if (queue-filtering q) 'queue-filter-mode 'queue-mode))
 
-(defmethod ticks-p ((q queue)) t)
-(defmethod over-name ((q queue)) "needs you")
-(defmethod close-over ((q queue) client) (queue-close-it q client))
+(defmethod overlay-ticks-p ((q queue)) t)
+(defmethod overlay-name ((q queue)) "needs you")
+(defmethod close-overlay ((q queue) client) (close-queue q client))
 
-(defun the-queue ()
-  (let ((it (first (client-over *client*))))
+(defun current-queue ()
+  (let ((it (first (client-overlays *client*))))
     (when (typep it 'queue) it)))
 
-(defmethod unbound ((q queue) chord client)
+(defmethod overlay-unbound-key ((q queue) chord client)
   "A digit answers the one picked with that number. While filtering, what is
 typed is the filter."
   (let ((said (atty/mode:self-inserting chord)))
@@ -273,127 +260,127 @@ typed is the filter."
         ((and (= 1 (length said)) (digit-char-p (char said 0))
               (plusp (digit-char-p (char said 0))))
          (let ((*client* client))
-           (queue-answer-with (digit-char-p (char said 0))))))
+           (queue-answer (digit-char-p (char said 0))))))
       t)))
 
-(defun queue-answer-with (n)
-  (let* ((q (the-queue))
+(defun queue-answer (n)
+  (let* ((q (current-queue))
          (row (and q (queue-chosen q *client*))))
     (when row
-      (tell-the-server (list :answer (getf row :session) (getf row :id) n)))))
+      (send-to-server (list :answer (getf row :session) (getf row :id) n)))))
 
-(defun queue-close-it (q client)
-  (client-over-drop client q)
-  (stop-told client))
+(defun close-queue (q client)
+  (client-pop-overlay client q)
+  (unsubscribe-panes client))
 
 (defcommand (queue-next :unlisted)
-  (let ((q (the-queue)))
+  (let ((q (current-queue)))
     (when q (setf (queue-index q) (1+ (queue-index q))))))
 
 (defcommand (queue-previous :unlisted)
-  (let ((q (the-queue)))
+  (let ((q (current-queue)))
     (when q (setf (queue-index q) (max 0 (1- (queue-index q)))))))
 
-(defcommand (queue-go :unlisted)
-  (let* ((q (the-queue))
+(defcommand (queue-goto :unlisted)
+  (let* ((q (current-queue))
          (row (and q (queue-chosen q *client*))))
     (when q
-      (queue-close-it q *client*)
+      (close-queue q *client*)
       (when row
-        (tell-the-server (list :focus-pane (getf row :session) (getf row :id)))))))
+        (send-to-server (list :focus-pane (getf row :session) (getf row :id)))))))
 
 (defcommand (queue-read :unlisted)
-  (let* ((q (the-queue))
+  (let* ((q (current-queue))
          (row (and q (queue-chosen q *client*))))
     (when row
-      (tell-the-server (list :pane-read (getf row :session) (getf row :id))))))
+      (send-to-server (list :pane-read (getf row :session) (getf row :id))))))
 
 (defcommand (queue-prompt :unlisted)
-  (let* ((q (the-queue))
+  (let* ((q (current-queue))
          (row (and q (queue-chosen q *client*))))
     (when row
       (let ((session (getf row :session))
             (id (getf row :id)))
-        (ask *client* (format nil "prompt ~A:~D" session id)
+        (open-prompt *client* (format nil "prompt ~A:~D" session id)
              (list "it is asking something; a prompt is refused until it is answered")
              :free t
              :chose (lambda (typed c)
                       (let ((*client* c))
                         (when (plusp (length typed))
-                          (tell-the-server (list :agent-prompt session id typed))))))))))
+                          (send-to-server (list :agent-prompt session id typed))))))))))
 
 (defcommand (queue-filter :unlisted)
-  (let ((q (the-queue)))
+  (let ((q (current-queue)))
     (when q
       (setf (queue-filtering q) t)
-      (client-in-mode *client*))))
+      (current-client-mode *client*))))
 
-(defcommand (queue-rub-out :unlisted)
-  (let ((q (the-queue)))
+(defcommand (queue-delete-backward :unlisted)
+  (let ((q (current-queue)))
     (when (and q (queue-filtering q))
       (let ((s (queue-query q)))
         (setf (queue-query q) (subseq s 0 (max 0 (1- (length s)))))))))
 
 (defcommand (queue-explain :unlisted)
   "go to the one picked and open the drawer on it"
-  (queue-go)
-  (explain-this-pane))
+  (queue-goto)
+  (explain-pane))
 
 (defcommand (queue-sort :unlisted)
   "the questions oldest first, or by where they are"
-  (let ((q (the-queue)))
+  (let ((q (current-queue)))
     (when q (setf (queue-order q) (if (eq :name (queue-order q)) :oldest :name)))))
 
-(defcommand (queue-every-session :unlisted)
+(defcommand (queue-all-sessions :unlisted)
   "every session's questions, or this one's"
-  (let ((q (the-queue)))
+  (let ((q (current-queue)))
     (when q (setf (queue-every q) (not (queue-every q)) (queue-index q) 0))))
 
-(defcommand (queue-lately :unlisted)
+(defcommand (queue-recent :unlisted)
   "what was answered lately shown under the questions, or not"
-  (let ((q (the-queue)))
-    (when q (setf (queue-showing-lately q) (not (queue-showing-lately q))))))
+  (let ((q (current-queue)))
+    (when q (setf (queue-showing-recent q) (not (queue-showing-recent q))))))
 
 (defcommand (queue-click :unlisted)
   "a click on a question picks it; on an answer, answers; on a control, does
 what it says"
-  (let* ((q (the-queue))
-         (hit (and q (queue-laid q) *mouse-at*
-                   (button-at (queue-laid q) (cdr *mouse-at*) (car *mouse-at*)))))
+  (let* ((q (current-queue))
+         (hit (and q (queue-laid q) *mouse-position*
+                   (button-at (queue-laid q) (cdr *mouse-position*) (car *mouse-position*)))))
     (when hit
       (let ((runs (bar-button-runs hit)))
         (case (and (consp runs) (first runs))
           (:pick (setf (queue-index q) (second runs) (client-dirty *client*) t))
-          (:answer (tell-the-server runs))
+          (:answer (send-to-server runs))
           (:sort (queue-sort))
-          (:toggle (ecase (second runs) (:every (queue-every-session)) (:lately (queue-lately))))
+          (:toggle (ecase (second runs) (:every (queue-all-sessions)) (:lately (queue-recent))))
           (:filter (queue-filter))
-          (t (generic-click q runs *client*)))))))
+          (t (handle-button q runs *client*)))))))
 
-(defcommand (queue-nothing :unlisted) nil)
+(defcommand (queue-ignore :unlisted) nil)
 
 (defcommand (queue-close :unlisted)
-  (let ((q (the-queue)))
-    (when q (queue-close-it q *client*))))
+  (let ((q (current-queue)))
+    (when q (close-queue q *client*))))
 
-(defcommand (queue-done-filtering :unlisted)
-  (let ((q (the-queue)))
+(defcommand (queue-accept-filter :unlisted)
+  (let ((q (current-queue)))
     (when q
       (setf (queue-filtering q) nil)
-      (client-in-mode *client*))))
+      (current-client-mode *client*))))
 
-(defcommand (queue-drop-filter :unlisted)
-  (let ((q (the-queue)))
+(defcommand (queue-clear-filter :unlisted)
+  (let ((q (current-queue)))
     (when q
       (setf (queue-filtering q) nil
             (queue-query q) "")
-      (client-in-mode *client*))))
+      (current-client-mode *client*))))
 
 (atty/mode:define-key 'queue-mode "Down"   #'queue-next)
 (atty/mode:define-key 'queue-mode "C-n"    #'queue-next)
 (atty/mode:define-key 'queue-mode "Up"     #'queue-previous)
 (atty/mode:define-key 'queue-mode "C-p"    #'queue-previous)
-(atty/mode:define-key 'queue-mode "RET"    #'queue-go)
+(atty/mode:define-key 'queue-mode "RET"    #'queue-goto)
 (atty/mode:define-key 'queue-mode "r"      #'queue-read)
 (atty/mode:define-key 'queue-mode "p"      #'queue-prompt)
 (atty/mode:define-key 'queue-mode "/"      #'queue-filter)
@@ -401,21 +388,21 @@ what it says"
 (atty/mode:define-key 'queue-mode "C-g"    #'queue-close)
 (atty/mode:define-key 'queue-mode "e"      #'queue-explain)
 (atty/mode:define-key 'queue-mode "s"      #'queue-sort)
-(atty/mode:define-key 'queue-mode "a"      #'queue-every-session)
-(atty/mode:define-key 'queue-mode "l"      #'queue-lately)
-(atty/mode:define-key 'queue-mode "?"      "keys of this mode")
+(atty/mode:define-key 'queue-mode "a"      #'queue-all-sessions)
+(atty/mode:define-key 'queue-mode "l"      #'queue-recent)
+(atty/mode:define-key 'queue-mode "?"      "describe mode")
 (atty/mode:define-key 'queue-mode "mouse-1" #'queue-click)
-(atty/mode:define-key 'queue-mode "mouse-1-up" #'queue-nothing)
+(atty/mode:define-key 'queue-mode "mouse-1-up" #'queue-ignore)
 (atty/mode:define-key 'queue-mode "wheel-up"   #'queue-previous)
 (atty/mode:define-key 'queue-mode "wheel-down" #'queue-next)
 
-(atty/mode:define-key 'queue-filter-mode "RET"    #'queue-done-filtering)
-(atty/mode:define-key 'queue-filter-mode "DEL"    #'queue-rub-out)
-(atty/mode:define-key 'queue-filter-mode "Escape" #'queue-drop-filter)
-(atty/mode:define-key 'queue-filter-mode "C-g"    #'queue-drop-filter)
+(atty/mode:define-key 'queue-filter-mode "RET"    #'queue-accept-filter)
+(atty/mode:define-key 'queue-filter-mode "DEL"    #'queue-delete-backward)
+(atty/mode:define-key 'queue-filter-mode "Escape" #'queue-clear-filter)
+(atty/mode:define-key 'queue-filter-mode "C-g"    #'queue-clear-filter)
 
-(defcommand (needs-you :group agents)
+(defcommand (show-queue :group agents)
   "every question anywhere, oldest first; a digit answers it"
   (let ((q (%make-queue)))
-    (keep-told *client*)
-    (client-over-put *client* q)))
+    (subscribe-panes *client*)
+    (client-push-overlay *client* q)))

@@ -101,8 +101,12 @@ Autowrap stays off for the whole session: writing the bottom right cell of a
 terminal that has it on scrolls the screen out from under everything.")
 
 (defparameter +gave-back+
-  (format nil "~C[0m~C[?25h~C[?7h~C[?1006l~C[?1002l~C[?1049l"
-          #\Escape #\Escape #\Escape #\Escape #\Escape #\Escape))
+  (format nil "~C[0m~C[?25h~C[?7h~C[?2004l~C[?1006l~C[?1002l~C[?1049l"
+          #\Escape #\Escape #\Escape #\Escape #\Escape #\Escape #\Escape)
+  "Bracketed paste is turned off here too, whether or not it was ever turned on
+for this attach: a pane's own request only lasts as long as it has the focus,
+but if it were somehow left on, the next thing to run in this real terminal
+must not inherit it.")
 
 (defvar *asked-to-stop* nil)
 

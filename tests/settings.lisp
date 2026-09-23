@@ -35,7 +35,7 @@
     (is (eq #'mux::detach (atty/mode:lookup-key "C-a d" (atty/mode:mode-named 'mux:pane-mode))))
     (is (null (atty/mode:lookup-key "C-b d" (atty/mode:mode-named 'mux:pane-mode)))
         "the old prefix still reaches detach")
-    (is (eq #'mux::send-the-prefix
+    (is (eq #'mux::send-prefix
             (atty/mode:lookup-key "C-a C-a" (atty/mode:mode-named 'mux:pane-mode))))
     (mux:configure :prefix (code-char 2))
     (is (eq #'mux::detach (atty/mode:lookup-key "C-b d" (atty/mode:mode-named 'mux:pane-mode))))
@@ -63,8 +63,8 @@
       (mux:configure :scrollbars-by-default nil :bar-by-default nil)
       (with-a-server-here (server path)
         (let ((session (mux:add-session server "sleep 30" :name "work" :rows 6 :cols 30)))
-          (is (null (mux::session-scrollbarsp session)))
-          (is (null (mux::session-barp session))))))))
+          (is (null (mux::session-scrollbars-p session)))
+          (is (null (mux::session-bar-p session))))))))
 
 (test a-hook-that-comes-apart-is-said-and-the-rest-still-run
   (let ((ran nil))
@@ -96,7 +96,7 @@
                (let ((session (mux:add-session server "sleep 30" :name "work" :rows 6 :cols 30)))
                  (is (equal (list session) made))
                  (is (eq (mux:session-focus session) (cdr (first started))))
-                 (mux::split-the-session session :across)
+                 (mux::session-split session :across)
                  (is (eql 2 (length started))))))
         (mux:remove-hook 'mux::session-made #'a-session)
         (mux:remove-hook 'mux::pane-started #'a-pane)))))

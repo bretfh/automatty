@@ -7,8 +7,8 @@
 (declaim (ftype function now-ms))
 
 (defparameter +pulse-cells+ 16 "How many cells a pane's pulse has.")
-(defparameter +pulse-every+ 75000 "How long one cell of the pulse covers, in milliseconds.")
-(defparameter +events-length+ 64 "How many events a pane keeps.")
+(defparameter +pulse-interval+ 75000 "How long one cell of the pulse covers, in milliseconds.")
+(defparameter +max-events+ 64 "How many events a pane keeps.")
 
 (defparameter +shells+
   '("sh" "bash" "zsh" "fish" "dash" "ksh" "mksh" "oksh" "tcsh" "csh" "yash"
@@ -34,7 +34,7 @@
   (log nil)
   (log-count 0 :type fixnum)
   (moved-at 0 :type integer)
-  (queued nil)
+  (pending-prompt nil)
   (command nil)
   (directory nil)
   (agent nil)
@@ -58,11 +58,11 @@
   (events-count 0 :type fixnum)
   (decoder (term:make-decoder)))
 
-(defun pane-pulse-roll (pane now state)
+(defun pane-roll-pulse (pane now state)
   "Bring PANE's pulse up to NOW, in milliseconds: a fresh cell for every
 +pulse-every+ that has passed, then what was read since is added to the newest
 cell and STATE kept in it when it is worse than what was."
-  (let ((cell (floor now +pulse-every+)))
+  (let ((cell (floor now +pulse-interval+)))
     (when (< (pane-pulse-at pane) cell)
       (let ((gap (if (minusp (pane-pulse-at pane))
                      0
@@ -77,16 +77,16 @@ cell and STATE kept in it when it is worse than what was."
         (setf (cdr newest) state)))
     (pane-pulse pane)))
 
-(defun pane-noted (pane now kind who &optional text)
+(defun pane-push-event (pane now kind actor &optional text)
   "Put in PANE's events that KIND happened at NOW, done by WHO when somebody
 did it, with TEXT saying what."
-  (push (list now (get-universal-time) kind who text) (pane-events pane))
-  (when (> (incf (pane-events-count pane)) +events-length+)
-    (setf (pane-events pane) (subseq (pane-events pane) 0 (floor +events-length+ 2))
-          (pane-events-count pane) (floor +events-length+ 2)))
+  (push (list now (get-universal-time) kind actor text) (pane-events pane))
+  (when (> (incf (pane-events-count pane)) +max-events+)
+    (setf (pane-events pane) (subseq (pane-events pane) 0 (floor +max-events+ 2))
+          (pane-events-count pane) (floor +max-events+ 2)))
   (first (pane-events pane)))
 
-(defparameter +programs-every+ 1000)
+(defparameter +program-poll-interval+ 1000)
 
 (defun make-pane (command &key (rows 24) (cols 80) directory id)
   "A pane with a terminal that size and no program in it yet.
@@ -115,17 +115,17 @@ made now takes the next."
                                                                           :paths (pane-paths pane)))
                         :input-fn (lambda (term said)
                                     (declare (ignore term))
-                                    (pane-say pane said))))
+                                    (pane-write pane said))))
     pane))
 
 (defun pane-started (pane) (>= (pane-fd pane) 0))
 
-(defun pane-notice-programs (pane now)
+(defun pane-update-programs (pane now)
   (when (and (pane-started pane) (pane-running pane))
     (let ((group (pty:pty-foreground (pane-fd pane))))
       (when (or (not (eql group (pane-group pane)))
                 (and (null (agent:agent-reader (pane-agent pane)))
-                     (>= (- now (pane-programs-at pane)) +programs-every+)))
+                     (>= (- now (pane-programs-at pane)) +program-poll-interval+)))
         (let* ((running (and group (pty:group-processes group)))
                (was (program-name (first (pane-programs pane))))
                (is (program-name (first (mapcar (lambda (p) (getf p :line)) running)))))
@@ -137,9 +137,9 @@ made now takes the next."
           ;; started; one that is gone has finished
           (unless (string= was is)
             (when (and (plusp (length was)) (not (member was +shells+ :test #'string=)))
-              (pane-noted pane now :finished nil was))
+              (pane-push-event pane now :finished nil was))
             (when (and (plusp (length is)) (not (member is +shells+ :test #'string=)))
-              (pane-noted pane now :started nil is))))
+              (pane-push-event pane now :started nil is))))
         (agent:agent-become (pane-agent pane) :title (pane-named pane)
                                               :command (pane-command pane)
                                               :programs (pane-programs pane)
@@ -216,9 +216,9 @@ program has taken the whole screen is back at it."
             (max 0 (min (pane-history pane)
                         (+ (pane-scrolled pane) (max 0 more))))))))
 
-(declaim (ftype function pane-say))
+(declaim (ftype function pane-write))
 
-(defun pane-say (pane said)
+(defun pane-write (pane said)
   (when (and (pane-running pane) (pane-started pane))
     (ignore-errors (pty:pty-write-string (pane-fd pane) said))))
 
@@ -261,29 +261,29 @@ nothing in front of it, and otherwise the program in the foreground."
 ;;; kept: what is typed at a shell is theirs. What an agent verb sent is kept,
 ;;; since it was said on the record by one program to another.
 
-(defparameter +keys-run+ 2000
+(defparameter +key-run-gap+ 2000
   "Keys from one source this close together, in milliseconds, are one entry.")
 
-(defun pane-logged (pane now who verb summary &optional (outcome t))
+(defun pane-push-log (pane now actor verb summary &optional (outcome t))
   "Put in PANE's log that WHO did VERB at NOW, and the time of day it was. For
 :keys SUMMARY is how many bytes; a run of them from the same place is one
 entry that grows."
   (let ((newest (first (pane-log pane))))
     (if (and newest (eq verb :keys) (eq (third newest) :keys)
-             (equal (second newest) who)
-             (<= (- now (first newest)) +keys-run+))
+             (equal (second newest) actor)
+             (<= (- now (first newest)) +key-run-gap+))
         (setf (first newest) now
               (fourth newest) (+ (fourth newest) summary)
               (sixth newest) (get-universal-time)
               (pane-touched pane) now)
         (progn
-          (push (list now who verb summary outcome (get-universal-time)) (pane-log pane))
+          (push (list now actor verb summary outcome (get-universal-time)) (pane-log pane))
           (setf (pane-touched pane) now)
-          (pane-noted pane now
+          (pane-push-event pane now
                       (case verb
                         (:keys :typed) (:answer :answered) (:prompt :prompted)
                         (:say :said) (:signal :signalled) (t verb))
-                      who
+                      actor
                       (cond ((eq verb :keys) nil)
                             ((eq outcome :refused) (format nil "~A (refused)" summary))
                             (t (and summary (princ-to-string summary)))))
@@ -292,8 +292,11 @@ entry that grows."
                   (pane-log-count pane) (floor +log-length+ 2)))))
     (first (pane-log pane))))
 
-(defun summarised (text &optional (most 60))
+(defun summarize-text (text &optional (most 60))
   (let ((one-line (substitute #\Space #\Newline (substitute #\Space #\Return text))))
     (if (> (length one-line) most)
         (concatenate 'string (subseq one-line 0 (1- most)) "…")
         one-line)))
+
+(defun default-shell ()
+  (or (sb-ext:posix-getenv "SHELL") "/bin/sh"))

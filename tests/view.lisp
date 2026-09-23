@@ -71,17 +71,17 @@
 
 (test a-pane-put-beside-another-and-taken-out-again
   (let ((one (a-pane "")) (two (a-pane "")) (three (a-pane "")))
-    (let ((layout (mux:put-beside one one :across two)))
-      (is (equal (list one two) (mux:panes-in layout)))
-      (setf layout (mux:put-beside layout two :down three))
-      (is (equal (list one two three) (mux:panes-in layout)))
-      (setf layout (mux:without-pane layout two))
-      (is (equal (list one three) (mux:panes-in layout)))
-      (setf layout (mux:without-pane layout one))
-      (is (equal (list three) (mux:panes-in layout))
+    (let ((layout (mux:layout-insert one one :across two)))
+      (is (equal (list one two) (mux:layout-panes layout)))
+      (setf layout (mux:layout-insert layout two :down three))
+      (is (equal (list one two three) (mux:layout-panes layout)))
+      (setf layout (mux:layout-remove layout two))
+      (is (equal (list one three) (mux:layout-panes layout)))
+      (setf layout (mux:layout-remove layout one))
+      (is (equal (list three) (mux:layout-panes layout))
           "a split down to one part did not become that part")
       (is (eq three layout))
-      (is (null (mux:without-pane layout three))
+      (is (null (mux:layout-remove layout three))
           "taking the last pane out left something behind"))))
 
 (test the-focused-pane-is-framed-heavy-and-every-frame-is-coloured-by-state
@@ -132,7 +132,7 @@
       (is (char= #\┐ (char top 19)) "the right title ran over the corner: ~S" top))))
 
 (test the-answers-fit-by-shortening-the-longest-first
-  (let ((fitted (mux::options-fitted '((1 "Yes") (2 "Yes, and don't ask again for this in ~/git/x")
+  (let ((fitted (mux::fit-options '((1 "Yes") (2 "Yes, and don't ask again for this in ~/git/x")
                                        (3 "No"))
                                      30)))
     (is (equal "Yes" (first fitted)))
@@ -141,11 +141,11 @@
     (is (search "…" (second fitted)))))
 
 (test a-time-is-said-the-way-a-person-says-it
-  (is (equal "0s" (mux::duration 0)))
-  (is (equal "41s" (mux::duration 41999)))
-  (is (equal "3m" (mux::duration (* 3 60000))))
-  (is (equal "2h" (mux::duration (* 2 3600000))))
-  (is (equal "" (mux::duration nil))))
+  (is (equal "0s" (mux::format-duration 0)))
+  (is (equal "41s" (mux::format-duration 41999)))
+  (is (equal "3m" (mux::format-duration (* 3 60000))))
+  (is (equal "2h" (mux::format-duration (* 2 3600000))))
+  (is (equal "" (mux::format-duration nil))))
 
 (test a-lone-pane-with-no-split-has-no-frame
   (let* ((pane (a-pane "solo"))
@@ -155,7 +155,7 @@
     (is (equal (list pane) (mapcar #'mux::view-pane (mux:views-in tree))))))
 
 (test a-layout-with-nothing-left-in-it-holds-no-panes
-  (is (null (mux:panes-in nil))
+  (is (null (mux:layout-panes nil))
       "an emptied layout answered a list holding nothing, which is not nothing"))
 
 ;;; Reading a pane back, and the scrollbar that says how far.

@@ -10,9 +10,7 @@
 ;;; of these and nothing else, so what a thing looks like says what it does
 ;;; wherever it is.
 
-(declaim (ftype function state-face state-glyph shortened-to key-in key-for short-tty
-                run-command tell-the-server close-over))
-(declaim (special +history-said+ *client*))
+(declaim (ftype function state-face state-glyph command-key send-to-server close-overlay))
 
 (defun bar-face (role)
   "The hex of the theme's colour called ROLE, as a widget's background wants it."
@@ -109,7 +107,7 @@ what a click on something drawn client-side lands on."
 ;;; Bands: one row across the whole width, on the band's ground, what is at
 ;;; the left then what is at the right.
 
-(defun as-parts (it)
+(defun ensure-list (it)
   "IT as a list of widgets: nothing, one, or several."
   (cond ((null it) nil)
         ((listp it) (remove nil it))
@@ -118,11 +116,11 @@ what a click on something drawn client-side lands on."
 (defun band (left right &key (ground :bg-dim))
   "A row on the band's ground: LEFT's parts, a gap, RIGHT's parts. A squeezed
 part among LEFT's takes the gap's place, so it has the room the gap would."
-  (let ((left (as-parts left)))
+  (let ((left (ensure-list left)))
     (apply #'atty/ui:row :spacing 0 :background-color (bar-face ground)
            (append left
                    (unless (some (lambda (p) (typep p 'squeezed)) left) (list (atty/ui:gap)))
-                   (as-parts right)))))
+                   (ensure-list right)))))
 
 (defun close-button ()
   "The way out, at the right of a header: a click closes whatever it is on."
@@ -133,12 +131,12 @@ part among LEFT's takes the gap's place, so it has the room the gap would."
   (band (list (atty/ui:label (format nil " ~A " title) :face :strong)
               (and path (atty/ui:label " " ))
               (and path (squeezed path)))
-        (append (as-parts right)
+        (append (ensure-list right)
                 (when close (list (atty/ui:label " ") (close-button) (atty/ui:label " "))))))
 
 (defun footer-band (hints &key right)
   "The band at the foot: the keys, and at the right the ones every surface has."
-  (band (list (atty/ui:label " ") (squeezed hints)) (append (as-parts right) (list (atty/ui:label " ")))))
+  (band (list (atty/ui:label " ") (squeezed hints)) (append (ensure-list right) (list (atty/ui:label " ")))))
 
 ;;; Keys as things to click: a cap has the key on it and says what it does;
 ;;; a hint is the key lit and the verb dim. Both run what they say.
@@ -166,7 +164,7 @@ digits, and runs nothing."
          (loop :for (command does) :on pairs :by #'cddr
                :collect (if (stringp command)
                             (hint command does)
-                            (hint (key-in mode command) does
+                            (hint (key-hint mode command) does
                                   :runs (string-downcase (substitute #\Space #\- (symbol-name command))))))))
 
 ;;; The controls a toolbar holds.
@@ -205,8 +203,8 @@ at the right."
     (apply #'atty/ui:row :spacing 1 :background-color (bar-face :bg-alt)
            (append (list (atty/ui:label ""))
                    (list (squeezed (apply #'atty/ui:row :spacing 1
-                                          (as-parts (if at (subseq parts 0 at) parts)))))
-                   (when at (as-parts (subseq parts (1+ at))))
+                                          (ensure-list (if at (subseq parts 0 at) parts)))))
+                   (when at (ensure-list (subseq parts (1+ at))))
                    (list (atty/ui:label ""))))))
 
 ;;; Rows with a gutter: two cells for a mark at the left, the row, and two
@@ -241,35 +239,6 @@ dimly, with no › before it. Nil parts are left out."
                              (if quiet
                                  (atty/ui:label (princ-to-string (second part)) :face :quiet)
                                  (atty/ui:label (princ-to-string part) :face :strong))))))
-
-(defun who-text (who client &key short)
-  "WHO from a pane's log as it is said: ◆ here for this terminal, ⌨ and its
-tty for another, ⌁ and its path for a pane, $ for the command line. SHORT is
-the glyph alone."
-  (case (first who)
-    (:client (cond ((and client (eql (second who) (client-id client))) (if short "◆" "◆ here"))
-                   (short "⌨")
-                   (t (format nil "⌨ ~A" (short-tty (third who) (second who))))))
-    (:pane (if short "⌁" (format nil "⌁ ~A" (second who))))
-    (:atty (if short "↺" "atty"))
-    (t (if short "$" "$ cli"))))
-
-(defun who-face (who client)
-  (case (first who)
-    (:client (if (and client (eql (second who) (client-id client))) :here :client))
-    (:pane :driven)
-    (t :quiet)))
-
-(defun who (who client &key (pad 0))
-  "WHO as a label in its own colour, PAD wide at least."
-  (atty/ui:label (format nil "~vA" pad (who-text who client)) :face (who-face who client)))
-
-(defun who-client (row client &key (pad 0))
-  "An attached terminal as the server lists it, (id tty …), as a label."
-  (who (list :client (first row) (second row)) client :pad pad))
-
-(defun here-p (row client)
-  (and client (eql (first row) (client-id client))))
 
 ;;; A rail: what says how far along something long a view is, and takes the
 ;;; mouse to move it. Down the side of a pane it is the scrollbar; under a
@@ -408,7 +377,7 @@ it GRABBED cells from its head is at POS."
 along the bottom; a thin rounded line in FACE, the state's colour, and a heavy
 one when it is the CURSOR's (lit, when its state has no colour of its own)."
   (let* ((framed (atty/ui:framed
-                  (apply #'atty/ui:column :align :stretch :expand 1 (as-parts body))
+                  (apply #'atty/ui:column :align :stretch :expand 1 (ensure-list body))
                   :face (if (and cursor (eq face :card)) :card-cursor face)
                   :line (if cursor :heavy :rounded)
                   :titles (list :tl title :tr right :bl bl :br br)))
@@ -445,44 +414,6 @@ stands at the right of the rows."
 ;;; An event, as the activity log and the command line say it: a glyph for
 ;;; what kind of thing it was, and a few words.
 
-(defun event-glyph (kind)
-  (case kind
-    (:asks "▲") (:working "◐") (:idle "○") (:quiet "·")
-    (:answered "✓") (:typed "⌨") (:prompted "›") (:said "›") (:signalled "!")
-    (:started "▶") (:finished "■") (:restored "↺")
-    (t " ")))
-
-(defun event-face (kind)
-  (case kind
-    (:asks :state-blocked-strong) (:working :state-working) (:idle :state-idle)
-    (:answered :state-idle) (:started :state-working) (:finished :error)
-    (t :quiet)))
-
-(defun event-says (kind text)
-  "What an event was, in a few words, without who did it."
-  (case kind
-    (:asks (format nil "asks~@[: ~A~]" text))
-    (:working "working")
-    (:idle "finished")
-    (:quiet "quiet")
-    (:typed "typed")
-    (:answered (format nil "answered~@[ ~A~]" text))
-    (:prompted (format nil "prompted~@[ ~A~]" text))
-    (:said (format nil "was told~@[ ~A~]" text))
-    (:signalled (format nil "signalled~@[ ~A~]" text))
-    (:started (format nil "started~@[ ~A~]" text))
-    (:finished (format nil "finished~@[ ~A~]" text))
-    (:restored (format nil "restored~@[ ~A~]" text))
-    (t (format nil "~(~A~)~@[ ~A~]" kind text))))
-
-(defun clock-hm (clock)
-  "The universal time CLOCK as hh:mm, or blank."
-  (if clock
-      (multiple-value-bind (s m h) (decode-universal-time clock)
-        (declare (ignore s))
-        (format nil "~2,'0D:~2,'0D" h m))
-      "     "))
-
 ;;; A sparkline: the last twenty minutes in sixteen cells, how much output
 ;;; there was as height and the most urgent state then as colour. Panes roll
 ;;; up into windows, windows into sessions and sessions into the server, by
@@ -499,7 +430,7 @@ stands at the right of the rows."
     ((nil :quiet) :spark-quiet)
     (t :quiet)))
 
-(defun roll-up (lists)
+(defun merge-cells (lists)
   "One list of cells from many: each cell's amount added up, and the worst
 state of any of them kept. Cells are (amount . state), oldest first."
   (let ((out (make-list +spark-cells+ :initial-element (cons 0 nil))))
@@ -526,45 +457,12 @@ block and dark, unless something asked then."
 ;;; The whole of something on top: a header band, a toolbar, the body, a
 ;;; status row and a footer of hints, filling the room under the bar.
 
-(defun overlay-tree (&key title path right toolbar body status hints (close t) (keys t))
-  "The whole of something on top, as one tree that fills its room."
-  (apply #'atty/ui:column :align :stretch :expand 1
-         (remove nil
-                 (list (header-band title :path path :right right :close close)
-                       toolbar
-                       (atty/ui:column :align :stretch :expand 1 (or body (atty/ui:label "")))
-                       status
-                       (footer-band hints
-                                    :right (list (and keys (hint "?" "keys" :runs "keys of this mode"))
-                                                 (hint "Esc" "close" :runs :close)))))))
-
-(defun draw-overlay (tree client screen &key top)
-  "Draw TREE over the session, under the bar unless TOP says where, on its
-own ground, and hide the cursor. Answers the laid tree."
-  (let* ((cols (tty:screen-width screen))
-         (rows (tty:screen-height screen))
-         (top (or top (if (client-barp client) (min 1 (max 0 (1- rows))) 0)))
-         (m (atty/cells:make-cells (tty:screen-grid screen) cols rows)))
-    (atty/cells:fill-rect m 0 top cols (- rows top) (term:make-face :bg (bar-face :bg)))
-    (atty/cells:draw tree (tty:screen-grid screen) cols rows :top top)
-    (setf (tty:screen-cursor-visible screen) nil)
-    tree))
-
-(defgeneric clicked-over (thing line col client)
-  (:documentation "A press of the mouse at LINE, COL while THING is drawn over
-the session: true when THING took it, so it is not passed on to the server.")
-  (:method (thing line col client)
-    (let* ((tree (laid-tree thing))
-           (hit (and tree (button-at tree line col))))
-      (and hit (generic-click thing (bar-button-runs hit) client)))))
-
-(defun generic-click (thing runs client)
-  "What every button on every surface means: :close closes THING, a name
-runs that command here, a form the server knows is said to it. Answers
-whether RUNS was one of those; anything else is THING's own to make sense of."
-  (cond ((eq runs :close) (close-over thing client) t)
-        ((stringp runs) (run-command runs client) t)
-        ((and (consp runs) (keywordp (first runs)) (member (first runs) (client-knows client)))
-         (wire-send (client-wire client) runs)
-         t)
-        (t nil)))
+(defun key-hint (mode command)
+  "The chord COMMAND is bound to in MODE, or its name when nothing is: a hint
+names whatever somebody has set up, not what this file set up."
+  (let* ((does (and (fboundp command) (symbol-function command)))
+         (chord (car (find does (atty/mode:keys-in-force (atty/mode:mode-named mode)) :key #'cdr))))
+    (cond ((null chord) (string-downcase (substitute #\Space #\- (symbol-name command))))
+          ((string= chord "RET") "↵")
+          ((string= chord "TAB") "⇥")
+          (t chord))))

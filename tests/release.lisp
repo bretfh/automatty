@@ -29,26 +29,26 @@
         "~S" said)))
 
 (test the-tag-is-read-out-of-what-github-says
-  (is (equal "v0.1.0" (mux::tag-in "{\"url\": \"x\", \"tag_name\": \"v0.1.0\", \"name\": \"v0.1.0\"}")))
-  (is (equal "v0.2.0" (mux::tag-in (format nil "{~%  \"tag_name\":\"v0.2.0\"~%}"))))
-  (is (null (mux::tag-in "{\"message\": \"Not Found\"}"))))
+  (is (equal "v0.1.0" (mux::parse-tag "{\"url\": \"x\", \"tag_name\": \"v0.1.0\", \"name\": \"v0.1.0\"}")))
+  (is (equal "v0.2.0" (mux::parse-tag (format nil "{~%  \"tag_name\":\"v0.2.0\"~%}"))))
+  (is (null (mux::parse-tag "{\"message\": \"Not Found\"}"))))
 
 (test the-sum-for-a-file-is-found-in-sha256sums-in-either-spelling
   (let ((sums (format nil "aaaa  atty-v1-linux-x86_64.tar.gz~%bbbb *atty-v1-darwin-arm64.tar.gz~%")))
-    (is (equal "aaaa" (mux::sum-listed sums "atty-v1-linux-x86_64.tar.gz")))
-    (is (equal "bbbb" (mux::sum-listed sums "atty-v1-darwin-arm64.tar.gz")))
-    (is (null (mux::sum-listed sums "atty-v2-darwin-arm64.tar.gz")))))
+    (is (equal "aaaa" (mux::listed-sha256 sums "atty-v1-linux-x86_64.tar.gz")))
+    (is (equal "bbbb" (mux::listed-sha256 sums "atty-v1-darwin-arm64.tar.gz")))
+    (is (null (mux::listed-sha256 sums "atty-v2-darwin-arm64.tar.gz")))))
 
 (test who-owns-the-program-says-who-updates-it
-  (is (eq :guix (mux::owner-of "/gnu/store/abc-atty-0.1.0/bin/atty")))
-  (is (eq :nix (mux::owner-of "/nix/store/abc-atty-0.1.0/bin/atty")))
-  (is (eq :brew (mux::owner-of "/opt/homebrew/Cellar/atty/0.1.0/bin/atty")))
-  (is (eq :distro (mux::owner-of "/usr/bin/atty-there-is-no-such")))
-  (is (eq :somebody (mux::owner-of "/atty-nobody-can-write-here")))
+  (is (eq :guix (mux::file-owner "/gnu/store/abc-atty-0.1.0/bin/atty")))
+  (is (eq :nix (mux::file-owner "/nix/store/abc-atty-0.1.0/bin/atty")))
+  (is (eq :brew (mux::file-owner "/opt/homebrew/Cellar/atty/0.1.0/bin/atty")))
+  (is (eq :distro (mux::file-owner "/usr/bin/atty-there-is-no-such")))
+  (is (eq :somebody (mux::file-owner "/atty-nobody-can-write-here")))
   (let ((mine (format nil "~Aatty-owned-~D" (uiop:temporary-directory) (sb-posix:getpid))))
     (with-open-file (s mine :direction :output :if-exists :supersede) (write-string "x" s))
     (unwind-protect
-         (multiple-value-bind (owner how) (mux::owner-of mine)
+         (multiple-value-bind (owner how) (mux::file-owner mine)
            (is (eq :atty owner))
            (is (equal "atty update" how)))
       (delete-file mine))))

@@ -127,9 +127,9 @@ cells down from its head is at LINE."
   (make-instance 'live-chip :pane pane :face :chip-scrolled
                             :text (format nil " ↓ ~D to live " (pane-scrolled pane))))
 
-(declaim (ftype function find-marker))
+(declaim (ftype function search-marker))
 
-(defun reading-strip (pane)
+(defun scroll-strip (pane)
   "What a pane read back says over its last line when it has no frame to say
 it in: what was found, a way to find, and the way back to live."
   (apply #'atty/ui:row :spacing 0
@@ -137,7 +137,7 @@ it in: what was found, a way to find, and the way back to live."
                  ;; the ways out first: what was found is cut when the pane is narrow
                  (list (and (plusp (pane-scrolled pane)) (live-chip pane))
                        (bar-button "find in pane" (atty/ui:label " ⌕ find " :face :quiet))
-                       (and (pane-find pane) (find-marker pane))))))
+                       (and (pane-find pane) (search-marker pane))))))
 
 (defmethod atty/ui:under ((w live-chip) line col)
   (when (and (<= (atty/ui:top w) line) (< line (atty/ui:bottom w))
@@ -161,7 +161,7 @@ with no frame to say it in: the chip goes over the pane's own last line."
   (let ((view (pane-view pane))
         (bar (and scrollbarp (scrollbar pane)))
         (chip (and chipp (or (plusp (pane-scrolled pane)) (pane-find pane))
-                   (reading-strip pane))))
+                   (scroll-strip pane))))
     (make-instance 'pane-area :expand 1 :view view :bar bar :chip chip
                               ;; the chip last, so it is painted over the pane
                               :parts (remove nil (list view bar chip)))))
@@ -186,7 +186,7 @@ with no frame to say it in: the chip goes over the pane's own last line."
 ;;; program is doing and drawn double where the focus is. What the corners say
 ;;; is src/mux/frames.lisp's business.
 
-(declaim (ftype function pane-titles frame-face pane-top-row))
+(declaim (ftype function frame-corners frame-face pane-top-row))
 
 (defvar *scrollbars* t
   "Whether panes are drawn with a scrollbar. The session's to say, and bound
@@ -196,7 +196,7 @@ while one is laid out.")
   (atty/ui:framed (pane-area pane :scrollbarp *scrollbars*)
                   :face (frame-face pane focusp)
                   :line (if focusp :heavy :rounded)
-                  :titles (and session (pane-titles session pane focusp))))
+                  :titles (and session (frame-corners session pane focusp))))
 
 (defun views-in (tree)
   "Every pane-view in TREE, in the order they were put there."
@@ -218,29 +218,29 @@ while one is laid out.")
   (way :across)
   (parts nil :type list))
 
-(defun panes-in (it)
+(defun layout-panes (it)
   "Every pane under IT, left to right and top to bottom. A layout with nothing
 left in it holds no panes, which is not the same as holding one that is nothing."
   (cond ((null it) nil)
         ((split-p it)
-         (loop :for part :in (split-parts it) :append (panes-in part)))
+         (loop :for part :in (split-parts it) :append (layout-panes part)))
         (t (list it))))
 
-(defun put-beside (it pane way new)
+(defun layout-insert (it pane way new)
   "IT with NEW put beside PANE, the way given."
   (cond ((eq it pane) (make-split way (list pane new)))
         ((split-p it)
          (setf (split-parts it)
-               (mapcar (lambda (p) (put-beside p pane way new)) (split-parts it)))
+               (mapcar (lambda (p) (layout-insert p pane way new)) (split-parts it)))
          it)
         (t it)))
 
-(defun without-pane (it pane)
+(defun layout-remove (it pane)
   "IT with PANE taken out, or nothing when that leaves nothing. A split down to
 one part is that part: nobody wants a border around a single pane."
   (cond ((eq it pane) nil)
         ((split-p it)
-         (let ((kept (remove nil (mapcar (lambda (p) (without-pane p pane))
+         (let ((kept (remove nil (mapcar (lambda (p) (layout-remove p pane))
                                          (split-parts it)))))
            (cond ((null kept) nil)
                  ((null (rest kept)) (first kept))

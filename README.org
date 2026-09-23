@@ -139,10 +139,10 @@ one line at the foot where the keys are, and never covers the screen.
 #+begin_src sh
 ^-b c   ^-b n   ^-b p   # a new window; the next; the one before
 ^-b '                   # every session › window, the ones asking first; RET goes, C-RET makes a window there, TAB its panes
-^-b ,   ^-b .   ^-b $   # name this window; name this pane (TAB swaps between them); name this session
+^-b ,   ^-b .   ^-b $   # rename window; rename pane (TAB swaps between them); rename session
 ^-b &                   # close this window and every program in it, after a yes
 ^-b C                   # another session
-^-b 2   ^-b 3   ^-b 0   ^-b 1   ^-b o   # split below; split beside; close this pane; only this pane; the next pane
+^-b 2   ^-b 3   ^-b 0   ^-b 1   ^-b o   # split below; split beside; close this pane; delete other panes; the next pane
 ^-b d   ^-b D           # detach; who is attached, to go to what they see, follow one, or detach one
 #+end_src
 
@@ -212,9 +212,11 @@ and carries a =⌕ find= button; a click on the =↓ N to live= chip is back to
 live.
 
 These are defaults. =~/.config/atty/init.lisp= (or under =$XDG_CONFIG_HOME=)
-is loaded when atty starts, in the client and in the server, from source. It
-binds a key, a button or the wheel to any command by name, defines commands,
-sets settings, and hooks what happens:
+is read by the server when it starts, from source, and every client attached
+is told what it says; a client never reads it, and neither does any other
+=atty= command. It binds a key, a button or the wheel to any command by name,
+defines commands, sets settings, and hooks what happens. A command defined
+there runs in the server, for whichever client asked:
 
 #+begin_src lisp
 (define-key 'pane-mode "M-wheel-up" "scroll page up")
@@ -224,9 +226,10 @@ sets settings, and hooks what happens:
 (add-hook 'pane-started (lambda (session pane) ...))
 #+end_src
 
-=atty help init= lists every setting with what it is now. A file that does not
-load is said in the log and shown as a note to whoever attaches next; atty
-starts anyway. =^-b R= loads it again without restarting.
+=atty help init= lists every setting with what the server has it as now. A file
+that does not load is said in the log and shown as a note to whoever attaches
+next; atty starts anyway. =^-b R= has the server read it again, undoing what the
+last reading did first, and every client attached is told.
 
 ** What is kept when the server stops
 
