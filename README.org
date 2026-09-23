@@ -35,16 +35,19 @@ curl -fsSL https://github.com/bretfh/automatty/releases/download/v0.1.0/atty-v0.
 ./atty                        # or put it somewhere on PATH
 #+end_src
 
-The names are =atty-<tag>-darwin-arm64=, =-darwin-x86_64=, =-linux-x86_64=. The
-linux one is built on Ubuntu 22.04 and runs on any glibc since; on musl (alpine)
-build it from source. A file a browser downloaded on macOS carries a quarantine
-flag, and =xattr -d com.apple.quarantine atty= clears it; one curl fetched
-carries none. The binary is signed by nobody: there is no notarization, which
-takes an Apple developer account.
+The names are =atty-<tag>-darwin-arm64=, =-darwin-x86_64=, =-linux-x86_64= and
+=-linux-aarch64=. They run on macOS 14 and later on Apple silicon, 10.9 and later
+on Intel, and any linux with glibc 2.17 or later; on musl (alpine) build it from
+source. A file a browser downloaded on macOS carries a quarantine flag, and
+=xattr -d com.apple.quarantine atty= clears it; one curl fetched carries none.
+
+A release is built with roswell's build of sbcl (=make sbcl= fetches it into
+=sbcl/=), since atty carries the runtime of the sbcl that built it: brew's or a
+distribution's runs only where it was built.
 
 From source, on a machine with sbcl on it, 2.4 or newer (=brew install sbcl=
-on a mac; on linux the distribution's when it is that new, else the binary
-from sbcl.org):
+on a mac; on linux the distribution's when it is that new), or with the one
+=make sbcl= fetches:
 
 #+begin_src sh
 make FOREIGN=1 deps install                   # PREFIX=/usr/local

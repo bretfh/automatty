@@ -1,6 +1,7 @@
-# A tag v* makes a release: `make release' on each platform, the tarballs and
-# one SHA256SUMS on the release. The tag is the version the binary says, and
-# the asset names are what `atty update' asks for.
+# A tag v* makes a release: `make release' on each platform, with the pinned
+# sbcl `make sbcl' fetches, the tarballs and one SHA256SUMS on the release. The
+# tag is the version the binary says, and the asset names are what `atty
+# update' asks for.
 name: Release
 
 on:
@@ -16,40 +17,44 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # the oldest linux the runners offer, so the binary runs on anything
-        # newer; the arm and the intel mac
-        os: [ubuntu-22.04, macos-latest, macos-15-intel]
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, macos-15-intel]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0   # git describe needs the tags
-
-      # sbcl.org's own binary, not the distribution's: ubuntu 22.04 ships
-      # 2.1.11, from 2021. 2.5.5 is the newest sbcl.org build that runs on the
-      # glibc this runner is chosen for; from 2.5.9 on they want 2.38
-      - name: sbcl (linux)
-        if: runner.os == 'Linux'
-        run: |
-          curl -fsSL -o sbcl.tar.bz2 https://downloads.sourceforge.net/project/sbcl/sbcl/2.5.5/sbcl-2.5.5-x86-64-linux-binary.tar.bz2
-          tar xjf sbcl.tar.bz2
-          cd sbcl-2.5.5-x86-64-linux && sudo sh install.sh
-          sbcl --version
-
-      - name: sbcl (macos)
-        if: runner.os == 'macOS'
-        run: brew install sbcl
-
+      - run: make FOREIGN=1 sbcl && make -s sbcl-bin >> "$GITHUB_PATH"
       - run: make FOREIGN=1 deps release
       - run: ./atty version
-
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.os }}
           path: dist/
 
-  publish:
+  # the linux tarballs run on a system far older than the runner that built
+  # them: centos 7 is glibc 2.17, the oldest the pinned sbcl asks for
+  run-elsewhere:
     needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: x86_64
+          - os: ubuntu-24.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - run: |
+          cd dist && tar xzf atty-*-linux-${{ matrix.arch }}.tar.gz
+          docker run --rm -v "$PWD:/x" centos:7 /x/atty version
+
+  publish:
+    needs: [build, run-elsewhere]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4

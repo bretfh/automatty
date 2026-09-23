@@ -1,5 +1,6 @@
 *.fasl
 /ocicl/
 /dist/
+/sbcl/
 .#*
 /atty
