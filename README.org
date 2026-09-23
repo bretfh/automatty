@@ -42,8 +42,8 @@ flag, and =xattr -d com.apple.quarantine atty= clears it; one curl fetched
 carries none. The binary is signed by nobody: there is no notarization, which
 takes an Apple developer account.
 
-From source, on a machine with sbcl and ocicl on it (=brew install sbcl ocicl=
-on a mac; sbcl from the distribution and ocicl from its releases on linux):
+From source, on a machine with sbcl on it (=brew install sbcl= on a mac; the
+distribution's sbcl on linux):
 
 #+begin_src sh
 make FOREIGN=1 deps install                   # PREFIX=/usr/local
@@ -86,8 +86,9 @@ make release                  # the binary as a release tarball, in dist/
 
 This is developed on Guix, where =manifest.scm= names what it needs. Without
 guix, =ocicl.csv= pins the same lisp systems and =make FOREIGN=1 deps= fetches
-them into =ocicl/=; then =FOREIGN=1= in front of any target uses whatever sbcl is
-on the machine:
+them into =ocicl/= with curl and tar (=deps.lisp=; the ocicl program is only
+needed to change what is pinned); then =FOREIGN=1= in front of any target uses
+whatever sbcl is on the machine:
 
 #+begin_src sh
 make FOREIGN=1 deps test

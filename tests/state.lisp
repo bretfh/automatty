@@ -97,7 +97,8 @@ so most of them are behind the screen."
       (let ((back (mux:said-pane form 200)))
         (is (equal "line 4" (car (first (last (rows-behind back))))) "~S" (rows-behind back))
         (is (equal "full scr" (shown-row back 0)) "~S" (shown-row back 0))
-        (is (search "restored" (shown-row back 1)) "~S" (shown-row back 1))))))
+        ;; the rule, as much of it as eight columns hold
+        (is (search "resto" (shown-row back 1)) "~S" (shown-row back 1))))))
 
 (test the-log-and-the-agents-history-are-saved-as-ages-and-come-back-as-moments
   (let* ((pane (coloured-pane 2))
@@ -113,7 +114,7 @@ so most of them are behind the screen."
 
 (test a-claude-pane-comes-back-as-a-shell-and-says-so-unless-asked-otherwise
   (with-setting-kept (:restore-command)
-    (let* ((pane (mux:make-pane "claude" :rows 3 :cols 60))
+    (let* ((pane (mux:make-pane "claude" :rows 3 :cols 100))
            (form (progn (setf (mux::pane-queued pane) '("go on" (:cli)))
                         (mux:pane-said pane 100))))
       (mux:configure :restore-command :shell)
@@ -351,11 +352,17 @@ it, a zoom in the third. Answers the first session."
       (say-to wire (list :restart))
       ;; a server loaded into a lisp is not a program and cannot start itself
       ;; again; it says so, and whoever asked starts it
-      (is-true (until 5 (lambda () (find '(:bye :restarting nil) (heard-back wire) :test #'equal))))
-      (is-true (until 5 (lambda () (find '(:restarting nil) (heard-back wire) :test #'equal))))
+      (let ((heard nil))
+        (is-true (until 5 (lambda ()
+                            (setf heard (append heard (heard-back wire)))
+                            (and (find '(:bye :restarting nil) heard :test #'equal)
+                                 (find '(:restarting nil) heard :test #'equal))))
+                 "heard ~S" heard))
       (is-true (until 5 (lambda () (not (probe-file path)))) "the server did not stop")
-      (is (eql 1 (length (mux:saved-sessions (file-namestring path)))))
-      (is (eql 1 (length (mux::pane-files state))))
+      ;; the name goes before the save, so the files follow the socket by a moment
+      (is-true (until 5 (lambda () (and (eql 1 (length (mux:saved-sessions (file-namestring path))))
+                                        (eql 1 (length (mux::pane-files state))))))
+               "the state was not whole: ~S" (mux::pane-files state))
       (mux:wire-close wire))))
 
 (test a-server-asked-to-stop-by-a-signal-saves-on-its-way-out
@@ -366,7 +373,9 @@ it, a zoom in the third. Answers the first session."
       ;; process the tests run in
       (setf tty:*asked-to-stop* t)
       (is-true (until 5 (lambda () (not (probe-file path)))) "the server did not stop")
-      (is (eql 1 (length (mux::pane-files state)))))))
+      ;; the name goes before the save, so the file follows the socket by a moment
+      (is-true (until 5 (lambda () (eql 1 (length (mux::pane-files state)))))
+               "the pane was not saved on the way out"))))
 
 (test what-a-server-saved-a-new-server-brings-back-on-the-same-name
   (with-a-persisting-server (path dir)

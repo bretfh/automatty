@@ -203,9 +203,21 @@ cannot do and the reason this used to want a helper program written in C."
                                  (format nil "cd ~A || exit 1~%~A"
                                          (sh-quoted directory) command)
                                  command)))
-            (environment (append environment
-                                (list* "TERM=xterm-256color" "COLORTERM=truecolor"
-                                       (sb-ext:posix-environ)))))
+            ;; what is said here is what the program sees: a name given twice
+            ;; is read either way round by different shells, so what this
+            ;; process inherited under the same name goes. ATTY_PANE from an
+            ;; atty this one runs inside must not reach a pane of this one.
+            (environment (let ((given (list* "TERM=xterm-256color" "COLORTERM=truecolor"
+                                             environment)))
+                           (append given
+                                   (remove-if (lambda (entry)
+                                                (let ((name (subseq entry 0 (position #\= entry))))
+                                                  (member name given
+                                                          :test (lambda (name g)
+                                                                  (and (> (length g) (length name))
+                                                                       (char= (char g (length name)) #\=)
+                                                                       (string= name g :end2 (length name)))))))
+                                              (sb-ext:posix-environ))))))
         (check (%actions-init actions-sap) "posix_spawn_file_actions_init")
         (check (%attr-init attr-sap) "posix_spawnattr_init")
         (unwind-protect

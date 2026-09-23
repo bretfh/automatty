@@ -569,7 +569,9 @@ tap, a channel and releases that did not exist, no build could say which it
 was, and a restart could not carry a new build to whoever was attached.
 
 - [X] The build owns its dependencies: =ocicl.csv= pins them off guix,
-  =make deps= fetches them into =ocicl/=, =manifest.scm= names them on guix,
+  =make deps= fetches them into =ocicl/= (=deps.lisp=, curl and tar: the
+  ocicl program wants a newer glibc than the linux a release is built on
+  has, and is only needed to change the pins), =manifest.scm= names them on guix,
   and sbcl runs without the user's init file either way, seeing this
   directory and the one place the dependencies are. A build with an empty
   =$HOME= is the check.

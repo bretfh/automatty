@@ -1,6 +1,5 @@
 # The make targets, on each platform a release is built for. Nothing is
-# defined here that the Makefile does not: only how sbcl and ocicl get onto
-# the runner.
+# defined here that the Makefile does not: only how sbcl gets onto the runner.
 name: CI
 
 on:
@@ -17,16 +16,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: sbcl and ocicl (linux)
+      - name: sbcl (linux)
         if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update && sudo apt-get install -y sbcl
-          curl -fsSL https://github.com/ocicl/ocicl/releases/download/v2.19.1/ocicl-2.19.1-linux-amd64.tar.gz | tar xz ./ocicl
-          sudo install -m 755 ocicl /usr/local/bin/ocicl && rm ocicl
+        run: sudo apt-get update && sudo apt-get install -y sbcl
 
-      - name: sbcl and ocicl (macos)
+      - name: sbcl (macos)
         if: runner.os == 'macOS'
-        run: brew install sbcl ocicl
+        run: brew install sbcl
 
       - run: make FOREIGN=1 deps
       - run: make FOREIGN=1 test

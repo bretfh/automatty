@@ -25,16 +25,13 @@ jobs:
         with:
           fetch-depth: 0   # git describe needs the tags
 
-      - name: sbcl and ocicl (linux)
+      - name: sbcl (linux)
         if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update && sudo apt-get install -y sbcl
-          curl -fsSL https://github.com/ocicl/ocicl/releases/download/v2.19.1/ocicl-2.19.1-linux-amd64.tar.gz | tar xz ./ocicl
-          sudo install -m 755 ocicl /usr/local/bin/ocicl && rm ocicl
+        run: sudo apt-get update && sudo apt-get install -y sbcl
 
-      - name: sbcl and ocicl (macos)
+      - name: sbcl (macos)
         if: runner.os == 'macOS'
-        run: brew install sbcl ocicl
+        run: brew install sbcl
 
       - run: make FOREIGN=1 deps release
       - run: ./atty version

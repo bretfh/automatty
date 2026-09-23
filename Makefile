@@ -3,13 +3,15 @@
 # Two ways to get what atty needs, and every target works under either. Guix is
 # what it develops against and what plain `make' uses: manifest.scm names the
 # lisp systems. FOREIGN=1 is for a mac or a linux without guix: ocicl.csv pins
-# the same systems and `make deps' fetches them into ./ocicl. Either way sbcl
-# runs without the user's init file and sees exactly this directory and the one
-# place the dependencies are, so what is on a machine's sbclrc or in its home
-# never reaches a build. There is nothing to compile either way: atty owns no C.
+# the same systems and `make deps' fetches them into ./ocicl, with curl and tar
+# (deps.lisp; the ocicl program itself is only for changing what is pinned).
+# Either way sbcl runs without the user's init file and sees exactly this
+# directory and the one place the dependencies are, so what is on a machine's
+# sbclrc or in its home never reaches a build. There is nothing to compile
+# either way: atty owns no C.
 #
 #   make test                       guix
-#   make FOREIGN=1 deps test        whatever sbcl and ocicl are on this machine
+#   make FOREIGN=1 deps test        whatever sbcl is on this machine
 FOREIGN ?=
 
 GUIX := guix shell -m manifest.scm --
@@ -24,11 +26,8 @@ ifeq ($(FOREIGN),)
   SBCL := sbcl --no-userinit --eval "(require :asdf)"
 else
   IN   := sh -c
-  DEP_TREE :=
-  # the ocicl runtime finds ./ocicl.csv and the systems under ./ocicl; loading
-  # it here rather than from the sbclrc is what keeps the sbclrc out of it
-  OCICL_RUNTIME ?= $(HOME)/.local/share/ocicl/ocicl-runtime.lisp
-  SBCL := sbcl --no-userinit --eval "(require :asdf)" --load "$(OCICL_RUNTIME)"
+  DEP_TREE := (:tree \"$$PWD/ocicl/\")
+  SBCL := sbcl --no-userinit --eval "(require :asdf)"
 endif
 ENV := CL_SOURCE_REGISTRY="$(REGISTRY)" ASDF_OUTPUT_TRANSLATIONS="/:$$HOME/.cache/common-lisp/atty/"
 
@@ -50,15 +49,13 @@ repl:
 	$(IN) '$(ENV) $(SBCL) --eval "(asdf:load-system :atty/all)"'
 
 # the lisp systems atty needs, where this build looks for them. Under guix
-# they are the manifest's and there is nothing to do. Otherwise ocicl fetches
-# what ocicl.csv pins into ./ocicl, and sets itself up first when it never has.
+# they are the manifest's and there is nothing to do. Otherwise deps.lisp
+# fetches what ocicl.csv pins into ./ocicl.
 deps:
 ifeq ($(FOREIGN),)
 	@echo "guix has them: manifest.scm"
 else
-	@command -v ocicl >/dev/null 2>&1 || { echo "atty needs ocicl: brew install ocicl, or https://github.com/ocicl/ocicl/releases"; exit 1; }
-	@test -f "$(OCICL_RUNTIME)" || ocicl setup
-	ocicl install
+	sbcl --no-userinit --non-interactive --load deps.lisp
 endif
 
 # load everything and say so, without running anything
