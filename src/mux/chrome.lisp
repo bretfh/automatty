@@ -138,6 +138,46 @@ part among LEFT's takes the gap's place, so it has the room the gap would."
   "The band at the foot: the keys, and at the right the ones every surface has."
   (band (list (atty/ui:label " ") (squeezed hints)) (append (ensure-list right) (list (atty/ui:label " ")))))
 
+;;; A pill: something on a ground of its own, its ends rounded by half cells
+;;; in that ground over whatever it sits on.
+
+(defun pill (part &key (ground :bg-alt) runs)
+  "PART on GROUND between a right half and a left half of GROUND."
+  (let* ((cap (list (atty/ui:color ground) nil))
+         (it (atty/ui:row :spacing 0
+                          (atty/ui:label "▐" :face cap)
+                          (atty/ui:row :spacing 0 :background-color (bar-face ground) part)
+                          (atty/ui:label "▌" :face cap))))
+    (if runs (bar-button runs it) it)))
+
+;;; What lifts a sheet off what is under it: the top half of the row below
+;;; and the left half of the column beside it, in shadow, over what is there.
+;;; A sheet at the foot has its top edge drawn as the lower half of the row
+;;; above, in its own ground.
+
+(defun half-over (m col line char fg)
+  (let ((grid (atty/cells:cells-grid m)))
+    (when (and (<= 0 line) (< line (atty/cells:cells-rows m))
+               (<= 0 col) (< col (atty/cells:cells-cols m)))
+      (let* ((row (svref grid line))
+             (was (term:row-face row col)))
+        (setf (term:row-char row col) char
+              (term:row-face row col) (term:make-face :fg fg :bg (and was (term:face-bg was))))))))
+
+(defun cast-shadow (m left top width height)
+  "The shadow of a sheet LEFT TOP WIDTH HEIGHT, under it and to its right."
+  (let ((fg (atty/ui:unhex (atty/ui:color :edge-dark))))
+    (loop :for x :from (1+ left) :to (+ left width)
+          :do (half-over m x (+ top height) #\▀ fg))
+    (loop :for y :from (1+ top) :below (+ top height)
+          :do (half-over m (+ left width) y #\▌ fg))))
+
+(defun top-edge (m left top width ground)
+  "The row above a sheet at TOP, the lower half of each cell in GROUND."
+  (let ((fg (atty/ui:unhex (atty/ui:color ground))))
+    (loop :for x :from left :below (+ left width)
+          :do (half-over m x (1- top) #\▄ fg))))
+
 ;;; Keys as things to click: a cap has the key on it and says what it does;
 ;;; a hint is the key lit and the verb dim. Both run what they say.
 
@@ -245,13 +285,14 @@ dimly, with no › before it. Nil parts are left out."
 ;;; lane or beside a list it is the same thing. AT is how far from the start
 ;;; the view is, EXTENT how much of the whole it shows, TOTAL the whole.
 
-;;; One vocabulary for every rail: a thin line is the whole length, a heavy
-;;; line is the part in view, and the ends are lit only when there is more
-;;; that way. When nothing is past the view it is a thin line and no more.
+;;; One vocabulary for every rail, half a cell wide: an eighth is the whole
+;;; length, a half is the part in view, and the ends are lit only when there
+;;; is more that way. When nothing is past the view it is the eighth and no
+;;; more.
 
 (defparameter +scrollbar-glyphs+
   '(:up #\▲ :down #\▼ :left #\‹ :right #\›
-    :track-up #\│ :thumb-up #\┃ :track #\─ :thumb #\━))
+    :track-up #\▕ :thumb-up #\▐ :track #\▁ :thumb #\▄))
 
 (defparameter +arrows-from+ 4
   "A rail shorter than this is all track: two arrows would leave no room
@@ -394,7 +435,7 @@ one when it is the CURSOR's (lit, when its state has no colour of its own)."
                rail
                (atty/ui:label (format nil " ~A" text) :face :quiet)
                (and hints (atty/ui:row :spacing 0 (atty/ui:label "   ") hints))
-               (atty/ui:label " ─" :face :scroll-track)))
+               (atty/ui:label " ▁" :face :scroll-track)))
 
 ;;; A well: rows sunk into a darker ground, a dark edge above and a light one
 ;;; below, the way an inset panel is drawn.
@@ -442,17 +483,36 @@ state of any of them kept. Cells are (amount . state), oldest first."
 
 (defun spark (cells)
   "CELLS, oldest first, as a row of block glyphs: height scaled to the
-busiest cell of these, colour by state; a cell with no output is the lowest
-block and dark, unless something asked then."
+busiest cell of these, colour by state; a cell with no output is blank,
+unless something asked then."
   (let ((most (max 1 (reduce #'max cells :key #'car :initial-value 0))))
     (apply #'atty/ui:row :spacing 0
            (loop :for (amount . state) :in cells
-                 :collect (atty/ui:label
-                           (string (char +spark-glyphs+
-                                         (if (zerop amount) 0 (max 1 (round (* 7 amount) most)))))
-                           :face (if (and (zerop amount) (not (eq state :blocked)))
-                                     :spark-quiet
-                                     (spark-face state)))))))
+                 :collect (if (and (zerop amount) (not (eq state :blocked)))
+                              (atty/ui:label " ")
+                              (atty/ui:label
+                               (string (char +spark-glyphs+
+                                             (if (zerop amount) 0 (max 1 (round (* 7 amount) most)))))
+                               :face (spark-face state)))))))
+
+;;; A timeline: the same cells in one row of upper halves, the state then in
+;;; the top half and, in the bottom half, whether anything typed into it.
+
+(defun state-color (state)
+  (case state
+    (:blocked :yellow)
+    (:working :blue)
+    (:idle :green)
+    (t :bg-active)))
+
+(defun timeline (cells typed)
+  "CELLS, oldest first, each an upper half in its state's colour over a lower
+half that is lit where TYPED, a list as long, says something typed then."
+  (apply #'atty/ui:row :spacing 0
+         (loop :for (nil . state) :in cells
+               :for input :in typed
+               :collect (atty/ui:label "▀" :face (list (atty/ui:color (state-color state))
+                                                       (and input (atty/ui:color :magenta)))))))
 
 ;;; The whole of something on top: a header band, a toolbar, the body, a
 ;;; status row and a footer of hints, filling the room under the bar.

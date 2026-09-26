@@ -160,7 +160,8 @@ and each forgets this.")
     cyan-cooler   "#65c5a8" red-cooler    "#e47980" magenta-cooler "#d0b0ff"
     green-cooler  "#3fc489"
     region "#544a50" shadow "#0a0a10"
-    bg-well "#19171b" edge-dark "#0b0a0c" edge-light "#3a373c")
+    bg-well "#19171b" edge-dark "#0b0a0c" edge-light "#3a373c"
+    ground "#141216")
   '(radius 8 border 2 opacity 0.4 font "Maple Mono NF" font-px 15)
   '((:default   :fg fg)
     (:window    :bg bg)
@@ -210,6 +211,7 @@ and each forgets this.")
     (:well              :bg bg-well)
     (:well-edge-dark    :fg edge-dark :bg bg-well)
     (:well-edge-light   :fg edge-light :bg bg-well)
+    (:shadow            :fg edge-dark)
     (:chip-scrolled     :fg bg :bg yellow :bold t)
     (:driven        :fg magenta)
     (:number-driven :fg bg :bg magenta :bold t)

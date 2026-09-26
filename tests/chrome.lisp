@@ -52,7 +52,7 @@
         "at the start the up arrow is dim and the down arrow, with somewhere to go, is lit")
     (is (equal (term:face-fg (face-on screen 0 9)) (term:face-fg (face-on screen 0 1)))
         "the lit end is as bright as the part in view")
-    (is (char= #\┃ (char-at screen 0 1)) "the thumb is at the head")
+    (is (char= #\▐ (char-at screen 0 1)) "the thumb is at the head")
     (is (eq :up (mux::rail-part r 0)))
     (is (eq :thumb (mux::rail-part r 1)))
     (is (eq :below (mux::rail-part r 5)))
@@ -64,8 +64,8 @@
          (line (shown screen 0)))
     (is (char= #\‹ (char line 0)) "~S" line)
     (is (char= #\› (char line 11)) "~S" line)
-    (is (find #\━ line))
-    (is (find #\─ line))
+    (is (find #\▄ line))
+    (is (find #\▁ line))
     (is (eq :up (mux::rail-part r 0)))
     (is (eq :down (mux::rail-part r 11)))
     (is (eql 0 (mux::rail-at r 1 0)) "the head of the track is the start")
@@ -74,7 +74,7 @@
 (test a-rail-with-nothing-past-the-view-is-a-thin-line-and-answers-no-part
   (let* ((r (mux::rail 0 10 10))
          (screen (painted (atty/ui:row :align :stretch r) 1 6)))
-    (is (equal '(#\│ #\│ #\│ #\│ #\│ #\│) (loop :for y :below 6 :collect (char-at screen 0 y))))
+    (is (equal '(#\▕ #\▕ #\▕ #\▕ #\▕ #\▕) (loop :for y :below 6 :collect (char-at screen 0 y))))
     (is (null (mux::rail-part r 3)))))
 
 (test a-chosen-gutter-row-is-a-band-the-whole-way-across
@@ -133,7 +133,7 @@
     (is (= 16 (length line)) "~S" line)
     (is (char= #\█ (char line 14)) "the busiest cell is the tallest: ~S" line)
     (is (char= #\▃ (char line 13)) "a quarter of the busiest is a quarter tall: ~S" line)
-    (is (char= #\▁ (char line 0)) "nothing is the lowest block: ~S" line)
+    (is (char= #\Space (char line 0)) "nothing is blank: ~S" line)
     (is (not (equal (term:face-fg (face-on screen 0 0)) (term:face-fg (face-on screen 15 0))))
         "a cell that asked is lit even with no output")
     (is (not (equal (term:face-fg (face-on screen 13 0)) (term:face-fg (face-on screen 14 0))))
@@ -152,10 +152,10 @@
   (let* ((r (mux::rail 0 3 5 :upright nil :expand 1))
          (screen (painted (mux::foot r "windows 1–3 of 5" (mux::hints 'mux::board-mode "⇥" "fold")) 60 1))
          (line (shown screen 0)))
-    (is (search "‹━" line) "~S" line)
-    (is (search "─› windows 1–3 of 5" line) "~S" line)
+    (is (search "‹▄" line) "~S" line)
+    (is (search "▁› windows 1–3 of 5" line) "~S" line)
     (is (search "⇥ fold" line) "~S" line)
-    (is (char= #\─ (char (string-right-trim " " line) (1- (length (string-right-trim " " line)))))
+    (is (char= #\▁ (char (string-right-trim " " line) (1- (length (string-right-trim " " line)))))
         "the line closes at the right: ~S" line)))
 
 (test a-well-is-sunk-between-a-dark-edge-and-a-light-one
