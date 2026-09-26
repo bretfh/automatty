@@ -169,6 +169,25 @@ The whole of it is a button that picks it."
                         (screen-view screen)
                         (atty/ui:label (if row " waiting for its screen" "") :face :quiet)))))
 
+(defun nothing-waiting (client)
+  "The whole of needs you when nothing does: one card in the middle, and the
+last thing answered, when there was one."
+  (let ((last (first (client-recent client))))
+    (atty/ui:center
+     (card (atty/ui:label " ○ nothing needs you " :face :state-idle) nil
+           (list (atty/ui:label "")
+                 (atty/ui:label (if last
+                                    (destructuring-bind (session id age actor verb summary &rest more) last
+                                      (declare (ignore actor more))
+                                      (format nil "  last answered ~A ago: ~A, ~(~A~) ~A  "
+                                              (format-duration age)
+                                              (let ((row (gethash (cons session id) (client-panes client))))
+                                                (if row (row-path row) (format nil "~A:~D" session id)))
+                                              verb (truncate-string (or summary "") 30)))
+                                    "  nothing has been asked lately  ")
+                                :face :quiet)
+                 (atty/ui:label ""))))))
+
 (defparameter +question-rows+ 4 "How many rows one question takes on the list.")
 
 (defun queue-window (q client rows)
@@ -199,25 +218,31 @@ The whole of it is a button that picks it."
                        (keycap "e" "why" :runs "queue explain")
                        (keycap "r" "read" :runs "queue read")
                        (keycap "p" "prompt" :runs "queue prompt"))
-     :body (multiple-value-bind (from most) (queue-window q client rows)
-             (atty/ui:row
-              :align :stretch :expand 1 :spacing 0
-              (apply #'atty/ui:column :align :stretch :expand 3
-                     (append
-                      (list (atty/ui:label ""))
-                      (if rows
-                          (loop :for row :in (subseq rows from (min (length rows) (+ from most)))
-                                :for i :from from
-                                :collect (queue-item client row now i (= i (queue-index q))))
-                          (list (atty/ui:label "   nothing needs you" :face :quiet)
-                                (atty/ui:label "")))
-                      (when (and (queue-showing-recent q) (client-recent client))
-                        (cons (section "answered lately")
-                              (mapcar (lambda (e) (recent-line client e)) (client-recent client))))
-                      (list (atty/ui:gap :expand 1))))
-              (rail from most (max 1 (length rows)))
-              (atty/ui:rule :upright t :face :card)
-              (queue-preview client chosen)))
+     :body (if (and (null rows) (not (queue-showing-recent q)))
+               (nothing-waiting client)
+               (multiple-value-bind (from most) (queue-window q client rows)
+                 (apply #'atty/ui:row
+                        :align :stretch :expand 1 :spacing 0
+                        (remove nil
+                                (list
+                                 (apply #'atty/ui:column :align :stretch :expand 3
+                                        (append
+                                         (list (atty/ui:label ""))
+                                         (if rows
+                                             (loop :for row :in (subseq rows from (min (length rows) (+ from most)))
+                                                   :for i :from from
+                                                   :collect (queue-item client row now i (= i (queue-index q))))
+                                             (list (atty/ui:label "   nothing needs you" :face :quiet)
+                                                   (atty/ui:label "")))
+                                         (when (and (queue-showing-recent q) (client-recent client))
+                                           (cons (section "answered lately")
+                                                 (mapcar (lambda (e) (recent-line client e)) (client-recent client))))
+                                         (list (atty/ui:gap :expand 1))))
+                                 ;; a rail only when there is more than fits, and
+                                 ;; the preview only when there is something to show
+                                 (and (> (length rows) most) (rail from most (length rows)))
+                                 (and chosen (atty/ui:rule :upright t :face :card))
+                                 (and chosen (queue-preview client chosen)))))))
      :hints (hints 'queue-mode "↑↓" "choose" "1-9" "answer in place"
                    'queue-goto "go there" 'queue-explain "why it thinks so" 'queue-read "read"
                    'queue-prompt "prompt instead" 'queue-filter "filter"))))
