@@ -58,7 +58,8 @@
   "How W is underlined, the way a terminal says it: one of the five styles, or
 nothing. The bit only says whether; the face itself says which."
   (let* ((f (face w))
-         (u (and f (underline (in-force f)))))
+         (worn (and f (symbolp f) (in-force f)))
+         (u (and worn (underline worn))))
     (cond ((null u) nil)
           ((eq u t) :single)
           (t u))))
