@@ -4,7 +4,7 @@
 
 ;;; What a pane's frame says. The frame is the session's, composed once and
 ;;; shared by everybody attached, so it says what the pane is and never who is
-;;; looking at it. Its colour is what the program is doing, a double line is
+;;; looking at it. Its colour is what the program is doing, a heavy line is
 ;;; where the focus is, and the corners carry the rest: which pane, what it is
 ;;; called and what it runs at the top left, its state and how long at the top
 ;;; right, and, when it is asking something, the question at the top and the
@@ -103,8 +103,8 @@ last option is never the one that goes."
 
 (defun question-title (asks)
   (atty/ui:row :spacing 0
-               (atty/ui:label " ▲ asks " :face :state-blocked-strong)
-               (atty/ui:label (getf asks :subject) :face :strong)
+               (atty/ui:label " ▲ " :face :state-blocked-strong)
+               (atty/ui:label (getf asks :subject) :face :state-blocked-strong)
                (atty/ui:label (format nil "  ~A "
                                       (or (first (getf asks :detail))
                                           (getf asks :question))))))
@@ -159,23 +159,31 @@ between them."
          (term (pane-term pane))
          (now (now-ms))
          (asks (agent:agent-asks agent term))
-         (width (term:term-width term)))
+         (width (term:term-width term))
+         (tl (atty/ui:row :spacing 0
+                          (atty/ui:label (format nil " ~D " (or (pane-number session pane) (pane-id pane)))
+                                         :face (if (pane-known-p pane) (number-face state) :number-unknown))
+                          (atty/ui:label (format nil " ~A " (pane-display-name pane))
+                                         :face (if focusp :strong :default))
+                          (atty/ui:label (format nil "~A " (pane-kind pane)) :face :quiet)
+                          (if (eq pane (session-zoomed session))
+                              (atty/ui:label " ⤢ zoomed " :face :state-blocked-strong)
+                              (atty/ui:label "")))))
     (list
-     :tl (atty/ui:row :spacing 0
-                      (atty/ui:label (format nil " ~D " (or (pane-number session pane) (pane-id pane)))
-                                     :face (cond ((not focusp) :strong)
-                                                 ((pane-known-p pane) (number-face state))
-                                                 (t :number-unknown)))
-                      (atty/ui:label (format nil " ~A " (pane-display-name pane)))
-                      (atty/ui:label (format nil "~A " (pane-kind pane)) :face :quiet)
-                      (if (eq pane (session-zoomed session))
-                          (atty/ui:label " ⤢ zoomed " :face :state-blocked-strong)
-                          (atty/ui:label "")))
+     :tl tl
      :tr (cond (asks (question-title asks))
                ((pane-known-p pane)
-                (atty/ui:label (format nil " ~A ~(~A~) ~A " (state-glyph state) state
-                                       (format-duration (agent:agent-for agent now)))
-                               :face (state-face state))))
+                (let* ((says (format nil "~(~A~) ~A " state (format-duration (agent:agent-for agent now))))
+                       (doing (agent:agent-doing agent term))
+                       ;; what it is doing gives way before the state does
+                       (room (- width (columns-in tl) (length says) 7)))
+                  (atty/ui:row :spacing 0
+                               (atty/ui:label (format nil " ~A " (state-glyph state)) :face (state-face state))
+                               (atty/ui:label (if (and doing (> room 3))
+                                                  (format nil "~A  " (truncate-string doing room))
+                                                  "")
+                                              :face :quiet)
+                               (atty/ui:label says :face (state-face state))))))
      :bl (cond
            (asks
              (let* ((extras (answer-extras session pane (agent:agent-won agent term)))

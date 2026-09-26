@@ -3,12 +3,13 @@
 (in-package #:atty)
 
 ;;; A pane is a widget like any other. What that buys is the layout pass: a
-;;; split is a row or a column of these, the bar is the last child of the
+;;; split is a row or a column of these, the bar is the first child of the
 ;;; column they sit in, and the arithmetic that hands each of them its rows and
 ;;; columns is the one src/ui/layout.lisp already does for everything else.
 
 (defclass pane-view (atty/ui:widget)
-  ((pane :initarg :pane :reader view-pane)))
+  ((pane :initarg :pane :reader view-pane)
+   (focusp :initarg :focusp :initform nil :reader view-focus-p)))
 
 (defun pane-view (pane &rest props)
   (apply #'make-instance 'pane-view :pane pane :expand 1 props))
@@ -24,6 +25,28 @@ one and told what it is, so what it asks for is the room left over."
                   :bg (atty/ui:unhex (atty/ui:color (if currentp 'atty/ui::yellow 'atty/ui::yellow-cooler)))
                   :bold currentp))
 
+(defun pane-ground (focusp)
+  "What a pane's program draws on where it says nothing: lit where the focus is,
+a step darker everywhere else."
+  (atty/ui:unhex (atty/ui:color (if focusp 'atty/ui::bg 'atty/ui::bg-well))))
+
+(defun ground-blanks (m left top width height ground)
+  "Every cell in the rectangle with no background of its own given GROUND, one
+new face for each face found there, never the one found changed."
+  (let ((grid (atty/cells:cells-grid m))
+        (made (make-hash-table :test 'eq)))
+    (loop :for y :from (max 0 top) :below (min (+ top height) (atty/cells:cells-rows m))
+          :do (let ((row (svref grid y)))
+                (loop :for x :from (max 0 left) :below (min (+ left width) (atty/cells:cells-cols m))
+                      :do (let ((was (term:row-face row x)))
+                            (when (or (null was) (null (term:face-bg was)))
+                              (setf (term:row-face row x)
+                                    (or (gethash was made)
+                                        (setf (gethash was made)
+                                              (let ((it (if was (term:copy-face was) (term:make-face))))
+                                                (setf (term:face-bg it) ground)
+                                                it)))))))))))
+
 (defun selection-face ()
   (term:make-face :bg (atty/ui:unhex (atty/ui:color 'atty/ui::bg-active))))
 
@@ -32,6 +55,7 @@ one and told what it is, so what it asks for is the room left over."
          (top (atty/ui:top w)) (left (atty/ui:left w))
          (height (atty/ui:height w)) (width (atty/ui:width w)))
     (atty/cells:blit m (pane-term pane) left top width height (pane-scrolled pane))
+    (ground-blanks m left top width height (pane-ground (view-focus-p w)))
     ;; what a find found, and what is being selected, over the top: a hit is
     ;; lit where it is, the one gone to brightest, and selected rows are shaded
     (let* ((find (pane-find pane))
@@ -155,10 +179,10 @@ it in: what was found, a way to find, and the way back to live."
    (bar :initarg :bar :reader area-bar)
    (chip :initarg :chip :reader area-chip)))
 
-(defun pane-area (pane &key (scrollbarp t) chipp)
+(defun pane-area (pane &key (scrollbarp t) chipp focusp)
   "PANE with a scrollbar down its right when SCROLLBARP. CHIPP is for a pane
 with no frame to say it in: the chip goes over the pane's own last line."
-  (let ((view (pane-view pane))
+  (let ((view (pane-view pane :focusp focusp))
         (bar (and scrollbarp (scrollbar pane)))
         (chip (and chipp (or (plusp (pane-scrolled pane)) (pane-find pane))
                    (scroll-strip pane))))
@@ -183,7 +207,7 @@ with no frame to say it in: the chip goes over the pane's own last line."
                      wide 1)))))
 
 ;;; A pane sits inside a frame of its own, all four sides, coloured by what its
-;;; program is doing and drawn double where the focus is. What the corners say
+;;; program is doing and drawn heavy where the focus is, on the pane's ground. What the corners say
 ;;; is src/mux/frames.lisp's business.
 
 (declaim (ftype function frame-corners frame-face pane-top-row))
@@ -193,7 +217,8 @@ with no frame to say it in: the chip goes over the pane's own last line."
 while one is laid out.")
 
 (defun pane-frame (pane focusp &optional session)
-  (atty/ui:framed (pane-area pane :scrollbarp *scrollbars*)
+  (atty/ui:framed (pane-area pane :scrollbarp *scrollbars* :focusp focusp)
+                  :background-color (bar-face (if focusp :bg :bg-well))
                   :face (frame-face pane focusp)
                   :line (if focusp :heavy :rounded)
                   :titles (and session (frame-corners session pane focusp))))
@@ -254,7 +279,7 @@ panes each in a frame of its own. A ZOOMED pane is the whole of it, framed, so
 what it is doing still shows while the others are out of sight."
   (cond (zoomed (pane-frame zoomed t session))
         ((split-p it) (framed-tree it focus session))
-        (t (pane-area it :scrollbarp *scrollbars* :chipp t))))
+        (t (pane-area it :scrollbarp *scrollbars* :chipp t :focusp t))))
 
 (defun framed-tree (it focus &optional session)
   (if (split-p it)

@@ -378,9 +378,10 @@
                               (is-true (pump seer :want "before") "the pane did not come back after a resize")
                               (pump seer :seconds 3)
                               (let ((host (seer-host seer)))
-                                (is (term:face-default-p (face-at host 20 6))
-                                    "an empty cell came back wearing ~S, so the clear was done in
-whatever colour was last in force"
+                                (is (equal (atty/ui:unhex (atty/ui:color 'atty/ui::bg))
+                                           (getf (term:face-plist (face-at host 20 6)) :bg))
+                                    "an empty cell came back wearing ~S, not the pane's ground, so the
+clear was done in whatever colour was last in force"
                                     (term:face-plist (face-at host 20 6)))))))
 
 (test a-bar-that-has-stood-long-enough-puts-a-watcher-behind

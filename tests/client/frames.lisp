@@ -30,7 +30,7 @@
              (pump seer :until (lambda () (search "┏" (seen seer))))
              (pump seer :seconds 1/2)
              (type-at seer (format nil "sh ~A~C" script #\Return))
-             (is-true (pump seer :want "▲ asks") "the question never reached the border: ~S"
+             (is-true (pump seer :want "▲ Bash") "the question never reached the border: ~S"
                       (seen seer))
              (is-true (pump seer :want " 1 Yes") "the answers are not in the border: ~S" (seen seer))
              (multiple-value-bind (x y) (where-on seer " 1 Yes")
