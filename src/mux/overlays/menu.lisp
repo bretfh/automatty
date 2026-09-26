@@ -28,7 +28,7 @@
 (defparameter +menu-delay+ 300
   "How long a prefix has to hang, in milliseconds, before the menu is drawn.")
 
-(defparameter +menu-column+ 30 "The least a column of the menu is.")
+(defparameter +menu-column+ 60 "The least a column of the menu is: room for what most keys do.")
 
 (defun menu-due-p (client)
   (and (client-partial-chord client)
@@ -79,12 +79,13 @@ in the order the groups are listed."
 (defun menu-tree (client cols)
   "The menu: columns of groups, each its title and the keys under it, in a
 rounded box that says what it is for and how to put it away."
-  (let* ((across (max 1 (min 4 (floor (- cols 4) +menu-column+))))
-         (width (max +menu-column+ (floor (- cols 4) across)))
+  (let* ((groups (menu-groups client))
+         (across (max 1 (min 4 (floor (- cols 4) +menu-column+))))
+         (width (max 20 (floor (- cols 4) across)))
          (columns (make-array across :initial-element nil))
          (heights (make-array across :initial-element 0)))
     ;; each group goes into the column with the least in it so far
-    (dolist (group (menu-groups client))
+    (dolist (group groups)
       (let ((at (position (reduce #'min heights) heights)))
         (setf (aref columns at)
               (append (aref columns at)

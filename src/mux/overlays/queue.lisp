@@ -218,7 +218,7 @@ last thing answered, when there was one."
                        (keycap "e" "why" :runs "queue explain")
                        (keycap "r" "read" :runs "queue read")
                        (keycap "p" "prompt" :runs "queue prompt"))
-     :body (if (and (null rows) (not (queue-showing-recent q)))
+     :body (if (and (null rows) (not (and (queue-showing-recent q) (client-recent client))))
                (nothing-waiting client)
                (multiple-value-bind (from most) (queue-window q client rows)
                  (apply #'atty/ui:row
