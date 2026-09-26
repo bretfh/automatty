@@ -27,10 +27,20 @@
                    (incf points (* 4 run))
                    (setf last found at (1+ found)))))))))
 
+(defun item-text (it)
+  "IT as text: a widget's labels one after another, else IT printed."
+  (if (typep it 'atty/ui:widget)
+      (with-output-to-string (out)
+        (labels ((walk (w)
+                   (when (typep w 'atty/ui:label) (princ (atty/ui:text w) out))
+                   (dolist (part (atty/ui:parts w)) (walk part))))
+          (walk it)))
+      (princ-to-string it)))
+
 (defun matches (query items text-of)
   (if (zerop (length query))
       items
     (let ((scored (loop :for it :in items
-                        :for s := (score query (princ-to-string (funcall text-of it)))
+                        :for s := (score query (item-text (funcall text-of it)))
                         :when s :collect (cons s it))))
       (mapcar #'cdr (stable-sort scored #'> :key #'car)))))

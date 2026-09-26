@@ -30,9 +30,12 @@ from what it is called now. TAB goes over to naming the window it is in."
 
 (defun command-item-line (name)
   "NAME as the prompt offers it: the name, its key when it has one, and a line
-on what it does."
+on what it does, dim, cut where the row ends."
   (let ((key (command-key (intern (string-upcase (substitute #\- #\Space name)) :atty))))
-    (format nil "~24A ~10A ~@[~A~]" name (or key "") (command-doc name))))
+    (squeezed (atty/ui:row :spacing 0
+                           (atty/ui:label (format nil "~24A " name))
+                           (atty/ui:label (format nil "~10A " (or key "")) :face :key-hint)
+                           (atty/ui:label (or (command-doc name) "") :face :quiet)))))
 
 (defun prompt-command (client)
   (open-prompt client "commands" (command-names) :kind #\:

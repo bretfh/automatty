@@ -34,8 +34,9 @@
       (is-true (pump seer :want "in-the-first") "clicking the row did not go there: ~S" (seen seer)))))
 
 (test the-command-prompt-shows-each-commands-key-and-what-it-does
-  (is (search "C-b 3" (mux::command-item-line "split right")))
-  (is (search "beside" (mux::command-item-line "split right")))
+  (let ((line (shown (painted (mux::command-item-line "split right") 120 1) 0)))
+    (is (search "C-b 3" line) "~S" line)
+    (is (search "beside" line) "~S" line))
   (is (string= "PANES" (symbol-name (mux::command-group "split right"))))
   (let ((rows (mux::keys-help-rows)))
     (is (string= "PANES" (symbol-name (third (first rows)))) "the help does not start with the panes: ~S" (first rows))

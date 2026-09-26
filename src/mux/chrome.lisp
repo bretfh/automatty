@@ -251,15 +251,17 @@ at the right."
 ;;; cells at the right before the rail. The chosen row is a whole band.
 
 (defun gutter-row (mark body &key selected runs)
-  "MARK in the gutter, BODY across the row, a band when SELECTED."
+  "MARK in the gutter, BODY across the row, a band when SELECTED. A squeezed
+BODY takes the room the gap would and is cut where the row ends."
   (let ((it (apply #'atty/ui:row :spacing 0
                    (append (when selected (list :background-color (bar-face :bg-active)))
-                           (list (if (stringp mark)
-                                     (atty/ui:label (format nil "~2A" mark) :face :cursor)
-                                     (or mark (atty/ui:label "  ")))
-                                 (if (stringp body) (atty/ui:label body) body)
-                                 (atty/ui:gap)
-                                 (atty/ui:label "  "))))))
+                           (remove nil
+                                   (list (if (stringp mark)
+                                             (atty/ui:label (format nil "~2A" mark) :face :cursor)
+                                             (or mark (atty/ui:label "  ")))
+                                         (if (stringp body) (atty/ui:label body) body)
+                                         (unless (typep body 'squeezed) (atty/ui:gap))
+                                         (atty/ui:label "  ")))))))
     (if runs (bar-button runs it) it)))
 
 (defun section (name)
