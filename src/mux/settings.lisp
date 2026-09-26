@@ -120,6 +120,10 @@ slip in an init file says so rather than doing nothing."
   "How many rows behind its screen a pane keeps."
   :check (check-number 0))
 
+(defsetting +scrollback-budget+ 2000000
+  "How many rows behind their screens all panes together keep; past it, panes nobody is looking at give up their oldest."
+  :check (check-number 0))
+
 (defsetting +log-length+ 256
   "How many entries a pane's log of who typed into it keeps."
   :check (check-number 2))

@@ -34,6 +34,7 @@
                vec)))
 
 (defun make-wire (fd &optional owner)
+  (pty:close-on-exec fd)
   (let ((flags (sb-posix:fcntl fd sb-posix:f-getfl)))
     (sb-posix:fcntl fd sb-posix:f-setfl (logior flags sb-posix:o-nonblock)))
   (%make-wire :fd fd :owner owner))

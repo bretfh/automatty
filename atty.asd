@@ -66,7 +66,8 @@
                 :depends-on (#:libatty #:atty/pty #:atty/tty #:atty/mode #:atty/ui #:atty/cells
                                   #:atty/agent
                                   (:require #:sb-posix)
-                                  (:require #:sb-bsd-sockets))
+                                  (:require #:sb-bsd-sockets)
+                                  (:require #:sb-sprof))
                 :serial t
                 :pathname "src/mux/"
                 :components ((:file "package")
@@ -118,6 +119,7 @@
                              (:file "keymap")
                              (:file "user")
                              (:file "readers")
+                             (:file "bench")
                              (:file "main")))
 
 (asdf:defsystem #:atty/all

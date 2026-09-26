@@ -149,6 +149,7 @@ anything actually moved.")
   (release nil)
   (release-noted nil)
   (release-checked-at 0 :type integer)
+  (drain-turn 0 :type fixnum)
   (running t :type boolean))
 
 (defparameter +first-session-timeout+ 10000000000
@@ -245,7 +246,7 @@ on it are the whole of who may."
 (defun server-listen (server)
   "Take the server's name: from here on a client can reach it."
   (let* ((socket (listen-on (server-path server)))
-         (fd (sb-bsd-sockets:socket-file-descriptor socket)))
+         (fd (pty:close-on-exec (sb-bsd-sockets:socket-file-descriptor socket))))
     (sb-posix:fcntl fd sb-posix:f-setfl
                     (logior (sb-posix:fcntl fd sb-posix:f-getfl)
                             sb-posix:o-nonblock))
@@ -308,6 +309,8 @@ either."
                                                           :height rows))))
     (session-compose session)
     (pane-start pane :environment (pane-environment session pane))
+    (when (pane-failed pane)
+      (error "~A" (pane-failed pane)))
     (setf (server-sessions server) (append (server-sessions server) (list session))
           (server-had-sessions server) t)
     (run-hook 'pane-started session pane)

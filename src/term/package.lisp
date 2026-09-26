@@ -74,6 +74,7 @@
    #:decoder
    #:make-decoder
    #:decode-utf-8
+   #:decode-utf-8-into
 
    #:term-rang
    #:term-titled
@@ -127,6 +128,7 @@
 
    #:term-max-scrollback
    #:term-scrollback-size
+   #:term-trim-scrollback
    #:term-scrollback-pushed
    #:term-scrollback-row
    #:term-scrollback-row-string

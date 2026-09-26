@@ -1,4 +1,4 @@
-.PHONY: repl check deps sbcl sbcl-bin test test-term run bench latency mux-bench attached compare eval release clean install uninstall
+.PHONY: repl check deps sbcl sbcl-bin test test-term run bench latency mux-bench attached stress compare eval release clean install uninstall
 
 # Two ways to get what atty needs, and every target works under either. Guix is
 # what it develops against and what plain `make' uses: manifest.scm names the
@@ -24,6 +24,7 @@ REGISTRY = (:source-registry (:directory \"$$PWD/\") $(DEP_TREE) :ignore-inherit
 # sbcl, since a fasl is only good for the sbcl that wrote it
 SBCL_BIN ?= sbcl
 FASL_DIR ?= $$HOME/.cache/common-lisp/atty/
+HEAP ?= 8GB
 
 ifeq ($(FOREIGN),)
   IN   := $(GUIX) sh -c
@@ -59,6 +60,9 @@ CMD_Q = '$(subst ','\'',$(CMD))'
 # where make bench and make compare put the corpora they read
 BENCH_DIR ?= /tmp/atty-bench
 ROUNDS ?= 5
+SESSIONS ?= 1,10,100,1000
+CHARS ?= 1k,100k,1m
+PROFILE ?= cpu
 
 repl:
 	$(IN) '$(ENV) $(SBCL) --eval "(asdf:load-system :atty/all)"'
@@ -116,7 +120,7 @@ latency:
 # the program. ./atty is the whole of it: run it, put it on PATH, copy it to
 # another machine. Everything it does is its own argument, not a make target.
 atty: build.lisp atty.asd libatty.asd $(wildcard src/*/*.lisp src/*/*/*.lisp src/*/*/*/*.lisp) $(wildcard readers/*/*/reader.lisp)
-	$(IN) '$(ENV) ATTY_OUT="$$PWD/atty" ATTY_VERSION="$(VERSION)" $(SBCL) --non-interactive --load build.lisp'
+	$(IN) '$(ENV) ATTY_OUT="$$PWD/atty" ATTY_VERSION="$(VERSION)" $(SBCL_BIN) --dynamic-space-size $(HEAP) --no-userinit --eval "(require :asdf)" --non-interactive --load build.lisp'
 
 # the binary as a release carries it: one tarball named for the version and
 # the platform, and the sum to check it by. A tag workflow uploads these.
@@ -149,6 +153,11 @@ mux-bench:
 # built binary, not a fresh SBCL loading ASDF: that is not what runs it.
 attached: atty
 	$(IN) '$(ENV) BENCH_DIR="$(BENCH_DIR)" $(SBCL) --non-interactive --load bench/attached.lisp'
+
+# the server under load, a profile of each run and a csv in BENCH_DIR/trace:
+#   make stress SESSIONS=1,10 CHARS=1k,1m PROFILE=alloc
+stress: atty
+	./atty bench --sessions $(SESSIONS) --chars $(CHARS) --trace "$(BENCH_DIR)/trace" --profile $(PROFILE)
 
 # the same corpora through tmux and through alacritty, under atty's own
 # numbers, so the three are read off one screen

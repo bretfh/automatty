@@ -35,6 +35,10 @@
 spawn.h; the pty suite says whether the one you put here is right, because it
 asserts the child comes up with a controlling terminal."))
 
+(defconstant +posix-spawn-cloexec-default+
+  #+darwin #x4000
+  #-darwin 0)
+
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defun bsd-ioctl-write (group number length)
     "What a BSD calls an ioctl that writes LENGTH bytes. The number is a bit
@@ -54,6 +58,13 @@ layout rather than a list, so the whole family follows from the one rule."
 
 (sb-alien:define-alien-routine ("posix_openpt" %openpt) sb-alien:int
   (flags sb-alien:int))
+
+(sb-alien:define-alien-routine ("fcntl" %fcntl) sb-alien:int
+  (fd sb-alien:int) (command sb-alien:int) (argument sb-alien:int))
+
+(defun close-on-exec (fd)
+  (%fcntl fd 2 1)
+  fd)
 
 (sb-alien:define-alien-routine ("grantpt" %grantpt) sb-alien:int
   (fd sb-alien:int))
@@ -151,8 +162,8 @@ why."
 
 (defun open-pty ()
   "A pseudo-terminal. Answers (values master-fd slave-path)."
-  (let ((master (check-errno (%openpt (logior +o-rdwr+ +o-noctty+))
-                             "posix_openpt")))
+  (let ((master (close-on-exec (check-errno (%openpt (logior +o-rdwr+ +o-noctty+))
+                                            "posix_openpt"))))
     (handler-bind ((error (lambda (e) (declare (ignore e))
                             (sb-unix:unix-close master))))
       (check-errno (%grantpt master) "grantpt")
@@ -237,7 +248,8 @@ cannot do and the reason this used to want a helper program written in C."
                              "addopen of the slave")
                       (check (%actions-adddup2 actions-sap 0 1) "adddup2 to stdout")
                       (check (%actions-adddup2 actions-sap 0 2) "adddup2 to stderr")
-                      (check (%attr-setflags attr-sap +posix-spawn-setsid+)
+                      (check (%attr-setflags attr-sap (logior +posix-spawn-setsid+
+                                                            +posix-spawn-cloexec-default+))
                              "setflags SETSID")
                       (let ((rc (%spawn (sb-alien:alien-sap (sb-alien:addr pid))
                                         shell actions-sap attr-sap
@@ -293,7 +305,8 @@ between the fork and the exec."
                                              #o600)
                            "addopen of the output")
                     (check (%actions-adddup2 actions-sap 1 2) "adddup2 to stderr")
-                    (check (%attr-setflags attr-sap +posix-spawn-setsid+)
+                    (check (%attr-setflags attr-sap (logior +posix-spawn-setsid+
+                                                            +posix-spawn-cloexec-default+))
                            "setflags SETSID")
                     (let ((rc (%spawn (sb-alien:alien-sap (sb-alien:addr pid))
                                       (namestring program) actions-sap attr-sap
@@ -362,6 +375,17 @@ read as it. Anything else is a fault and is signalled."
               ((or (eql errno sb-unix:eintr) (eql errno sb-unix:eagain)) "")
               ((eql errno sb-unix:eio) nil)
               (t (error "reading the terminal: ~A" (sb-int:strerror errno))))))))
+
+(defun pty-read-into (fd octets &optional (end (length octets)))
+  (declare (type (simple-array (unsigned-byte 8) (*)) octets))
+  (sb-sys:with-pinned-objects (octets)
+    (multiple-value-bind (n errno)
+        (sb-unix:unix-read fd (sb-sys:vector-sap octets) end)
+      (cond ((and n (plusp n)) n)
+            (n nil)
+            ((or (eql errno sb-unix:eintr) (eql errno sb-unix:eagain)) 0)
+            ((eql errno sb-unix:eio) nil)
+            (t (error "reading the terminal: ~A" (sb-int:strerror errno)))))))
 
 (defun pty-write-string (fd string &optional (external-format :latin-1))
   "Say STRING to the program. Answers how many bytes of it were taken. A write

@@ -64,15 +64,19 @@ in poll.h, and it is the only thing here that is not the same on every unix.")
 (defun waiting-add (w fd &optional (events sb-unix:pollin))
   (when (>= (waiting-count w) (waiting-room w))
     (waiting-grow w (max 8 (* 2 (waiting-room w)))))
-  (let ((slot (sb-alien:deref (waiting-fds w) (waiting-count w))))
-    (setf (sb-alien:slot slot 'fd) fd
-          (sb-alien:slot slot 'events) events
-          (sb-alien:slot slot 'revents) 0))
+  (let ((fds (waiting-fds w)))
+    (declare (type (sb-alien:alien (* (sb-alien:struct pollfd))) fds))
+    (let ((slot (sb-alien:deref fds (waiting-count w))))
+      (setf (sb-alien:slot slot 'fd) fd
+            (sb-alien:slot slot 'events) events
+            (sb-alien:slot slot 'revents) 0)))
   (prog1 (waiting-count w)
     (incf (waiting-count w))))
 
 (defun waiting-back (w n)
-  (sb-alien:slot (sb-alien:deref (waiting-fds w) n) 'revents))
+  (let ((fds (waiting-fds w)))
+    (declare (type (sb-alien:alien (* (sb-alien:struct pollfd))) fds))
+    (sb-alien:slot (sb-alien:deref fds n) 'revents)))
 
 (defun readable-p (back)
   (plusp (logand back (logior sb-unix:pollin sb-unix:pollhup sb-unix:pollerr))))

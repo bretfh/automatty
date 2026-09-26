@@ -319,3 +319,37 @@
     (is (equal '("EEEE" "EEEE") (rows term)))
     (is (term:face-default-p (face-at term 0 0))
         "the alignment pattern is in the default face")))
+
+(defun cells-of (row)
+  (loop for x below (term:row-width row)
+        collect (list (term:row-char row x)
+                      (let ((f (term:row-face row x)))
+                        (and f (not (term:face-default-p f)) (term:face-plist f))))))
+
+(test a-row-in-the-scrollback-reads-back-cell-for-cell-as-it-was-on-the-screen
+  (let* ((term (a-term :width 12 :height 1 :max-scrollback 10))
+         (line (format nil "~A~A~A~A~A~A" (csi "31m") "ré" (csi "1;44m") "漢x" (csi "0;42m") "  ")))
+    (say term line)
+    (let ((was (cells-of (term:term-grid-row term 0))))
+      (say term (format nil "~C~C" #\Return #\Newline))
+      (is (equal was (cells-of (term:term-scrollback-row term 0))))
+      (is (equal "ré漢 x" (string-right-trim " " (term:term-scrollback-row-string term 0)))))))
+
+(test a-row-of-nothing-in-the-scrollback-is-a-row-of-spaces-its-width
+  (let ((term (a-term :width 6 :height 1 :max-scrollback 10)))
+    (say term (format nil "~C~C" #\Return #\Newline))
+    (let ((row (term:term-scrollback-row term 0)))
+      (is (= 6 (term:row-width row)))
+      (is (equal "      " (term:row-chars row))))))
+
+(test more-faces-than-the-table-holds-leaves-the-kept-rows-their-faces
+  (let ((term (a-term :width 4 :height 1 :max-scrollback 3)))
+    (dotimes (i 70000)
+      (say term (format nil "~A~Dx~C~C" (csi "38;2;~D;~D;~Dm" (mod i 256) (mod (floor i 256) 256) 7)
+                        (mod i 10) #\Return #\Newline)))
+    (dotimes (k 3)
+      (let* ((i (+ 69997 k))
+             (face (term:row-face (term:term-scrollback-row term k) 0)))
+        (is (equal (list (mod i 256) (mod (floor i 256) 256) 7)
+                   (let ((fg (term:face-fg face))) (if (vectorp fg) (coerce fg 'list) fg)))
+            "row ~D came back as ~S" k (term:face-fg face))))))

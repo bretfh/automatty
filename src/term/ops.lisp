@@ -121,6 +121,8 @@ nothing more."
        ;; ED never moves the cursor, on any mode. It only erases.
        (clear-grid grid bg-face)
        (when (= mode 3)
+         (when (term-scrollback term)
+           (fill (term-scrollback term) nil))
          (setf (term-scrollback-size term) 0
                (term-scrollback-head term) 0))))))
 
@@ -159,12 +161,114 @@ nothing more."
     (move-span row (+ x count) x (- w x count))
     (blank-span row (- w count) w bg-face)))
 
+(defun compact-faces (term)
+  (let* ((old (term-face-table term))
+         (map (make-array (length old) :element-type 'fixnum :initial-element -1))
+         (new (make-array 64 :adjustable t :fill-pointer 1 :initial-element nil))
+         (ring (term-scrollback term)))
+    (setf (aref map 0) 0)
+    (when ring
+      (dotimes (n (term-scrollback-size term))
+        (let* ((line (aref ring (mod (+ (term-scrollback-head term) n) (length ring))))
+               (runs (line-runs line)))
+          (dotimes (i (line-count line))
+            (let* ((run (aref runs i))
+                   (id (ash run -16)))
+              (when (minusp (aref map id))
+                (setf (aref map id) (fill-pointer new))
+                (vector-push-extend (aref old id) new))
+              (setf (aref runs i) (logior (ash (aref map id) 16) (logand run #xFFFF))))))))
+    (setf (term-face-table term) new
+          (term-face-last term) nil)
+    (clrhash (term-face-ids term))
+    (loop for id from 1 below (fill-pointer new)
+          for face = (aref new id)
+          do (push (cons face id) (gethash (face-key face) (term-face-ids term))))))
+
+(defun face-id (term face)
+  (cond ((or (null face) (face-default-p face)) 0)
+        ((eq face (term-face-last term)) (term-face-last-id term))
+        (t
+         (let* ((key (face-key face))
+                (id (or (cdr (assoc face (gethash key (term-face-ids term)) :test #'face-equal))
+                        (progn
+                          (when (>= (fill-pointer (term-face-table term)) +most-faces+)
+                            (compact-faces term))
+                          (if (>= (fill-pointer (term-face-table term)) +most-faces+)
+                              0
+                              (let ((id (fill-pointer (term-face-table term))))
+                                (vector-push-extend face (term-face-table term))
+                                (push (cons face id) (gethash key (term-face-ids term)))
+                                id))))))
+           (setf (term-face-last term) face
+                 (term-face-last-id term) id)))))
+
+(defun freeze-row (term row &optional reuse)
+  (let* ((w (row-width row))
+         (end (loop for x of-type fixnum from (1- w) downto 0
+                    unless (and (char= (row-char row x) #\Space)
+                                (let ((f (row-face row x))) (or (null f) (face-default-p f))))
+                      return (1+ x)
+                    finally (return 0)))
+         (plain (let ((from (row-chars row)))
+                  (declare (type (simple-array character (*)) from))
+                  (loop for x of-type fixnum below end always (< (char-code (schar from x)) 128))))
+         (scratch (if (>= (length (term-runs term)) w)
+                      (term-runs term)
+                      (setf (term-runs term) (make-array w :element-type '(unsigned-byte 32)))))
+         (n 0)
+         (last-face '#:none)
+         (last-id -1))
+    (declare (type fixnum w end n last-id) (type (simple-array (unsigned-byte 32) (*)) scratch))
+    (dotimes (x end)
+      (let ((f (row-face row x)))
+        (unless (eq f last-face)
+          (let ((id (face-id term f)))
+            (declare (type fixnum id))
+            (setf last-face f)
+            (unless (= id last-id)
+              (setf (aref scratch n) (logior (ash id 16) x)
+                    last-id id)
+              (incf n))))))
+    (let ((line (if (and reuse
+                         (>= (length (line-chars reuse)) end)
+                         (or plain (not (typep (line-chars reuse) 'simple-base-string)))
+                         (>= (length (line-runs reuse)) n))
+                    reuse
+                    (%make-line w
+                                (if plain
+                                    (make-string w :element-type 'base-char)
+                                    (make-string w))
+                                (make-array (max n 4) :element-type '(unsigned-byte 32))))))
+      (let ((chars (line-chars line))
+            (from (row-chars row)))
+        (declare (type (simple-array character (*)) from))
+        (etypecase chars
+          (simple-base-string
+           (dotimes (x end) (setf (schar chars x) (code-char (char-code (schar from x))))))
+          ((simple-array character (*))
+           (replace chars from :end1 end :end2 end))))
+      (replace (line-runs line) scratch :end2 n)
+      (setf (line-width line) w
+            (line-end line) end
+            (line-count line) n)
+      line)))
+
+(defun thaw-line (term line)
+  (let* ((row (make-row (line-width line)))
+         (chars (line-chars line))
+         (runs (line-runs line))
+         (count (line-count line))
+         (table (term-face-table term))
+         (end (min (line-end line) (line-width line))))
+    (replace (row-chars row) chars :end2 end)
+    (dotimes (i count row)
+      (let* ((run (aref runs i))
+             (from (logand run #xFFFF))
+             (to (if (< (1+ i) count) (logand (aref runs (1+ i)) #xFFFF) end)))
+        (fill (row-faces row) (aref table (ash run -16)) :start (min from end) :end (min to end))))))
+
 (defun push-scrollback (term row)
-  "Take ownership of ROW into the scrollback ring and return a clean replacement
-row for the grid, or nil when scrollback is off (caller keeps ROW). Rows are
-allocated only until the ring reaches max-scrollback; at capacity the evicted
-oldest row is recycled as the replacement, so steady-state scrolling is O(1)
-pointer moves with no consing."
   (let ((ring (term-scrollback term))
         (max (term-max-scrollback term)))
     (when (and ring (plusp max))
@@ -177,13 +281,12 @@ pointer moves with no consing."
             (head (term-scrollback-head term)))
         (declare (type fixnum cap size head))
         (cond
-          ((>= size max)                ; at capacity: evict oldest, recycle it
-           (let ((evicted (aref ring head)))
-             (setf (aref ring (mod (+ head size) cap)) row
-                   (term-scrollback-head term) (mod (1+ head) cap))
-             (if (= (row-width evicted) (term-width term))
-                 (progn (clear-row evicted) evicted)
-                 (make-row (term-width term)))))
+          ((>= size max)
+           (setf (aref ring (mod (+ head size) cap))
+                 (freeze-row term row (aref ring (mod (+ head size) cap)))
+                 (term-scrollback-head term) (mod (1+ head) cap))
+           (clear-row row)
+           row)
           (t
            (when (= size cap)           ; grow the ring array toward max
              (let ((new (make-array (min (* 2 (max cap 64)) max)
@@ -193,15 +296,28 @@ pointer moves with no consing."
                (setf (term-scrollback term) new
                      (term-scrollback-head term) 0
                      ring new cap (length new) head 0)))
-           (setf (aref ring (mod (+ head size) cap)) row
+           (setf (aref ring (mod (+ head size) cap)) (freeze-row term row)
                  (term-scrollback-size term) (1+ size))
-           (make-row (term-width term))))))))
+           (clear-row row)
+           row))))))
+
+(defun term-trim-scrollback (term keep)
+  (let ((ring (term-scrollback term))
+        (size (term-scrollback-size term)))
+    (when (and ring (> size keep))
+      (let ((drop (- size (max 0 keep)))
+            (cap (length ring)))
+        (dotimes (i drop)
+          (setf (aref ring (mod (+ (term-scrollback-head term) i) cap)) nil))
+        (setf (term-scrollback-head term) (mod (+ (term-scrollback-head term) drop) cap)
+              (term-scrollback-size term) (- size drop))
+        drop))))
 
 (defun term-scrollback-row (term n)
   (let ((ring (term-scrollback term))
         (size (term-scrollback-size term)))
     (when (and ring (<= 0 n) (< n size))
-      (aref ring (mod (+ (term-scrollback-head term) n) (length ring))))))
+      (thaw-line term (aref ring (mod (+ (term-scrollback-head term) n) (length ring)))))))
 
 (defun term-scroll-up (term &optional (n 1) (keep t))
   "Move the scroll region up N lines.

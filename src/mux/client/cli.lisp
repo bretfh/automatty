@@ -194,7 +194,7 @@ kind. Either form of address finds it."
                         :done (lambda (f) (eq :spawned (first f)))))
            (spawned (find :spawned said :key #'first))
            (id (third spawned)))
-      (unless id (error "no pane was made in ~A" session))
+      (unless id (error "~A" (or (fifth spawned) (format nil "no pane was made in ~A" session))))
       (format t "~&~A~%" (or (fourth spawned) (format nil "~A:~D" session id))))))
 
 (defun rename-agent (args)

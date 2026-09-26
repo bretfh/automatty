@@ -46,7 +46,8 @@
   (format s "  atty readers index [<dir>]   write the catalog's index of reader files~%")
   (format s "  atty readers update          fetch the catalog and load it into every running server~%")
   (format s "  atty readers verify [<dir>]  replay every recorded version against its reader~%")
-  (format s "  atty agent signal <state>   from inside a pane: what its program is doing~%~%")
+  (format s "  atty agent signal <state>   from inside a pane: what its program is doing~%")
+  (format s "  atty bench [--sessions 1,10,100,1000] [--chars 1k,100k,1m] [--trace <dir>] [--profile cpu|alloc|time] [--soak <seconds>]~%~%")
   (format s "  ~C-b N what needs you, ~C-b w the switchboard, ~C-b a the one blocked longest,~%"
           #\^ #\^ #\^)
   (format s "  ~C-b e why a pane is what it is, ~C-b z zoom, ~C-b , name a pane.~%"
@@ -120,6 +121,7 @@
                     :command (or (second words) (default-shell))
                     :label (option-value args "--name"))))
             ((string= what "agent") (agent-command (rest args)))
+            ((string= what "bench") (bench-atty (rest args)))
             ((string= what "record") (record-reader args))
             ((string= what "readers") (readers-command (rest args)))
             ((or (string= what "-h") (string= what "--help")) (usage *standard-output*))

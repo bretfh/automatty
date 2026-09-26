@@ -46,22 +46,32 @@ here handles, or one that needs a session the watcher has not joined."
   ;; asking and the making are one step here: two clients opening the same
   ;; new name get one session, not two, and not an error
   (watcher-resize watcher rows cols takes)
-  (join-session server watcher
-                (or (and name (session-named server name))
-                    (let ((made (add-session server (or command (server-command server))
-                                             :name (or name (unused-session-name server))
-                                             :rows (watcher-rows watcher)
-                                             :cols (watcher-cols watcher)
-                                             :directory directory)))
-                      (when label
-                        (setf (pane-label (session-focus made)) label))
-                      made))))
+  (let ((session (or (and name (session-named server name))
+                     (handler-case
+                         (let ((made (add-session server (or command (server-command server))
+                                                  :name (or name (unused-session-name server))
+                                                  :rows (watcher-rows watcher)
+                                                  :cols (watcher-cols watcher)
+                                                  :directory directory)))
+                           (when label
+                             (setf (pane-label (session-focus made)) label))
+                           made)
+                       (error (e)
+                         (drop-watcher server watcher (princ-to-string e))
+                         nil)))))
+    (when session
+      (join-session server watcher session))))
 
 (define-message-handler :spawn (name command directory label &optional window)
-  (let* ((pane (spawn-pane server name command directory label window))
-         (session (and pane (session-named server name))))
-    (send-message watcher (list :spawned name (and pane (pane-id pane))
-                        (and pane (pane-address-of session pane))))))
+  (multiple-value-bind (pane why)
+      (handler-case (spawn-pane server name command directory label window)
+        (error (e) (values nil (princ-to-string e))))
+    (let* ((why (or why (and pane (pane-failed pane))))
+           (pane (and (not why) pane))
+           (session (and pane (session-named server name))))
+      (send-message watcher (list :spawned name (and pane (pane-id pane))
+                                  (and pane (pane-address-of session pane))
+                                  why)))))
 
 (define-message-handler :since-prompt (name id)
   (let ((pane (find-pane server name id))

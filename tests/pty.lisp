@@ -201,3 +201,22 @@ until the first quiet moment: a program that is asleep has not finished."
   (with-pty (fd pid "cd / && sleep 5; true")
     (let ((lines (running-lines fd "sleep 5")))
       (is (member "sleep 5" lines :test #'string=) "~S" lines))))
+
+(test a-program-holds-no-other-panes-terminal
+  (with-pty (first-fd first-pid "sleep 5")
+    (let ((term (a-term :width 80 :height 5)))
+      (with-pty (fd pid (format nil "if (true >&~D) 2>/dev/null; then echo held-it; else echo not-held; fi" first-fd))
+        (is-true (until-said term fd "-held"))
+        (is (search "not-held" (screen term))
+            "the second program holds the first one's terminal, fd ~D: ~S" first-fd (screen term))))))
+
+(test a-program-whose-terminal-is-closed-goes-though-other-programs-are-running
+  (multiple-value-bind (fd pid) (pty:spawn-pty-process "sleep 100")
+    (with-pty (other-fd other-pid "sleep 100")
+      (sleep 0.2)
+      (pty:pty-close fd)
+      (is-true (loop repeat 200
+                     thereis (not (zerop (sb-posix:waitpid pid sb-posix:wnohang)))
+                     do (sleep 0.01))
+               "the program went on after its terminal was closed")
+      (ignore-errors (pty:pty-reap pid 1)))))

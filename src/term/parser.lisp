@@ -56,14 +56,14 @@ but neither is unbounded, and nothing says a program has to send a terminator.")
   (let ((code (char-code ch)))
     (or (= code 27) (= code +cancel+) (= code +substitute+))))
 
-(defun term-process-output (term string)
+(defun term-process-output (term string &optional end)
   (if (typep string '(simple-array character (*)))
-      (%term-process-output term string)
-      (%term-process-output term (coerce string '(simple-array character (*))))))
+      (%term-process-output term string end)
+      (%term-process-output term (coerce string '(simple-array character (*))) end)))
 
-(defun %term-process-output (term string)
+(defun %term-process-output (term string &optional end)
   (declare (type (simple-array character (*)) string))
-  (let ((len (length string))
+  (let ((len (or end (length string)))
         (index 0))
     ;; one local function a parser state, each reading from INDEX and leaving
     ;; it after what it took; inlined, so this is the one loop it always was

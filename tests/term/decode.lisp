@@ -50,3 +50,21 @@
         (say term (term:decode-utf-8 d (bytes-of "├── a")))
         (is (equal "├── a" (row term 0)))
         (is (equal '(5 0) (cursor term)) "it took more columns than it draws")))
+
+(test a-sequence-past-the-last-code-point-is-one-character-that-says-so
+      (let ((past (map 'string #'code-char '(97 #xF4 #x90 #x80 #x80 98))))
+        (is (equal (format nil "a~Cb" (code-char 65533)) (decoded past)))
+        (let ((octets (map '(simple-array (unsigned-byte 8) (*)) #'char-code past)))
+          (multiple-value-bind (out n)
+              (term:decode-utf-8-into (term:make-decoder) octets (length octets) (make-string 0))
+            (is (equal (format nil "a~Cb" (code-char 65533)) (subseq out 0 n)))))))
+
+(test decoding-into-a-buffer-reads-the-same-as-decoding-a-string
+      (let* ((bytes (bytes-of "a├──漢字🭰b"))
+             (octets (map '(simple-array (unsigned-byte 8) (*)) #'char-code bytes)))
+        (dotimes (cut (length octets))
+          (let ((d (term:make-decoder)) (buf (make-string 0)) (got ""))
+            (dolist (part (list (subseq octets 0 cut) (subseq octets cut)))
+              (multiple-value-bind (out n) (term:decode-utf-8-into d part (length part) buf)
+                (setf buf out got (concatenate 'string got (subseq out 0 n)))))
+            (is (equal "a├──漢字🭰b" got) "cut after ~D bytes came back as ~S" cut got)))))

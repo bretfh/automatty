@@ -27,6 +27,7 @@
   (fd -1 :type fixnum)
   (pid -1 :type fixnum)
   (running t :type boolean)
+  (failed nil)
   (dirty t :type boolean)
   (rang nil :type boolean)
   (named nil)
@@ -34,6 +35,7 @@
   (log nil)
   (log-count 0 :type fixnum)
   (moved-at 0 :type integer)
+  (typed-at 0 :type integer)
   (pending-prompt nil)
   (command nil)
   (directory nil)
@@ -42,6 +44,7 @@
   (programs nil)
   (paths nil)
   (programs-at 0)
+  (group-at 0 :type integer)
   (scrolled 0 :type fixnum)
   (find nil)
   (selecting nil)
@@ -120,8 +123,12 @@ made now takes the next."
 
 (defun pane-started (pane) (>= (pane-fd pane) 0))
 
+(defparameter +group-poll-interval+ 200)
+
 (defun pane-update-programs (pane now)
-  (when (and (pane-started pane) (pane-running pane))
+  (when (and (pane-started pane) (pane-running pane)
+             (or (pane-dirty pane) (>= (- now (pane-group-at pane)) +group-poll-interval+)))
+    (setf (pane-group-at pane) now)
     (let ((group (pty:pty-foreground (pane-fd pane))))
       (when (or (not (eql group (pane-group pane)))
                 (and (null (agent:agent-reader (pane-agent pane)))
@@ -147,36 +154,48 @@ made now takes the next."
 
 (defun pane-start (pane &key environment)
   "Run the pane's program on a terminal of its own, the size the pane is now."
-  (unless (pane-started pane)
+  (unless (or (pane-started pane) (pane-failed pane))
     (let ((term (pane-term pane)))
-      (multiple-value-bind (fd pid)
-          (pty:spawn-pty-process (pane-command pane)
-                                 :rows (term:term-height term)
-                                 :cols (term:term-width term)
-                                 :environment environment
-                                 :directory (pane-directory pane))
-        (setf (pane-fd pane) fd
-              (pane-pid pane) pid))))
+      (handler-case
+          (multiple-value-bind (fd pid)
+              (pty:spawn-pty-process (pane-command pane)
+                                     :rows (term:term-height term)
+                                     :cols (term:term-width term)
+                                     :environment environment
+                                     :directory (pane-directory pane))
+            (setf (pane-fd pane) fd
+                  (pane-pid pane) pid))
+        (error (e)
+          (setf (pane-running pane) nil
+                (pane-failed pane) (format nil "~A could not start: ~A" (pane-command pane) e))))))
   pane)
 
-(defun pane-drain (pane &key (budget 16) (size 65536))
+(defvar *drain-octets* nil)
+(defvar *drain-chars* (make-string 0))
+
+(defun pane-drain (pane &key (budget 16) (size 65536) (most 65536))
   "Read what the program wrote and give it to the term. Answers nil when the
 program is done.
 
 At most BUDGET reads a wakeup: the descriptor stays readable and the next poll
 comes straight back, so one pane writing without pause cannot starve the rest."
   (dotimes (i budget t)
-    (unless (pty:pty-wait (pane-fd pane) 0)
+    (unless (and (plusp most) (pty:pty-wait (pane-fd pane) 0))
       (return t))
-    (let ((said (pty:pty-read-string (pane-fd pane) size)))
+    (let* ((octets (if (and *drain-octets* (>= (length *drain-octets*) size))
+                       *drain-octets*
+                       (setf *drain-octets* (make-array size :element-type '(unsigned-byte 8)))))
+           (n (pty:pty-read-into (pane-fd pane) octets size)))
       (cond
-        ((null said) (setf (pane-running pane) nil) (return nil))
-        ((zerop (length said)) (return t))
-        (t (term:term-process-output
-            (pane-term pane)
-            (term:decode-utf-8 (pane-decoder pane) said))
+        ((null n) (setf (pane-running pane) nil) (return nil))
+        ((zerop n) (return t))
+        (t (multiple-value-bind (chars count)
+               (term:decode-utf-8-into (pane-decoder pane) octets n *drain-chars*)
+             (setf *drain-chars* chars)
+             (term:term-process-output (pane-term pane) chars count))
            (pane-scroll-settle pane)
-           (incf (pane-output pane) (length said))
+           (incf (pane-output pane) n)
+           (decf most n)
            (setf (pane-dirty pane) t))))))
 
 ;;; How far back a pane is being read. Nought is the screen as the program has
@@ -220,6 +239,7 @@ program has taken the whole screen is back at it."
 
 (defun pane-write (pane said)
   (when (and (pane-running pane) (pane-started pane))
+    (setf (pane-typed-at pane) (now-ms))
     (ignore-errors (pty:pty-write-string (pane-fd pane) said))))
 
 (defun pane-resize (pane rows cols)

@@ -120,6 +120,15 @@ are twelve, and clearing a line is two fills."
   (declare (type row row) (type fixnum x))
   (setf (svref (row-faces row) x) f))
 
+(defstruct (line (:constructor %make-line (width chars runs)))
+  (width 0 :type fixnum)
+  (end 0 :type fixnum)
+  (count 0 :type fixnum)
+  (chars "" :type simple-string)
+  (runs (make-array 0 :element-type '(unsigned-byte 32)) :type (simple-array (unsigned-byte 32) (*))))
+
+(defconstant +most-faces+ #xFFFF)
+
 (defun make-osc-buf ()
   (make-array 64 :element-type 'character :adjustable t :fill-pointer 0))
 
@@ -210,7 +219,12 @@ are twelve, and clearing a line is two fills."
   (face-keys (make-array +faces-kept+ :element-type 'fixnum :initial-element 0)
              :type (simple-array fixnum (*)))
   (face-cache-pos 0 :type fixnum)
-  (face-now nil))
+  (face-now nil)
+  (face-table (make-array 64 :adjustable t :fill-pointer 1 :initial-element nil) :type vector)
+  (face-ids (make-hash-table) :type hash-table)
+  (face-last nil)
+  (face-last-id 0 :type fixnum)
+  (runs (make-array 0 :element-type '(unsigned-byte 32)) :type (simple-array (unsigned-byte 32) (*))))
 
 (declaim (inline color-key face-key))
 
@@ -266,7 +280,8 @@ color change, and the answer stands until something says an attribute moved."
                          (svref cache at)
                          (face-equal (svref cache at) cur))
                 :return (svref cache at))
-        (let ((new (copy-face cur)))
+        (let ((new (or (car (assoc cur (gethash key (term-face-ids term)) :test #'face-equal))
+                       (copy-face cur))))
           (setf (svref cache pos) new
                 (aref keys pos) key
                 (term-face-cache-pos term) (logand (1+ pos)

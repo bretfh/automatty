@@ -9,7 +9,7 @@
    #:become
    #:pty-set-size
    #:pty-wait
-   #:pty-read-string
+   #:pty-read-string #:pty-read-into #:close-on-exec
    #:pty-write-string
    #:pty-close
    #:pty-kill
