@@ -124,8 +124,18 @@ directory, and the program in front."
                                (getf info :group))
                        :face :quiet)))
 
-(defun state-section (client key row state now)
-  "What state the pane is in and for how long, and its sparkline when it is read."
+(defun typed-cells (log)
+  "For each cell of a pulse, oldest first, whether anything in LOG typed then."
+  (let ((typed (make-list +pulse-cells+ :initial-element nil)))
+    (dolist (entry log typed)
+      (let ((at (- +pulse-cells+ 1 (floor (first entry) +pulse-interval+))))
+        (when (<= 0 at (1- +pulse-cells+))
+          (setf (nth at typed) t))))))
+
+(defun state-section (client key row state now log)
+  "What state the pane is in and for how long, and when it is read, its last
+twenty minutes: what it was in the top half of each cell, and whether anything
+typed into it in the bottom half."
   (append
    (list (if (null state)
              (atty/ui:label "  not read: no reader knows this program" :face :quiet)
@@ -144,8 +154,8 @@ directory, and the program in front."
                                          :face :quiet))))
    (when state
      (list (atty/ui:row :spacing 0 (atty/ui:label "  ")
-                        (spark (pane-cells client (car key) (cdr key)))
-                        (atty/ui:label "  how much it wrote, in the colour of what it was" :face :quiet))
+                        (timeline (pane-cells client (car key) (cdr key)) (typed-cells log))
+                        (atty/ui:label "  what it was, over what typed into it" :face :quiet))
            (atty/ui:row :spacing 0 (atty/ui:label "  ")
                         (atty/ui:label "20m ago      now" :face :quiet))))))
 
@@ -191,7 +201,7 @@ key that closes the drawer."
                       (section-head d "what it is" :what))
                 (when (open-p :what) (identity-section info row))
                 (list (section-head d "state" :state))
-                (when (open-p :state) (state-section client key row state now))
+                (when (open-p :state) (state-section client key row state now log))
                 ;; the reading only for an agent that is read; for
                 ;; anything else it would be about nothing
                 (when state
@@ -223,9 +233,14 @@ key that closes the drawer."
         (setf (drawer-key d) key
               (drawer-requested-at d) (client-ms))
         (let ((*client* client)) (drawer-request client key)))
-      (let ((tree (drawer-tree d client key row width)))
-        (atty/cells:draw tree (tty:screen-grid screen)
-                         cols rows :left (- cols width) :top (min 1 (max 0 (1- rows))))
+      (let* ((tree (drawer-tree d client key row width))
+             (left (- cols width))
+             (top (if (client-barp client) (min 1 (max 0 (1- rows))) 0))
+             (m (atty/cells:make-cells (tty:screen-grid screen) cols rows)))
+        (atty/cells:fill-rect m left top width (- rows top) (term:make-face :bg (bar-face :bg-dim)))
+        (atty/cells:draw tree (tty:screen-grid screen) cols rows :left left :top top)
+        (let ((fg (atty/ui:unhex (atty/ui:color :edge-dark))))
+          (loop :for y :from top :below rows :do (half-over m (1- left) y #\▐ fg)))
         (setf (drawer-laid d) tree)))))
 
 (defmethod overlay-laid-tree ((d drawer)) (drawer-laid d))
