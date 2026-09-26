@@ -135,7 +135,9 @@ bottom border."
            (tags (loop :for c :in looking
                        :append (list (atty/ui:label " ") (client-glyph c client))))
            (title (atty/ui:row :spacing 0
-                               (atty/ui:label (format nil " ~D ~A" n (truncate-string (window-name client session window) 14))
+                               (atty/ui:label (format nil " ~D " n)
+                                              :face (if state (number-face state) :number-unknown))
+                               (atty/ui:label (format nil " ~A" (truncate-string (window-name client session window) 14))
                                               :face (if cursor :cursor :strong))
                                (atty/ui:label (if single
                                                   (format nil " · ~A " (truncate-string (or (getf single :kind) "") 12))
@@ -261,7 +263,7 @@ cursor's lane what can be pressed here. Answers the tree and the rail."
          (fits (<= strip wide))
          (r (rail x0 wide (max wide strip) :upright nil :expand 1 :thumb-face (and cursor :here)))
          (text (cond (folded (format nil "folded · ~D window~:P" n))
-                     ((or fits (eq :overview (board-zoom b))) (format nil "all ~D window~:P" n))
+                     ((or fits (eq :overview (board-zoom b))) "")
                      (t (let ((from (min (1- n) (floor x0 (1+ cw))))
                               (to (min (1- n) (floor (+ x0 wide -2) (1+ cw)))))
                           (format nil "windows ~D–~D of ~D" (1+ from) (1+ to) n)))))

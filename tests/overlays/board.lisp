@@ -45,8 +45,8 @@
     (is (search "SERVERS" all) "~A" all)
     (is (search "↵ go" all) "the cursor's card does not say go: ~A" all)
     (is (search "← → window" all) "the cursor's lane foot has no keys: ~A" all)
-    (is (search "all 1 window" all) "the lane that fits does not say so: ~A" all)
-    (is (search " 1 agents " all) "the window's card is not titled: ~A" all)
+    (is (null (search "all 1 window" all)) "the lane that fits counts its windows anyway: ~A" all)
+    (is (search " 1  agents " all) "the window's card is not titled: ~A" all)
     (is (search "+ window" all) "a lane has no way to a new window: ~A" all)
     (is (search " 1 Yes " all) "the asking pane's answers are not on its card: ~A" all)
     (is (search "default › todo › 1 agents › 1 arch" all) "the status has no path: ~A" all)
@@ -87,8 +87,8 @@
       (declare (ignore all))
       ;; two windows fit past the side pane; the fifth is off to the right
       (let ((titles (shown screen 3)))
-        (is (search " 1 agents " titles) "~S" titles)
-        (is (null (search " 5 last " titles)) "the fifth window fits when it should not: ~S" titles))
+        (is (search " 1  agents " titles) "~S" titles)
+        (is (null (search " 5  last " titles)) "the fifth window fits when it should not: ~S" titles))
       (is (find #\▄ (shown screen 11)) "no rail under a lane wider than the view: ~S" (shown screen 11))
       (is (eql 0 (gethash "todo" (mux::board-offsets b))))
       ;; under lib, which fits, the rail is a thin line with no ends
@@ -103,7 +103,7 @@
             (titles (shown screen 3)))
         (is (plusp slid) "the lane did not slide for the cursor")
         (is (< 0 (mod slid 36) 36) "the lane snapped to a whole card rather than sliding by cells: ~D" slid)
-        (is (search "5 last" titles) "the cursor's card is not in sight: ~S" titles)))))
+        (is (search "5  last" titles) "the cursor's card is not in sight: ~S" titles)))))
 
 (test a-scroll-by-hand-is-kept-until-the-cursor-moves
   (let* ((client (five-windows (board-client)))
@@ -229,11 +229,11 @@
       (mux::switchboard-fold))
     (let ((all (board-screen client b)))
       (is (search "folded · 5 windows" all) "the lane is not folded: ~A" all)
-      (is (null (search " 1 agents · 3 panes" all)) "the folded lane still shows its cards: ~A" all)
+      (is (null (search " 1  agents · 3 panes" all)) "the folded lane still shows its cards: ~A" all)
       (is (search "⇥ unfold" all) "~A" all))
     (let ((mux::*client* client))
       (mux::switchboard-fold)
-      (is (search " 1 agents · 3 panes" (board-screen client b)) "unfolding did not bring the cards back")
+      (is (search " 1  agents · 3 panes" (board-screen client b)) "unfolding did not bring the cards back")
       ;; , names the window on the line at the foot
       (mux::switchboard-name))
     (is (typep (first (mux::client-overlays client)) 'mux::entry))
