@@ -1,4 +1,4 @@
-.PHONY: repl check deps sbcl sbcl-bin test test-term run bench latency mux-bench attached stress compare eval release clean install uninstall
+.PHONY: repl check deps sbcl sbcl-bin test test-term run bench latency mux-bench stress eval release clean install uninstall
 
 # Two ways to get what atty needs, and every target works under either. Guix is
 # what it develops against and what plain `make' uses: manifest.scm names the
@@ -57,9 +57,8 @@ PINNED_SBCL   := $(SBCL_ROOT)/bin/sbcl
 CMD ?= ls --color=always -la /
 CMD_Q = '$(subst ','\'',$(CMD))'
 
-# where make bench and make compare put the corpora they read
+# where make bench puts the corpora it reads
 BENCH_DIR ?= /tmp/atty-bench
-ROUNDS ?= 5
 SESSIONS ?= 1,10,100,1000
 CHARS ?= 1k,100k,1m
 PROFILE ?= cpu
@@ -148,21 +147,10 @@ uninstall:
 mux-bench:
 	$(IN) '$(ENV) BENCH_DIR="$(BENCH_DIR)" $(SBCL) --non-interactive --load bench/mux.lisp'
 
-# the same corpora through atty and through tmux, both attached to a terminal
-# and both drawing: bytes out, cpu and memory for the same work. Against the
-# built binary, not a fresh SBCL loading ASDF: that is not what runs it.
-attached: atty
-	$(IN) '$(ENV) BENCH_DIR="$(BENCH_DIR)" $(SBCL) --non-interactive --load bench/attached.lisp'
-
 # the server under load, a profile of each run and a csv in BENCH_DIR/trace:
 #   make stress SESSIONS=1,10 CHARS=1k,1m PROFILE=alloc
 stress: atty
 	./atty bench --sessions $(SESSIONS) --chars $(CHARS) --trace "$(BENCH_DIR)/trace" --profile $(PROFILE)
-
-# the same corpora through tmux and through alacritty, under atty's own
-# numbers, so the three are read off one screen
-compare: bench latency
-	$(IN) 'BENCH_DIR="$(BENCH_DIR)" ROUNDS="$(ROUNDS)" sh bench/compare.sh'
 
 # evaluate one form in an image with the test system loaded, in ATTY/TEST, with
 # the debugger left on so a fault prints its backtrace: make eval FORM='(...)'
