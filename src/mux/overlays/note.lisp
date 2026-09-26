@@ -21,12 +21,16 @@
   "The chip a note's title is on, by what kind of note it is."
   (case face (:warning :chip-blocked) (:error :brand) (t :number-working)))
 
+(defun note-chip-ground (face)
+  (case face (:warning :yellow) (:error :red) (t :blue)))
+
 (defun note-tree (n cols most)
   "A note is a band at the foot: its title as a chip, its first line beside
 it, the way out at the right, and any more lines under it."
   (let ((lines (or (subseq (note-lines n) 0 (min most (length (note-lines n)))) (list ""))))
     (apply #'atty/ui:column :align :stretch :background-color (bar-face :bg-dim) :min-width cols
-           (band (list (atty/ui:label (format nil " ~A " (note-title n)) :face (note-chip-face (note-face n)))
+           (band (list (pill (atty/ui:label (format nil " ~A " (note-title n)) :face (note-chip-face (note-face n)))
+                             :ground (note-chip-ground (note-face n)))
                        (atty/ui:label (format nil " ~A" (truncate-string (first lines) (max 1 (- cols 24))))))
                  (list (hint "any key" "closes" :runs :close)))
            (loop :for line :in (rest lines)
@@ -42,6 +46,7 @@ it, the way out at the right, and any more lines under it."
                               (atty/ui:measure tree m cols rows))))
          (top (max 0 (- rows high))))
     (atty/cells:draw tree (tty:screen-grid screen) cols rows :top top)
+    (top-edge m 0 top cols :bg-dim)
     (setf (note-laid n) tree
           (tty:screen-cursor-visible screen) nil)))
 
@@ -92,7 +97,7 @@ it, the way out at the right, and any more lines under it."
                                          :yes-label yes-says :no-label no-says)))
 
 (defun confirm-tree (c cols)
-  (band (list (atty/ui:label " ? " :face :brand)
+  (band (list (pill (atty/ui:label " ? " :face :brand) :ground :red)
               (atty/ui:label (format nil " ~A" (truncate-string (confirm-of-question c) (max 1 (- cols 30))))))
         (list (keycap "y" (confirm-of-yes-label c) :runs :yes :face :brand)
               (atty/ui:label " ")
@@ -104,6 +109,7 @@ it, the way out at the right, and any more lines under it."
          (rows (tty:screen-height screen))
          (tree (confirm-tree c cols)))
     (atty/cells:draw tree (tty:screen-grid screen) cols rows :top (max 0 (1- rows)))
+    (top-edge (atty/cells:make-cells (tty:screen-grid screen) cols rows) 0 (max 0 (1- rows)) cols :bg-dim)
     (setf (confirm-of-laid c) tree
           (tty:screen-cursor-visible screen) nil)))
 
@@ -165,7 +171,7 @@ when there is one, and SWAP-SAYS says what TAB does."
                                        :keep keep :swap swap :swap-label swap-says)))
 
 (defun entry-tree (e cols)
-  (band (list (atty/ui:label (format nil " ~A " (entry-of-title e)) :face :number-working)
+  (band (list (pill (atty/ui:label (format nil " ~A " (entry-of-title e)) :face :number-working) :ground :blue)
               (atty/ui:label (format nil " ~A  " (entry-of-what e)) :face :strong)
               (squeezed (field "" (entry-of-text e))))
         (append (when (entry-of-swap e)
@@ -178,6 +184,7 @@ when there is one, and SWAP-SAYS says what TAB does."
          (rows (tty:screen-height screen))
          (tree (entry-tree e cols)))
     (atty/cells:draw tree (tty:screen-grid screen) cols rows :top (max 0 (1- rows)))
+    (top-edge (atty/cells:make-cells (tty:screen-grid screen) cols rows) 0 (max 0 (1- rows)) cols :bg-dim)
     (setf (entry-of-laid e) tree
           (tty:screen-cursor-visible screen) nil)))
 

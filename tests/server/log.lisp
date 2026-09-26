@@ -145,7 +145,7 @@
     (with-seer (seer path :rows 10 :cols 100)
       (pump seer :seconds 1/2)
       (type-at seer (format nil "~C$" mux:+prefix+))
-      (is-true (pump seer :want " name  session ") "no line at the foot to name the session: ~S" (seen seer))
+      (is-true (pump seer :want " name ▌ session ") "no line at the foot to name the session: ~S" (seen seer))
       (type-at seer (format nil "~C~C~Ctodo~C" #\Rubout #\Rubout #\Rubout #\Return))
       (is-true (pump seer :want " todo │") "the bar does not say the new name: ~S" (seen seer)))))
 
