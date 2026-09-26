@@ -82,7 +82,7 @@
       (is-true (pump seer :want "Esc cancels" :seconds 2) "no menu after the prefix hung: ~S" (seen seer))
       (is (search "then one key" (seen seer)) "~S" (seen seer))
       (is (search "WINDOWS" (seen seer)) "~S" (seen seer))
-      (is (search "c     another window" (seen seer)) "the new window key is not listed: ~S" (seen seer))
+      (is (search "    c another window" (seen seer)) "the new window key is not listed: ~S" (seen seer))
       ;; the second key does what it always did, and the menu goes with it
       (type-at seer "c")
       (is-true (pump seer :want " 2 ") "no second window: ~S" (seen seer))

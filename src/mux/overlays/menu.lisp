@@ -28,7 +28,7 @@
 (defparameter +menu-delay+ 300
   "How long a prefix has to hang, in milliseconds, before the menu is drawn.")
 
-(defparameter +menu-column+ 30 "How wide a column of the menu is.")
+(defparameter +menu-column+ 30 "The least a column of the menu is.")
 
 (defun menu-due-p (client)
   (and (client-partial-chord client)
@@ -73,14 +73,14 @@ in the order the groups are listed."
 (defun menu-entry (key name width)
   (bar-button name
               (atty/ui:row :spacing 0
-                           (atty/ui:label (format nil "  ~5A " key) :face :state-blocked-strong)
+                           (atty/ui:label (format nil "  ~5@A " key) :face :state-blocked-strong)
                            (atty/ui:label (truncate-string (or (command-doc name) name) (max 1 (- width 10)))))))
 
 (defun menu-tree (client cols)
   "The menu: columns of groups, each its title and the keys under it, in a
 rounded box that says what it is for and how to put it away."
-  (let* ((width +menu-column+)
-         (across (max 1 (min 4 (floor (- cols 4) width))))
+  (let* ((across (max 1 (min 4 (floor (- cols 4) +menu-column+))))
+         (width (max +menu-column+ (floor (- cols 4) across)))
          (columns (make-array across :initial-element nil))
          (heights (make-array across :initial-element 0)))
     ;; each group goes into the column with the least in it so far
@@ -97,7 +97,7 @@ rounded box that says what it is for and how to put it away."
             (loop :for column :across columns
                   :collect (apply #'atty/ui:column :align :stretch :min-width width
                                   (cons (atty/ui:label "") column))))
-     :line :rounded :face :card-cursor
+     :line :rounded :face :card-cursor :background-color (bar-face :bg-dim)
      :titles (list :tl (atty/ui:row :spacing 0
                                     (atty/ui:label (format nil " ~A " (prefix-string)) :face :key)
                                     (atty/ui:label " then one key" :face :strong))
@@ -117,7 +117,8 @@ rounded box that says what it is for and how to put it away."
                               (atty/ui:restyle tree)
                               (atty/ui:measure tree m cols rows))))
          (top (max 0 (- rows (min high rows)))))
-    (atty/cells:fill-rect m 0 top cols (- rows top) (term:make-face :bg (bar-face :bg)))
+    (atty/cells:fill-rect m 0 top cols (- rows top) (term:make-face :bg (bar-face :bg-dim)))
+    (top-edge m 0 top cols :bg-dim)
     (atty/cells:draw tree (tty:screen-grid screen) cols (+ top (min high rows)) :top top)
     (setf (client-menu client) tree
           (tty:screen-cursor-visible screen) nil)))
