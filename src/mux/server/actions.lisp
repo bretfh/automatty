@@ -2,8 +2,8 @@
 
 (in-package #:atty)
 
-(defparameter +action-timeout+ 5000)
 
+(defparameter +action-timeout+ 5000)
 (defparameter +action-settle+ 400)
 
 (defun act-on-pane (server watcher name id action argument &optional until)
@@ -13,7 +13,7 @@
          (still (and pane (agent:agent-still-since (pane-agent pane)))))
     (if (and still (not (eq action :interrupt)) (< (- now still) +action-settle+) (< now until))
         (schedule-task server 100 (lambda () (act-on-pane server watcher name id action argument until)))
-        (perform-action server watcher name id action argument))))
+      (perform-action server watcher name id action argument))))
 
 (defun perform-action (server watcher name id action argument)
   (let* ((pane (find-pane server name id))
@@ -22,32 +22,32 @@
          (seen (and reader (agent:observe reader (pane-term pane))))
          (keys (and seen (agent:action-keys reader seen action argument))))
     (cond
-      ((null pane) (send-message watcher (list :agent-acted name id action :gone)))
-      ((null reader) (send-message watcher (list :agent-acted name id action :no-reader)))
-      ((null keys)
-       (send-message watcher (list :agent-acted name id action :not-offered
-                           (and seen (agent:offered reader seen)) (getf seen :screen))))
-      (t
-       (when (eq action :submit)
-         (agent:agent-prompted agent (floor (monotonic-ns) 1000000)))
-       (loop :for chunk :in keys
-             :for at :from 0 :by +enter-delay+
-             :do (let ((chunk chunk))
-                   (if (zerop at)
-                       (pane-write pane chunk)
-                       (schedule-task server at (lambda () (pane-write pane chunk))))))
-       (let ((deadline (+ (floor (monotonic-ns) 1000000) +action-timeout+
-                          (* +enter-delay+ (length keys)))))
-         (labels ((check ()
-                    (let ((now-seen (agent:observe reader (pane-term pane))))
-                      (cond ((not (equal now-seen seen))
-                             (send-message watcher (list :agent-acted name id action :done
-                                                 (getf now-seen :screen))))
-                            ((> (floor (monotonic-ns) 1000000) deadline)
-                             (send-message watcher (list :agent-acted name id action :failed
-                                                 (getf seen :screen))))
-                            (t (schedule-task server 100 #'check))))))
-           (schedule-task server (+ 100 (* +enter-delay+ (1- (length keys)))) #'check)))))))
+     ((null pane) (send-message watcher (list :agent-acted name id action :gone)))
+     ((null reader) (send-message watcher (list :agent-acted name id action :no-reader)))
+     ((null keys)
+      (send-message watcher (list :agent-acted name id action :not-offered
+                                  (and seen (agent:offered reader seen)) (getf seen :screen))))
+     (t
+      (when (eq action :submit)
+        (agent:agent-prompted agent (floor (monotonic-ns) 1000000)))
+      (loop :for chunk :in keys
+            :for at :from 0 :by +enter-delay+
+            :do (let ((chunk chunk))
+                  (if (zerop at)
+                      (pane-write pane chunk)
+                    (schedule-task server at (lambda () (pane-write pane chunk))))))
+      (let ((deadline (+ (floor (monotonic-ns) 1000000) +action-timeout+
+                         (* +enter-delay+ (length keys)))))
+        (labels ((check ()
+                        (let ((now-seen (agent:observe reader (pane-term pane))))
+                          (cond ((not (equal now-seen seen))
+                                 (send-message watcher (list :agent-acted name id action :done
+                                                             (getf now-seen :screen))))
+                                ((> (floor (monotonic-ns) 1000000) deadline)
+                                 (send-message watcher (list :agent-acted name id action :failed
+                                                             (getf seen :screen))))
+                                (t (schedule-task server 100 #'check))))))
+                (schedule-task server (+ 100 (* +enter-delay+ (1- (length keys)))) #'check)))))))
 
 (defun agent-row (session pane)
   (let ((agent (pane-agent pane)))
@@ -72,9 +72,9 @@ that has since gone would land in whatever is there now."
                         (t t))))
     (when pane
       (pane-push-log pane (now-ms) (actor-of watcher caller-pane) :answer
-                   (let ((option (assoc n (getf asks :options))))
-                     (if option (format nil "~D ~A" n (second option)) (princ-to-string n)))
-                   (if (eq outcome t) t :refused)))
+                     (let ((option (assoc n (getf asks :options))))
+                       (if option (format nil "~D ~A" n (second option)) (princ-to-string n)))
+                     (if (eq outcome t) t :refused)))
     (when (eq outcome t)
       (let* ((reader (agent:agent-reader agent))
              (seen (and reader (agent:observe reader (pane-term pane))))
@@ -85,7 +85,7 @@ that has since gone would land in whatever is there now."
               :do (let ((chunk chunk))
                     (if (zerop at)
                         (pane-write pane chunk)
-                        (schedule-task server at (lambda () (pane-write pane chunk))))))))
+                      (schedule-task server at (lambda () (pane-write pane chunk))))))))
     (send-message watcher (list :answered name id n outcome))))
 
 (defun focus-pane (server watcher name id)
@@ -112,9 +112,9 @@ nil when nothing is."
 
 (defun focus-oldest-blocked (server watcher)
   (multiple-value-bind (pane session) (oldest-blocked-pane server)
-    (if pane
-        (focus-pane server watcher (session-name session) (pane-id pane))
-        (send-message watcher (list :say "nothing needs you")))))
+                       (if pane
+                           (focus-pane server watcher (session-name session) (pane-id pane))
+                         (send-message watcher (list :say "nothing needs you")))))
 
 (defun session-zoom-pane (server watcher &optional name id)
   "Give the pane NAME:ID, or the focused one, the whole of its session; or give
@@ -167,25 +167,25 @@ watcher is told how many there are and which this is."
     (when pane
       (let ((find (pane-find pane)))
         (ecase (if (consp way) (first way) way)
-          (:clear (setf (pane-find pane) nil (pane-selecting pane) nil (pane-dirty pane) t))
-          (:here
-           (let ((hits (search-hits pane query)))
-             (setf (pane-find pane)
-                   (and hits (list :query query :hits hits :at (1- (length hits))))
-                   (pane-dirty pane) t)
-             (when (and (null hits) (plusp (length query)))
-               (setf (pane-find pane) (list :query query :hits nil :at nil)))))
-          ((:next :back)
-           (when (and find (getf find :hits))
-             (let* ((n (length (getf find :hits)))
-                    (at (getf find :at))
-                    (to (+ at (if (eq way :next) -1 1))))
-               (setf (getf (pane-find pane) :at) (mod to n)
-                     (pane-dirty pane) t))))
-          (:row
-           ;; (:row n): the hit on row n, when there is one
-           (let ((to (and find (position (second way) (getf find :hits) :key #'first))))
-             (when to (setf (getf (pane-find pane) :at) to (pane-dirty pane) t)))))
+               (:clear (setf (pane-find pane) nil (pane-selecting pane) nil (pane-dirty pane) t))
+               (:here
+                (let ((hits (search-hits pane query)))
+                  (setf (pane-find pane)
+                        (and hits (list :query query :hits hits :at (1- (length hits))))
+                        (pane-dirty pane) t)
+                  (when (and (null hits) (plusp (length query)))
+                    (setf (pane-find pane) (list :query query :hits nil :at nil)))))
+               ((:next :back)
+                (when (and find (getf find :hits))
+                  (let* ((n (length (getf find :hits)))
+                         (at (getf find :at))
+                         (to (+ at (if (eq way :next) -1 1))))
+                    (setf (getf (pane-find pane) :at) (mod to n)
+                          (pane-dirty pane) t))))
+               (:row
+                ;; (:row n): the hit on row n, when there is one
+                (let ((to (and find (position (second way) (getf find :hits) :key #'first))))
+                  (when to (setf (getf (pane-find pane) :at) to (pane-dirty pane) t)))))
         (let* ((find (pane-find pane))
                (hits (getf find :hits))
                (at (getf find :at))
@@ -197,15 +197,15 @@ watcher is told how many there are and which this is."
           ;; list of them: the nearest two hundred, and which of those it is
           ;; a clear is not a find: nothing is said back for one
           (unless (eq way :clear)
-           (let* ((n (length hits))
-                 (from (max 0 (- (or at 0) 100)))
-                 (to (min n (+ (or at 0) 100)))
-                 (said (loop :for h :in (subseq hits from to)
-                             :collect (list (first h) (second h) (third h)
-                                            (string-right-trim " " (pane-row-text pane (first h)))))))
-            (send-message watcher (list :found (session-name (pane-session server pane)) (pane-id pane)
-                                n (and at (- n at)) (and hit (first hit))
-                                said (and at (- at from)))))))))))
+            (let* ((n (length hits))
+                   (from (max 0 (- (or at 0) 100)))
+                   (to (min n (+ (or at 0) 100)))
+                   (said (loop :for h :in (subseq hits from to)
+                               :collect (list (first h) (second h) (third h)
+                                              (string-right-trim " " (pane-row-text pane (first h)))))))
+              (send-message watcher (list :found (session-name (pane-session server pane)) (pane-id pane)
+                                          n (and at (- n at)) (and hit (first hit))
+                                          said (and at (- at from)))))))))))
 
 (defun pane-session (server pane)
   (find-if (lambda (s) (member pane (session-panes s))) (server-sessions server)))
@@ -220,62 +220,62 @@ end of what is shown now, or the screen when nothing was marked."
       (let ((top (pane-top-row pane))
             (height (term:term-height (pane-term pane))))
         (ecase (if (consp what) (first what) what)
-          (:line
-           ;; (:line row): that one row, as it is
-           (send-message watcher (list :copied (string-right-trim " " (pane-row-text pane (second what))))))
-          (:start (setf (pane-selecting pane) top (pane-dirty pane) t))
-          (:copy
-           (let* ((mark (or (pane-selecting pane) top))
-                  (from (min mark top))
-                  (to (+ (max mark top) height)))
-             (send-message watcher
-                   (list :copied
-                         (format nil "~{~A~^~%~}"
-                                 (loop :for a :from from :below (min to (pane-row-count pane))
-                                       :collect (string-right-trim " " (pane-row-text pane a))))))
-             (setf (pane-selecting pane) nil (pane-dirty pane) t))))
+               (:line
+                ;; (:line row): that one row, as it is
+                (send-message watcher (list :copied (string-right-trim " " (pane-row-text pane (second what))))))
+               (:start (setf (pane-selecting pane) top (pane-dirty pane) t))
+               (:copy
+                (let* ((mark (or (pane-selecting pane) top))
+                       (from (min mark top))
+                       (to (+ (max mark top) height)))
+                  (send-message watcher
+                                (list :copied
+                                      (format nil "~{~A~^~%~}"
+                                              (loop :for a :from from :below (min to (pane-row-count pane))
+                                                    :collect (string-right-trim " " (pane-row-text pane a))))))
+                  (setf (pane-selecting pane) nil (pane-dirty pane) t))))
         (dolist (w (session-watchers session)) (setf (watcher-behind w) t))))))
 
 (defun read-pane (server watcher name id)
   "What a pane holds, scrollback and all, for somebody to read in a note."
   (let ((pane (find-pane server name id)))
     (send-message watcher (list :read-it name id
-                        (and pane (agent:last-lines (pane-term pane) 500))))))
+                                (and pane (agent:last-lines (pane-term pane) 500))))))
 
 (defun prompt-pane (server pane text actor)
   "Give PANE's program TEXT as new work: pasted, when it takes pastes, and
 entered a moment later. Refused, and answers :blocked, while it is asking
 something: a prompt then would be taken for the answer."
   (cond
-    ((or (eq :blocked (agent:agent-state (pane-agent pane)))
-         (agent:screen-blocked-p (pane-term pane)))
-     (pane-push-log pane (now-ms) actor :prompt (summarize-text text) :refused)
-     :blocked)
-    (t (pane-push-log pane (now-ms) actor :prompt (summarize-text text))
-       (agent:agent-prompted (pane-agent pane) (now-ms))
-       ;; one line is typed, the way a person would give it. A coding agent
-       ;; can take what arrives as a paste for something pasted in rather than
-       ;; asked for, and decline to act on it: the field test saw exactly that.
-       ;; More than one line is pasted, since a newline typed would send the
-       ;; first line on its own.
-       (pane-write pane (if (and (term:term-bracketed-paste (pane-term pane))
-                               (or (find-if (lambda (c) (member c '(#\Newline #\Return))) text)
-                                   (and (agent:agent-reader (pane-agent pane))
-                                        (not (agent:agent-submits-typed-p (pane-agent pane))))))
-                          (concatenate 'string (string #\Escape) "[200~"
-                                       text (string #\Escape) "[201~")
-                          text))
-       (schedule-task server +enter-delay+
-              (lambda () (pane-write pane (string #\Return))))
-       t)))
+   ((or (eq :blocked (agent:agent-state (pane-agent pane)))
+        (agent:screen-blocked-p (pane-term pane)))
+    (pane-push-log pane (now-ms) actor :prompt (summarize-text text) :refused)
+    :blocked)
+   (t (pane-push-log pane (now-ms) actor :prompt (summarize-text text))
+      (agent:agent-prompted (pane-agent pane) (now-ms))
+      ;; one line is typed, the way a person would give it. A coding agent
+      ;; can take what arrives as a paste for something pasted in rather than
+      ;; asked for, and decline to act on it: the field test saw exactly that.
+      ;; More than one line is pasted, since a newline typed would send the
+      ;; first line on its own.
+      (pane-write pane (if (and (term:term-bracketed-paste (pane-term pane))
+                                (or (find-if (lambda (c) (member c '(#\Newline #\Return))) text)
+                                    (and (agent:agent-reader (pane-agent pane))
+                                         (not (agent:agent-submits-typed-p (pane-agent pane))))))
+                           (concatenate 'string (string #\Escape) "[200~"
+                                        text (string #\Escape) "[201~")
+                         text))
+      (schedule-task server +enter-delay+
+                     (lambda () (pane-write pane (string #\Return))))
+      t)))
 
 (defun prompt-when-idle (server pane text actor)
   "Prompt PANE now when it is idle, and otherwise when it next is: :queued. A
 pane that is asking something is refused as a prompt to it now would be."
   (case (agent:agent-state (pane-agent pane))
-    (:blocked (prompt-pane server pane text actor))
-    (:working (setf (pane-pending-prompt pane) (list text actor)) :queued)
-    (t (prompt-pane server pane text actor))))
+        (:blocked (prompt-pane server pane text actor))
+        (:working (setf (pane-pending-prompt pane) (list text actor)) :queued)
+        (t (prompt-pane server pane text actor))))
 
 (defun send-pending-prompt (server pane)
   "PANE has gone idle: what was queued for it goes now."
@@ -292,35 +292,35 @@ new window when it is :new. Answers the pane."
   (let* ((session (session-named server name))
          (pane (if session
                    (cond
-                     ((eq window :new)
-                      (window-focus (session-add-window session command directory nil)))
-                     ((and (integerp window) (session-nth-window session window)
-                           (not (eq (session-nth-window session window) (session-window session))))
-                      ;; beside the focus of that window, without showing it
-                      (let* ((w (session-nth-window session window))
-                             (focus (window-focus w))
-                             (it (make-pane command
-                                            :rows (term:term-height (pane-term focus))
-                                            :cols (term:term-width (pane-term focus))
-                                            :directory (or directory (pane-directory focus)))))
-                        (setf (window-layout w) (layout-insert (window-layout w) focus :across it))
-                        (pane-start it :environment (pane-environment session it))
-                        it))
-                     (t
-                   ;; beside the focus, the way a split puts one, but running
-                   ;; what it was asked to; the focus stays where somebody put it
-                   (let* ((focus (session-focus session))
-                          (it (make-pane command
-                                         :rows (term:term-height (pane-term focus))
-                                         :cols (term:term-width (pane-term focus))
-                                         :directory (or directory (pane-directory focus)))))
-                     (setf (session-layout session)
-                           (layout-insert (session-layout session) focus :across it))
-                     (session-compose session)
-                     (pane-start it :environment (pane-environment session it))
-                     it)))
-                   (session-focus (add-session server command :name name
-                                                              :directory directory)))))
+                    ((eq window :new)
+                     (window-focus (session-add-window session command directory nil)))
+                    ((and (integerp window) (session-nth-window session window)
+                          (not (eq (session-nth-window session window) (session-window session))))
+                     ;; beside the focus of that window, without showing it
+                     (let* ((w (session-nth-window session window))
+                            (focus (window-focus w))
+                            (it (make-pane command
+                                           :rows (term:term-height (pane-term focus))
+                                           :cols (term:term-width (pane-term focus))
+                                           :directory (or directory (pane-directory focus)))))
+                       (setf (window-layout w) (layout-insert (window-layout w) focus :across it))
+                       (pane-start it :environment (pane-environment session it))
+                       it))
+                    (t
+                     ;; beside the focus, the way a split puts one, but running
+                     ;; what it was asked to; the focus stays where somebody put it
+                     (let* ((focus (session-focus session))
+                            (it (make-pane command
+                                           :rows (term:term-height (pane-term focus))
+                                           :cols (term:term-width (pane-term focus))
+                                           :directory (or directory (pane-directory focus)))))
+                       (setf (session-layout session)
+                             (layout-insert (session-layout session) focus :across it))
+                       (session-compose session)
+                       (pane-start it :environment (pane-environment session it))
+                       it)))
+                 (session-focus (add-session server command :name name
+                                             :directory directory)))))
     (when label (setf (pane-label pane) label))
     (dolist (w (session-watchers (session-named server name))) (setf (watcher-behind w) t))
     pane))

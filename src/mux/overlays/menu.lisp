@@ -2,8 +2,9 @@
 
 (in-package #:atty)
 
+
 (defparameter +command-groups+ '(panes windows sessions agents scrolling asking)
-  "What the keys act on, in the order the help lists them.")
+              "What the keys act on, in the order the help lists them.")
 
 (defun keys-help-rows ()
   "Every offered command with its key, grouped by what it acts on."
@@ -26,7 +27,7 @@
    #'string< :key #'second))
 
 (defparameter +menu-delay+ 300
-  "How long a prefix has to hang, in milliseconds, before the menu is drawn.")
+              "How long a prefix has to hang, in milliseconds, before the menu is drawn.")
 
 (defparameter +menu-column+ 60 "The least a column of the menu is: room for what most keys do.")
 
@@ -51,9 +52,9 @@ menu goes away with the half chord it was for."
 
 (defun group-title (group)
   (case group
-    (panes "panes") (windows "windows") (sessions "sessions")
-    (agents "agents") (scrolling "reading") (asking "look around")
-    (t "more")))
+        (panes "panes") (windows "windows") (sessions "sessions")
+        (agents "agents") (scrolling "reading") (asking "look around")
+        (t "more")))
 
 (defun menu-groups (client)
   "What can follow the chord CLIENT has half typed, as (group (key name) ...)
@@ -63,7 +64,7 @@ in the order the groups are listed."
          (rows (loop :for (name chord group) :in (mode-keys-rows (client-mode client))
                      :when (and (> (length chord) (length start))
                                 (string= start chord :end2 (length start)))
-                       :collect (list group (subseq chord (length start)) name)))
+                     :collect (list group (subseq chord (length start)) name)))
          (groups (remove-duplicates (mapcar #'first rows))))
     (loop :for group :in (stable-sort groups #'<
                                       :key (lambda (g) (or (position g +command-groups+) (length +command-groups+))))
@@ -115,8 +116,8 @@ rounded box that says what it is for and how to put it away."
          (m (atty/cells:make-cells (tty:screen-grid screen) cols rows))
          (tree (menu-tree client cols))
          (high (nth-value 1 (atty/ui:with-pass
-                              (atty/ui:restyle tree)
-                              (atty/ui:measure tree m cols rows))))
+                             (atty/ui:restyle tree)
+                             (atty/ui:measure tree m cols rows))))
          (top (max 0 (- rows (min high rows)))))
     (atty/cells:fill-rect m 0 top cols (- rows top) (term:make-face :bg (bar-face :bg-dim)))
     (top-edge m 0 top cols :bg-dim)
@@ -125,26 +126,26 @@ rounded box that says what it is for and how to put it away."
           (tty:screen-cursor-visible screen) nil)))
 
 (defcommand (show-menu :group asking)
-  "the menu of every key that follows the prefix, as though it had been pressed"
-  (client-chord *client* (event-key +prefix+))
-  (when (client-partial-chord *client*)
-    (setf (client-pending-since *client*) (- (client-ms) +menu-delay+)
-          (client-dirty *client*) t)))
+            "the menu of every key that follows the prefix, as though it had been pressed"
+            (client-chord *client* (event-key +prefix+))
+            (when (client-partial-chord *client*)
+              (setf (client-pending-since *client*) (- (client-ms) +menu-delay+)
+                    (client-dirty *client*) t)))
 
 (defcommand (describe-mode :unlisted)
-  "the keys of whatever is on top, or of the session when nothing is"
-  (let ((mode (client-mode *client*)))
-    (if (eq mode 'pane-mode)
-        (describe-bindings)
-        (open-prompt *client* (format nil "keys · ~(~A~)" mode) (mode-keys-rows mode)
-             :text (lambda (r) (format nil "~12A ~24A ~@[~A~]" (second r) (first r) (command-doc (first r))))
-             :foot (hints 'prompt-mode 'prompt-accept "run" 'prompt-cancel "close")
-             :chose (lambda (r client) (run-command (first r) client))))))
+            "the keys of whatever is on top, or of the session when nothing is"
+            (let ((mode (client-mode *client*)))
+              (if (eq mode 'pane-mode)
+                  (describe-bindings)
+                (open-prompt *client* (format nil "keys · ~(~A~)" mode) (mode-keys-rows mode)
+                             :text (lambda (r) (format nil "~12A ~24A ~@[~A~]" (second r) (first r) (command-doc (first r))))
+                             :foot (hints 'prompt-mode 'prompt-accept "run" 'prompt-cancel "close")
+                             :chose (lambda (r client) (run-command (first r) client))))))
 
 (defcommand (describe-bindings :group asking)
-  "every command, its key and what it acts on; RET runs one"
-  (open-prompt *client* "keys" (keys-help-rows)
-       :text (lambda (r) (format nil "~(~9A~) ~24A ~10A ~@[~A~]"
-                                 (third r) (first r) (or (second r) "") (command-doc (first r))))
-       :foot (hints 'prompt-mode 'prompt-accept "run" 'prompt-cancel "close")
-       :chose (lambda (r client) (run-command (first r) client))))
+            "every command, its key and what it acts on; RET runs one"
+            (open-prompt *client* "keys" (keys-help-rows)
+                         :text (lambda (r) (format nil "~(~9A~) ~24A ~10A ~@[~A~]"
+                                                   (third r) (first r) (or (second r) "") (command-doc (first r))))
+                         :foot (hints 'prompt-mode 'prompt-accept "run" 'prompt-cancel "close")
+                         :chose (lambda (r client) (run-command (first r) client))))

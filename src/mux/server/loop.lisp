@@ -3,7 +3,7 @@
 (in-package #:atty)
 
 (defun end-session (server session why)
-  "SESSION is over. Whoever was watching it goes to another session when there
+  "End a SESSION. Whoever was watching it goes to another session when there
 is one, the way a terminal left open on a closed tab shows the next; only when
 it was the last are they told WHY and let go."
   (setf (server-sessions server) (remove session (server-sessions server)))
@@ -11,7 +11,7 @@ it was the last are they told WHY and let go."
     (let ((next (first (server-sessions server))))
       (if next
           (join-session server watcher next)
-          (drop-watcher server watcher why))))
+        (drop-watcher server watcher why))))
   (mapc #'pane-close (session-panes session))
   (dolist (w (session-windows session))
     (setf (window-layout w) nil (window-focus w) nil))
@@ -27,16 +27,14 @@ it was the last are they told WHY and let go."
       (let ((was (agent:agent-state (pane-agent pane))))
         (when (agent:agent-look (pane-agent pane) (pane-term pane) ms (pane-dirty pane))
           (push pane changed))
-        ;; a state is only news of a pane something is read in: a shell has
-        ;; none worth telling, and its pulse is coloured quiet
         (let* ((read (agent:agent-reader (pane-agent pane)))
                (is (and read (agent:agent-state (pane-agent pane)))))
           (when (and read (not (eq was is)))
             (pane-push-event pane ms
-                        (case is (:blocked :asks) (:working :working) (:idle :idle) (t :quiet))
-                        nil
-                        (and (eq is :blocked)
-                             (getf (agent:agent-asks (pane-agent pane) (pane-term pane)) :subject))))
+                             (case is (:blocked :asks) (:working :working) (:idle :idle) (t :quiet))
+                             nil
+                             (and (eq is :blocked)
+                                  (getf (agent:agent-asks (pane-agent pane) (pane-term pane)) :subject))))
           (pane-roll-pulse pane ms is))))
     (dolist (pane changed)
       (when (session-server session)
@@ -48,11 +46,8 @@ it was the last are they told WHY and let go."
             (send-message w (cons :agent (agent-row session pane)))
             (dolist (event events)
               (destructuring-bind (kind n what) event
-                (declare (ignore kind))
-                (send-message w (list :agent-turn (session-name session) (pane-id pane) n what))))))))
-    ;; the focused pane's own bracketed-paste request, mirrored to whoever is
-    ;; actually sitting at a real terminal: recomputed from the focus fresh
-    ;; every tick, so a focus change resyncs it exactly as a flip would
+                                  (declare (ignore kind))
+                                  (send-message w (list :agent-turn (session-name session) (pane-id pane) n what))))))))
     (let* ((focus (session-focus session))
            (want (and focus (term:term-bracketed-paste (pane-term focus)))))
       (dolist (w (session-watchers session))
@@ -125,7 +120,7 @@ poll set and where the socket, each pane and each watcher are in it."
          (oldest (oldest-due sessions))
          (due (min (if oldest
                        (max 0 (ceiling (- gap (- now oldest)) 1000000))
-                       100)
+                     100)
                    (if (server-tasks server) (next-task-delay server now) 100)))
          (listening (tty:waiting-add w (server-fd server)))
          (ptys (loop :for session :in sessions
@@ -140,7 +135,7 @@ poll set and where the socket, each pane and each watcher are in it."
                                            (if (plusp (wire-pending
                                                        (watcher-wire c)))
                                                sb-unix:pollout
-                                               0)))))
+                                             0)))))
                         (append (server-pending-watchers server)
                                 (loop :for session :in sessions
                                       :append (session-watchers session))))))
@@ -151,75 +146,68 @@ poll set and where the socket, each pane and each watcher are in it."
   (let ((sessions (server-sessions server))
         (gap (* interval 1000000)))
     (multiple-value-bind (w listening ptys wires) (poll-descriptors server sessions interval)
-      (flet ((read-clients ()
-               (loop :for (watcher . n) :in wires
-                     :do (if (wire-open (watcher-wire watcher))
-                             (progn
-                               (when (tty:writable-p (tty:waiting-back w n))
-                                 (wire-flush (watcher-wire watcher)))
-                               (when (tty:readable-p (tty:waiting-back w n))
-                                 (read-messages server watcher))
-                               ;; a descriptor the kernel says is done with has nothing
-                               ;; more to give, and polling it again is polling nothing
-                               (when (and (tty:gone-p (tty:waiting-back w n))
-                                          (wire-open (watcher-wire watcher)))
-                                 (drop-watcher server watcher)))
-                             ;; a write that came apart shuts the wire here; without this
-                             ;; the watcher stays on the session and its closed descriptor
-                             ;; is put to poll every wakeup for as long as the server runs
-                             (drop-watcher server watcher))))
-             (drain-panes ()
-               (let* ((done nil)
-                      (now (now-ms))
-                      (ready (loop :for (session pane n) :in ptys
-                                   :when (and (member pane (session-panes session))
-                                              (tty:readable-p (tty:waiting-back w n)))
-                                     :collect (cons session pane)))
-                      (urgent (remove-if-not (lambda (it) (pane-urgent-p (car it) (cdr it) now))
-                                             ready))
-                      (others (remove-if (lambda (it) (member it urgent)) ready))
-                      (turn (if others (mod (server-drain-turn server) (length others)) 0))
-                      (others (append (nthcdr turn others) (subseq others 0 turn)))
-                      (deadline (+ (monotonic-ns) +drain-budget+)))
-                 (flet ((drain (it)
-                          (setf (pane-moved-at (cdr it)) now)
-                          (unless (pane-drain (cdr it))
-                            (push it done))))
-                   (mapc #'drain urgent)
-                   (loop :for it :in others
-                         :while (and (< (monotonic-ns) deadline)
-                                     (not (input-waiting-p server)))
-                         :do (drain it)
-                             (incf (server-drain-turn server))))
-                 (setf (server-drain-turn server) (mod (server-drain-turn server) 1000000))
-                 (loop :for (session . pane) :in done
-                       :do (session-close-pane session pane))))
-             (step-sessions ()
-               (dolist (session sessions)
-                 (dolist (pane (remove-if-not #'pane-failed (session-panes session)))
-                   (dolist (w (session-watchers session))
-                     (send-message w (list :say (pane-failed pane) :warning)))
-                   (session-close-pane session pane)))
-               (dolist (session sessions)
-                 (if (session-panes session)
-                     (progn (session-observe session (monotonic-ns))
-                            (session-render session gap))
-                     (end-session server session :done)))))
-        (run-due-tasks server (monotonic-ns))
-        (dolist (session sessions) (session-tick session (monotonic-ns)))
-        (when (tty:readable-p (tty:waiting-back w listening))
-          (accept-watcher server))
-        (read-clients)
-        (drain-panes)
-        (step-sessions)
-        (send-updates server (now-ms))
-        ;; what that said to anybody not on a session is sent now rather than when
-        ;; the next wakeup finds their descriptor writable
-        (dolist (watcher (all-watchers server))
-          (when (and (wire-open (watcher-wire watcher))
-                     (plusp (wire-pending (watcher-wire watcher))))
-            (wire-flush (watcher-wire watcher))))
-        server))))
+                         (flet ((read-clients ()
+                                              (loop :for (watcher . n) :in wires
+                                                    :do (if (wire-open (watcher-wire watcher))
+                                                            (progn
+                                                              (when (tty:writable-p (tty:waiting-back w n))
+                                                                (wire-flush (watcher-wire watcher)))
+                                                              (when (tty:readable-p (tty:waiting-back w n))
+                                                                (read-messages server watcher))
+                                                              (when (and (tty:gone-p (tty:waiting-back w n))
+                                                                         (wire-open (watcher-wire watcher)))
+                                                                (drop-watcher server watcher)))
+                                                          (drop-watcher server watcher))))
+                                (drain-panes ()
+                                             (let* ((done nil)
+                                                    (now (now-ms))
+                                                    (ready (loop :for (session pane n) :in ptys
+                                                                 :when (and (member pane (session-panes session))
+                                                                            (tty:readable-p (tty:waiting-back w n)))
+                                                                 :collect (cons session pane)))
+                                                    (urgent (remove-if-not (lambda (it) (pane-urgent-p (car it) (cdr it) now))
+                                                                           ready))
+                                                    (others (remove-if (lambda (it) (member it urgent)) ready))
+                                                    (turn (if others (mod (server-drain-turn server) (length others)) 0))
+                                                    (others (append (nthcdr turn others) (subseq others 0 turn)))
+                                                    (deadline (+ (monotonic-ns) +drain-budget+)))
+                                               (flet ((drain (it)
+                                                             (setf (pane-moved-at (cdr it)) now)
+                                                             (unless (pane-drain (cdr it))
+                                                               (push it done))))
+                                                     (mapc #'drain urgent)
+                                                     (loop :for it :in others
+                                                           :while (and (< (monotonic-ns) deadline)
+                                                                       (not (input-waiting-p server)))
+                                                           :do (drain it)
+                                                           (incf (server-drain-turn server))))
+                                               (setf (server-drain-turn server) (mod (server-drain-turn server) 1000000))
+                                               (loop :for (session . pane) :in done
+                                                     :do (session-close-pane session pane))))
+                                (step-sessions ()
+                                               (dolist (session sessions)
+                                                 (dolist (pane (remove-if-not #'pane-failed (session-panes session)))
+                                                   (dolist (w (session-watchers session))
+                                                     (send-message w (list :say (pane-failed pane) :warning)))
+                                                   (session-close-pane session pane)))
+                                               (dolist (session sessions)
+                                                 (if (session-panes session)
+                                                     (progn (session-observe session (monotonic-ns))
+                                                            (session-render session gap))
+                                                   (end-session server session :done)))))
+                               (run-due-tasks server (monotonic-ns))
+                               (dolist (session sessions) (session-tick session (monotonic-ns)))
+                               (when (tty:readable-p (tty:waiting-back w listening))
+                                 (accept-watcher server))
+                               (read-clients)
+                               (drain-panes)
+                               (step-sessions)
+                               (send-updates server (now-ms))
+                               (dolist (watcher (all-watchers server))
+                                 (when (and (wire-open (watcher-wire watcher))
+                                            (plusp (wire-pending (watcher-wire watcher))))
+                                   (wire-flush (watcher-wire watcher))))
+                               server))))
 
 (defun trim-scrollback (server)
   (let* ((now (now-ms))
@@ -241,21 +229,21 @@ poll set and where the socket, each pane and each watcher are in it."
 
 (defun schedule-trims (server)
   (labels ((tick ()
-             (when (server-running server)
-               (trim-scrollback server)
-               (schedule-task server 1000 #'tick))))
-    (schedule-task server 1000 #'tick)))
+                 (when (server-running server)
+                   (trim-scrollback server)
+                   (schedule-task server 1000 #'tick))))
+          (schedule-task server 1000 #'tick)))
 
 (defparameter +max-faults+ 10)
 
 (defun report-error (e)
   (format *error-output* "~&atty: ~A~%" e)
   (ignore-errors
-   (sb-debug:print-backtrace :stream *error-output* :count 30))
+    (sb-debug:print-backtrace :stream *error-output* :count 30))
   (finish-output *error-output*))
 
 (defun serve (path command &key (name "0") (rows 24) (cols 80)
-                                (interval *interval*) (persist t) fresh)
+                   (interval *interval*) (persist t) fresh)
   "Hold the sessions and feed whoever is watching them, until there are none.
 
 With NAME nil it starts holding nothing, and the first client to open a session
@@ -278,34 +266,34 @@ the state is saved on the way out."
       (push (list (format nil "in the server, ~A" *init-error*) :warning)
             (server-notes server)))
     (unwind-protect
-         (progn
-           (when persist
-             (when fresh (move-state-aside (file-namestring path)))
-             (handler-case (restore-state server)
-               (error (e)
-                 (report-error e)
-                 (push (list (format nil "what was on disk could not be brought back: ~A" e)
-                             :warning)
-                       (server-notes server))))
-             (setf (server-saving server) t)
-             (tty:hear-the-end t)
-             (schedule-saves server)
-             (schedule-release-check server))
-           (server-listen server)
-           (schedule-trims server)
-           (when (and name (not (session-named server name)))
-             (add-session server command :name name :rows rows :cols cols))
-           (loop while (and (server-needed-p server (monotonic-ns))
-                            (not (and persist tty:*asked-to-stop*)))
-                 do (handler-case
-                        (progn (server-step server :interval interval)
-                               (setf faults 0))
-                      (error (e)
-                        (report-error e)
-                        (when (> (incf faults) +max-faults+)
-                          (format *error-output*
-                                  "~&atty: ~D faults with nothing between them; stopping.~%"
-                                  faults)
-                          (setf (server-running server) nil)))))
-           server)
+        (progn
+          (when persist
+            (when fresh (move-state-aside (file-namestring path)))
+            (handler-case (restore-state server)
+              (error (e)
+                     (report-error e)
+                     (push (list (format nil "what was on disk could not be brought back: ~A" e)
+                                 :warning)
+                           (server-notes server))))
+            (setf (server-saving server) t)
+            (tty:hear-the-end t)
+            (schedule-saves server)
+            (schedule-release-check server))
+          (server-listen server)
+          (schedule-trims server)
+          (when (and name (not (session-named server name)))
+            (add-session server command :name name :rows rows :cols cols))
+          (loop while (and (server-needed-p server (monotonic-ns))
+                           (not (and persist tty:*asked-to-stop*)))
+                do (handler-case
+                       (progn (server-step server :interval interval)
+                              (setf faults 0))
+                     (error (e)
+                            (report-error e)
+                            (when (> (incf faults) +max-faults+)
+                              (format *error-output*
+                                      "~&atty: ~D faults with nothing between them; stopping.~%"
+                                      faults)
+                              (setf (server-running server) nil)))))
+          server)
       (server-close server))))

@@ -2,38 +2,27 @@
 
 (in-package #:atty)
 
-;;; What a pane's frame says. The frame is the session's, composed once and
-;;; shared by everybody attached, so it says what the pane is and never who is
-;;; looking at it. Its colour is what the program is doing, a heavy line is
-;;; where the focus is, and the corners carry the rest: which pane, what it is
-;;; called and what it runs at the top left, its state and how long at the top
-;;; right, and, when it is asking something, the question at the top and the
-;;; answers along the bottom.
-;;;
-;;; A blocked pane is never made smaller to fit its answers in: that would tell
-;;; the program it was resized, and it would draw the question again. They go
-;;; in the border rows the frame already has.
 
 (defun state-face (state)
   (case state
-    (:working :state-working)
-    (:blocked :state-blocked)
-    (:idle :state-idle)
-    (t :state-unknown)))
+        (:working :state-working)
+        (:blocked :state-blocked)
+        (:idle :state-idle)
+        (t :state-unknown)))
 
 (defun number-face (state)
   (case state
-    (:working :number-working)
-    (:blocked :number-blocked)
-    (:idle :number-idle)
-    (t :number-unknown)))
+        (:working :number-working)
+        (:blocked :number-blocked)
+        (:idle :number-idle)
+        (t :number-unknown)))
 
 (defun state-glyph (state)
   (case state
-    (:working "◐")
-    (:blocked "▲")
-    (:idle "○")
-    (t "·")))
+        (:working "◐")
+        (:blocked "▲")
+        (:idle "○")
+        (t "·")))
 
 (defun pane-known-p (pane)
   (agent:agent-known-p (pane-agent pane)))
@@ -46,7 +35,7 @@ is the double line, not a colour."
   (declare (ignore focusp))
   (if (pane-known-p pane)
       (state-face (agent:agent-state (pane-agent pane)))
-      :state-unknown))
+    :state-unknown))
 
 (defun command-key (command)
   "The chord COMMAND is bound to in the pane's mode, as a hint says it, or nil
@@ -59,10 +48,10 @@ command with no key still has its name."
 (defun frame-actor-text (actor)
   "WHO from a pane's log, as somebody reading a frame would call it."
   (case (first actor)
-    (:pane (second actor))
-    (:client (or (third actor) (format nil "client ~D" (second actor))))
-    (:atty "atty")
-    (t "the command line")))
+        (:pane (second actor))
+        (:client (or (third actor) (format nil "client ~D" (second actor))))
+        (:atty "atty")
+        (t "the command line")))
 
 (defun last-input-marker (pane now)
   "The pane's last input, when it came from something other than a person at a
@@ -81,13 +70,13 @@ last option is never the one that goes."
   (let ((texts (mapcar #'second options)))
     (flet ((wide () (+ (reduce #'+ texts :key (lambda (s) (+ 4 (length s))))
                        (max 0 (1- (length texts))))))
-      (loop :while (> (wide) room)
-            :do (let* ((longest (reduce #'max texts :key #'length))
-                       (at (position longest texts :key #'length)))
-                  (when (<= longest 2) (return))
-                  (setf (nth at texts)
-                        (truncate-string (nth at texts)
-                                      (max 2 (- longest (- (wide) room))))))))
+          (loop :while (> (wide) room)
+                :do (let* ((longest (reduce #'max texts :key #'length))
+                           (at (position longest texts :key #'length)))
+                      (when (<= longest 2) (return))
+                      (setf (nth at texts)
+                            (truncate-string (nth at texts)
+                                             (max 2 (- longest (- (wide) room))))))))
     texts))
 
 (defun option-buttons (session pane options room)
@@ -130,7 +119,7 @@ the whole session, and which rule decided it was asking."
   "How many columns the labels in WIDGET take, laid side by side."
   (if (typep widget 'atty/ui:label)
       (atty/cells:columns-of (atty/ui:text widget))
-      (reduce #'+ (atty/ui:parts widget) :key #'columns-in)))
+    (reduce #'+ (atty/ui:parts widget) :key #'columns-in)))
 
 (defun extras-width (extras)
   (+ (reduce #'+ extras :key #'columns-in)
@@ -149,7 +138,7 @@ between them."
                                             (- (length hits) at) (length hits)
                                             (key-hint 'scroll-mode 'find-next)
                                             (key-hint 'scroll-mode 'find-previous))
-                                    " nothing ")
+                                  " nothing ")
                                 :face :quiet))))
 
 (defun frame-corners (session pane focusp)
@@ -168,7 +157,7 @@ between them."
                           (atty/ui:label (format nil "~A " (pane-kind pane)) :face :quiet)
                           (if (eq pane (session-zoomed session))
                               (atty/ui:label " ⤢ zoomed " :face :state-blocked-strong)
-                              (atty/ui:label "")))))
+                            (atty/ui:label "")))))
     (list
      :tl tl
      :tr (cond (asks (question-title asks))
@@ -181,39 +170,39 @@ between them."
                                (atty/ui:label (format nil " ~A " (state-glyph state)) :face (state-face state))
                                (atty/ui:label (if (and doing (> room 3))
                                                   (format nil "~A  " (truncate-string doing room))
-                                                  "")
+                                                "")
                                               :face :quiet)
                                (atty/ui:label says :face (state-face state))))))
      :bl (cond
-           (asks
-             (let* ((extras (answer-extras session pane (agent:agent-won agent term)))
-                    (room (- width 2 (extras-width extras) 1)))
-               ;; what follows the answers gives way before the answers do,
-               ;; the rule first, then zoom; read stays
-               (loop :while (and (rest extras)
-                                 (> (+ (* 5 (length (getf asks :options))) 1) room))
-                     :do (setf extras (butlast extras)
-                               room (- width 2 (extras-width extras) 1)))
-               (atty/ui:row :spacing 1
-                            (option-buttons session pane (getf asks :options) room)
-                            (apply #'atty/ui:row :spacing 1 extras))))
-           ((pane-find pane) (search-marker pane))
-           (t (last-input-marker pane now)))
+          (asks
+           (let* ((extras (answer-extras session pane (agent:agent-won agent term)))
+                  (room (- width 2 (extras-width extras) 1)))
+             ;; what follows the answers gives way before the answers do,
+             ;; the rule first, then zoom; read stays
+             (loop :while (and (rest extras)
+                               (> (+ (* 5 (length (getf asks :options))) 1) room))
+                   :do (setf extras (butlast extras)
+                             room (- width 2 (extras-width extras) 1)))
+             (atty/ui:row :spacing 1
+                          (option-buttons session pane (getf asks :options) room)
+                          (apply #'atty/ui:row :spacing 1 extras))))
+          ((pane-find pane) (search-marker pane))
+          (t (last-input-marker pane now)))
      :br (cond
-           ;; being read back says so before anything else does: what is on
-           ;; the screen is not what the program has on it now, and finding
-           ;; in it is a button beside that
-           ((or (plusp (pane-scrolled pane)) (pane-find pane))
-            (atty/ui:row :spacing 0
-                         (bar-button "find in pane" (atty/ui:label " ⌕ find " :face :quiet))
-                         (if (plusp (pane-scrolled pane)) (live-chip pane) (atty/ui:label ""))
-                         (atty/ui:label (format nil " line ~D of ~D "
-                                                (1+ (pane-top-row pane)) (pane-row-count pane))
-                                        :face :quiet)))
-           ((and (eq state :blocked) (null asks))
-            (let ((answer (command-key 'goto-blocked-pane))
-                  (zoom (command-key 'zoom-pane)))
-              (when (or answer zoom)
-                (atty/ui:label (format nil " ~@[~A answer~]~:[~; · ~]~@[~A zoom~] "
-                                       answer (and answer zoom) zoom)
-                               :face :state-blocked))))))))
+          ;; being read back says so before anything else does: what is on
+          ;; the screen is not what the program has on it now, and finding
+          ;; in it is a button beside that
+          ((or (plusp (pane-scrolled pane)) (pane-find pane))
+           (atty/ui:row :spacing 0
+                        (bar-button "find in pane" (atty/ui:label " ⌕ find " :face :quiet))
+                        (if (plusp (pane-scrolled pane)) (live-chip pane) (atty/ui:label ""))
+                        (atty/ui:label (format nil " line ~D of ~D "
+                                               (1+ (pane-top-row pane)) (pane-row-count pane))
+                                       :face :quiet)))
+          ((and (eq state :blocked) (null asks))
+           (let ((answer (command-key 'goto-blocked-pane))
+                 (zoom (command-key 'zoom-pane)))
+             (when (or answer zoom)
+               (atty/ui:label (format nil " ~@[~A answer~]~:[~; · ~]~@[~A zoom~] "
+                                      answer (and answer zoom) zoom)
+                              :face :state-blocked))))))))

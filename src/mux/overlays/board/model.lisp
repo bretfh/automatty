@@ -3,42 +3,35 @@
 (in-package #:atty)
 
 (declaim (ftype function confirm open-drawer prompt-window-name prompt-session-name))
-
 (declaim (special +drawer-poll-interval+))
-
 (defparameter +side-width+ 34 "How wide the side pane is.")
-
 (defparameter +tree-width+ 22 "How wide the side pane is folded to its tree, in the one-session zoom.")
-
 (defparameter +side-from+ 110 "A terminal narrower than this has no room for the side pane.")
-
 (defparameter +card-width+ 35)
-
 (defparameter +card-height+ 8)
-
 (defparameter +big-card-width+ 72)
 
 (defstruct (board (:constructor %make-board))
-  (cursor nil)                          ; (session window-n pane-id)
-  (offsets (make-hash-table :test 'equal)) ; session -> how far its lane is slid, in cells
-  (scroll-y 0 :type fixnum)                   ; how far the lanes are offsets up
-  (zoom :cards)                         ; :overview, :cards or :one
-  (side t)                              ; whether the side pane is shown
-  (folded nil :type list)               ; sessions folded in the tree
-  (picked nil :type list)               ; (session . id) keys picked for a prompt
-  (query "" :type string)
-  (filtering nil)
-  (composing nil)
-  (sort :asking)                        ; :asking, :name or :order
-  (fold-quiet nil)                      ; whether lanes with nothing doing are folded
-  (live t)                              ; whether windows show their panes' last rows
-  (starting nil)
-  (following t)                         ; whether the view is to slide to the cursor when next drawn
-  (held nil)                            ; a rail's thumb taken hold of: (:rail-h session rail grabbed) or (:rail-v rail grabbed)
-  (area-top 0 :type fixnum)             ; the screen row the lanes start on, as last drawn
-  (log-scroll-y 0 :type fixnum)               ; how far the activity log is scrolled
-  (requested-at 0 :type integer)
-  (regions nil :type list))             ; where things were drawn, for clicks
+           (cursor nil)                          ; (session window-n pane-id)
+           (offsets (make-hash-table :test 'equal)) ; session -> how far its lane is slid, in cells
+           (scroll-y 0 :type fixnum)                   ; how far the lanes are offsets up
+           (zoom :cards)                         ; :overview, :cards or :one
+           (side t)                              ; whether the side pane is shown
+           (folded nil :type list)               ; sessions folded in the tree
+           (picked nil :type list)               ; (session . id) keys picked for a prompt
+           (query "" :type string)
+           (filtering nil)
+           (composing nil)
+           (sort :asking)                        ; :asking, :name or :order
+           (fold-quiet nil)                      ; whether lanes with nothing doing are folded
+           (live t)                              ; whether windows show their panes' last rows
+           (starting nil)
+           (following t)                         ; whether the view is to slide to the cursor when next drawn
+           (held nil)                            ; a rail's thumb taken hold of: (:rail-h session rail grabbed) or (:rail-v rail grabbed)
+           (area-top 0 :type fixnum)             ; the screen row the lanes start on, as last drawn
+           (log-scroll-y 0 :type fixnum)               ; how far the activity log is scrolled
+           (requested-at 0 :type integer)
+           (regions nil :type list))             ; where things were drawn, for clicks
 
 (defun state-rank (row)
   (or (position (row-state row) +state-rank+) (length +state-rank+)))
@@ -54,7 +47,7 @@ nobody knows how to read, whose screen moving or not is all there is."
         (matches (board-query b) rows
                  (lambda (r) (format nil "~A ~@[~A~] ~@[~A~]" (row-text r) (getf r :doing)
                                      (getf r :window-name))))
-        rows)))
+      rows)))
 
 (defun session-counts (client session)
   "How many panes of SESSION are asking, working, idle, and not read."
@@ -74,10 +67,10 @@ as the sort says; narrowed to the ones with a pane the filter matches."
                                                  :test #'equal :key #'car)
                               #'< :key #'cdr))))
     (case (board-sort b)
-      (:name (sort (copy-list named) #'string<))
-      (:asking (stable-sort (copy-list named) #'>
-                            :key (lambda (s) (first (session-counts client s)))))
-      (t named))))
+          (:name (sort (copy-list named) #'string<))
+          (:asking (stable-sort (copy-list named) #'>
+                                :key (lambda (s) (first (session-counts client s)))))
+          (t named))))
 
 (defun pane-row-of (client session id)
   (gethash (cons session id) (client-panes client)))

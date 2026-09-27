@@ -287,14 +287,13 @@ dimly, with no › before it. Nil parts are left out."
 ;;; lane or beside a list it is the same thing. AT is how far from the start
 ;;; the view is, EXTENT how much of the whole it shows, TOTAL the whole.
 
-;;; One vocabulary for every rail, half a cell wide: an eighth is the whole
-;;; length, a half is the part in view, and the ends are lit only when there
-;;; is more that way. When nothing is past the view it is the eighth and no
-;;; more.
+;;; One vocabulary for every rail: a thin line is the whole length, a heavy
+;;; line is the part in view, and the ends are lit only when there is more
+;;; that way. When nothing is past the view it is a thin line and no more.
 
 (defparameter +scrollbar-glyphs+
   '(:up #\▲ :down #\▼ :left #\‹ :right #\›
-    :track-up #\▕ :thumb-up #\▐ :track #\▁ :thumb #\▄))
+    :track-up #\│ :thumb-up #\┃ :track #\─ :thumb #\━))
 
 (defparameter +arrows-from+ 4
   "A rail shorter than this is all track: two arrows would leave no room
@@ -437,7 +436,7 @@ one when it is the CURSOR's (lit, when its state has no colour of its own)."
                rail
                (atty/ui:label (format nil " ~A" text) :face :quiet)
                (and hints (atty/ui:row :spacing 0 (atty/ui:label "   ") hints))
-               (atty/ui:label " ▁" :face :scroll-track)))
+               (atty/ui:label " ─" :face :scroll-track)))
 
 ;;; A well: rows sunk into a darker ground, a dark edge above and a light one
 ;;; below, the way an inset panel is drawn.
@@ -485,17 +484,17 @@ state of any of them kept. Cells are (amount . state), oldest first."
 
 (defun spark (cells)
   "CELLS, oldest first, as a row of block glyphs: height scaled to the
-busiest cell of these, colour by state; a cell with no output is blank,
-unless something asked then."
+busiest cell of these, colour by state; a cell with no output is the lowest
+block and dark, unless something asked then."
   (let ((most (max 1 (reduce #'max cells :key #'car :initial-value 0))))
     (apply #'atty/ui:row :spacing 0
            (loop :for (amount . state) :in cells
-                 :collect (if (and (zerop amount) (not (eq state :blocked)))
-                              (atty/ui:label " ")
-                              (atty/ui:label
-                               (string (char +spark-glyphs+
-                                             (if (zerop amount) 0 (max 1 (round (* 7 amount) most)))))
-                               :face (spark-face state)))))))
+                 :collect (atty/ui:label
+                           (string (char +spark-glyphs+
+                                         (if (zerop amount) 0 (max 1 (round (* 7 amount) most)))))
+                           :face (if (and (zerop amount) (not (eq state :blocked)))
+                                     :spark-quiet
+                                     (spark-face state)))))))
 
 ;;; A timeline: the same cells in one row of upper halves, the state then in
 ;;; the top half and, in the bottom half, whether anything typed into it.

@@ -2,13 +2,12 @@
 
 (in-package #:atty)
 
-;;; Something to read: what broke, and where. Any key puts it away.
 
 (defstruct (note (:constructor %make-note))
-  (title "" :type string)
-  (lines nil :type list)
-  (face :warning)
-  (laid nil))
+           (title "" :type string)
+           (lines nil :type list)
+           (face :warning)
+           (laid nil))
 
 (defun make-note (title lines &key (face :warning))
   (%make-note :title title
@@ -37,18 +36,18 @@ it, the way out at the right, and any more lines under it."
                  :collect (atty/ui:label (format nil "   ~A" (truncate-string line (max 1 (- cols 4)))))))))
 
 (defmethod draw-overlay ((n note) screen)
-  (let* ((cols (tty:screen-width screen))
-         (rows (tty:screen-height screen))
-         (m (atty/cells:make-cells (tty:screen-grid screen) cols rows))
-         (tree (note-tree n cols (max 1 (- rows 3))))
-         (high (nth-value 1 (atty/ui:with-pass
-                              (atty/ui:restyle tree)
-                              (atty/ui:measure tree m cols rows))))
-         (top (max 0 (- rows high))))
-    (atty/cells:draw tree (tty:screen-grid screen) cols rows :top top)
-    (top-edge m 0 top cols :bg-dim)
-    (setf (note-laid n) tree
-          (tty:screen-cursor-visible screen) nil)))
+           (let* ((cols (tty:screen-width screen))
+                  (rows (tty:screen-height screen))
+                  (m (atty/cells:make-cells (tty:screen-grid screen) cols rows))
+                  (tree (note-tree n cols (max 1 (- rows 3))))
+                  (high (nth-value 1 (atty/ui:with-pass
+                                      (atty/ui:restyle tree)
+                                      (atty/ui:measure tree m cols rows))))
+                  (top (max 0 (- rows high))))
+             (atty/cells:draw tree (tty:screen-grid screen) cols rows :top top)
+             (top-edge m 0 top cols :bg-dim)
+             (setf (note-laid n) tree
+                   (tty:screen-cursor-visible screen) nil)))
 
 (defmethod overlay-laid-tree ((n note)) (note-laid n))
 
@@ -58,10 +57,10 @@ it, the way out at the right, and any more lines under it."
 (defmethod overlay-name ((n note)) (note-title n))
 
 (defmethod overlay-unbound-key ((n note) chord client)
-  "Anything at all puts it away."
-  (declare (ignore chord))
-  (client-pop-overlay client n)
-  t)
+           "Anything at all puts it away."
+           (declare (ignore chord))
+           (client-pop-overlay client n)
+           t)
 
 (defun split-lines (text)
   (atty/ui:split-string text :separator (list #\Newline)))
@@ -69,7 +68,7 @@ it, the way out at the right, and any more lines under it."
 (defgeneric show-note (client title text &key face))
 
 (defmethod show-note ((client client) title text &key (face :warning))
-  (client-push-overlay client (make-note title (split-lines text) :face face)))
+           (client-push-overlay client (make-note title (split-lines text) :face face)))
 
 (defun show-error (client what e)
   "What went wrong, and where it went wrong."
@@ -77,24 +76,24 @@ it, the way out at the right, and any more lines under it."
              (format nil "~A came apart" what)
              (format nil "~A~%~A" e
                      (with-output-to-string (s)
-                       (ignore-errors
-                        (sb-debug:print-backtrace :stream s :count 20))))))
+                                            (ignore-errors
+                                              (sb-debug:print-backtrace :stream s :count 20))))))
 
 ;;; A yes or no, asked the same way a note is said: a band at the foot with
 ;;; the question and its two answers as key caps, the yes in red since it is
 ;;; the one that cannot be taken back.
 
 (defstruct (confirm (:constructor %make-confirm) (:conc-name confirm-of-))
-  (question "" :type string)
-  (yes nil)
-  (yes-label "yes")
-  (no-label "no")
-  (laid nil))
+           (question "" :type string)
+           (yes nil)
+           (yes-label "yes")
+           (no-label "no")
+           (laid nil))
 
 (defun confirm (client question &key yes (yes-says "yes") (no-says "no"))
   "Ask CLIENT QUESTION; YES is called with the client when they say so."
   (client-push-overlay client (%make-confirm :question question :yes yes
-                                         :yes-label yes-says :no-label no-says)))
+                                             :yes-label yes-says :no-label no-says)))
 
 (defun confirm-tree (c cols)
   (band (list (pill (atty/ui:label " ? " :face :brand) :ground :red)
@@ -105,13 +104,13 @@ it, the way out at the right, and any more lines under it."
               (atty/ui:label " "))))
 
 (defmethod draw-overlay ((c confirm) screen)
-  (let* ((cols (tty:screen-width screen))
-         (rows (tty:screen-height screen))
-         (tree (confirm-tree c cols)))
-    (atty/cells:draw tree (tty:screen-grid screen) cols rows :top (max 0 (1- rows)))
-    (top-edge (atty/cells:make-cells (tty:screen-grid screen) cols rows) 0 (max 0 (1- rows)) cols :bg-dim)
-    (setf (confirm-of-laid c) tree
-          (tty:screen-cursor-visible screen) nil)))
+           (let* ((cols (tty:screen-width screen))
+                  (rows (tty:screen-height screen))
+                  (tree (confirm-tree c cols)))
+             (atty/cells:draw tree (tty:screen-grid screen) cols rows :top (max 0 (1- rows)))
+             (top-edge (atty/cells:make-cells (tty:screen-grid screen) cols rows) 0 (max 0 (1- rows)) cols :bg-dim)
+             (setf (confirm-of-laid c) tree
+                   (tty:screen-cursor-visible screen) nil)))
 
 (atty/mode:define-mode confirm-mode ())
 
@@ -128,19 +127,19 @@ it, the way out at the right, and any more lines under it."
   (when (confirm-of-yes c) (funcall (confirm-of-yes c) client)))
 
 (defcommand (confirm-yes :unlisted)
-  (let ((c (current-confirm))) (when c (accept-confirm c *client*))))
+            (let ((c (current-confirm))) (when c (accept-confirm c *client*))))
 
 (defcommand (confirm-no :unlisted)
-  (let ((c (current-confirm))) (when c (client-pop-overlay *client* c))))
+            (let ((c (current-confirm))) (when c (client-pop-overlay *client* c))))
 
 (defcommand (confirm-click :unlisted)
-  (let* ((c (current-confirm))
-         (hit (and c (confirm-of-laid c) *mouse-position*
-                   (button-at (confirm-of-laid c) (cdr *mouse-position*) (car *mouse-position*)))))
-    (when hit
-      (if (eq :yes (bar-button-runs hit))
-          (accept-confirm c *client*)
-          (handle-button c (bar-button-runs hit) *client*)))))
+            (let* ((c (current-confirm))
+                   (hit (and c (confirm-of-laid c) *mouse-position*
+                             (button-at (confirm-of-laid c) (cdr *mouse-position*) (car *mouse-position*)))))
+              (when hit
+                (if (eq :yes (bar-button-runs hit))
+                    (accept-confirm c *client*)
+                  (handle-button c (bar-button-runs hit) *client*)))))
 
 (defcommand (confirm-ignore :unlisted) nil)
 
@@ -155,20 +154,20 @@ it, the way out at the right, and any more lines under it."
 ;;; where the keys are, kept with RET and undone with Escape.
 
 (defstruct (entry (:constructor %make-entry) (:conc-name entry-of-))
-  (title "" :type string)
-  (what "" :type string)
-  (text "" :type string)
-  (keep nil)
-  (swap nil)
-  (swap-label nil)
-  (laid nil))
+           (title "" :type string)
+           (what "" :type string)
+           (text "" :type string)
+           (keep nil)
+           (swap nil)
+           (swap-label nil)
+           (laid nil))
 
 (defun entry (client title what text &key keep swap swap-says)
   "Ask CLIENT for a line of TEXT to start from, under TITLE, about WHAT. KEEP
 is called with the text and the client on RET; SWAP with the client on TAB,
 when there is one, and SWAP-SAYS says what TAB does."
   (client-push-overlay client (%make-entry :title title :what what :text text
-                                       :keep keep :swap swap :swap-label swap-says)))
+                                           :keep keep :swap swap :swap-label swap-says)))
 
 (defun entry-tree (e cols)
   (band (list (pill (atty/ui:label (format nil " ~A " (entry-of-title e)) :face :number-working) :ground :blue)
@@ -180,13 +179,13 @@ when there is one, and SWAP-SAYS says what TAB does."
                       (hint "Esc" "undo" :runs :close)))))
 
 (defmethod draw-overlay ((e entry) screen)
-  (let* ((cols (tty:screen-width screen))
-         (rows (tty:screen-height screen))
-         (tree (entry-tree e cols)))
-    (atty/cells:draw tree (tty:screen-grid screen) cols rows :top (max 0 (1- rows)))
-    (top-edge (atty/cells:make-cells (tty:screen-grid screen) cols rows) 0 (max 0 (1- rows)) cols :bg-dim)
-    (setf (entry-of-laid e) tree
-          (tty:screen-cursor-visible screen) nil)))
+           (let* ((cols (tty:screen-width screen))
+                  (rows (tty:screen-height screen))
+                  (tree (entry-tree e cols)))
+             (atty/cells:draw tree (tty:screen-grid screen) cols rows :top (max 0 (1- rows)))
+             (top-edge (atty/cells:make-cells (tty:screen-grid screen) cols rows) 0 (max 0 (1- rows)) cols :bg-dim)
+             (setf (entry-of-laid e) tree
+                   (tty:screen-cursor-visible screen) nil)))
 
 (atty/mode:define-mode entry-mode ())
 
@@ -195,11 +194,11 @@ when there is one, and SWAP-SAYS says what TAB does."
 (defmethod overlay-laid-tree ((e entry)) (entry-of-laid e))
 
 (defmethod overlay-unbound-key ((e entry) chord client)
-  (let ((said (atty/mode:self-inserting chord)))
-    (when said
-      (setf (entry-of-text e) (concatenate 'string (entry-of-text e) said)
-            (client-dirty client) t)
-      t)))
+           (let ((said (atty/mode:self-inserting chord)))
+             (when said
+               (setf (entry-of-text e) (concatenate 'string (entry-of-text e) said)
+                     (client-dirty client) t)
+               t)))
 
 (defun current-entry ()
   (let ((it (first (client-overlays *client*))))
@@ -214,29 +213,29 @@ when there is one, and SWAP-SAYS says what TAB does."
   (when (entry-of-swap e) (funcall (entry-of-swap e) client)))
 
 (defcommand (entry-accept :unlisted)
-  (let ((e (current-entry))) (when e (accept-entry e *client*))))
+            (let ((e (current-entry))) (when e (accept-entry e *client*))))
 
 (defcommand (entry-toggle-kind :unlisted)
-  (let ((e (current-entry))) (when e (toggle-entry-kind e *client*))))
+            (let ((e (current-entry))) (when e (toggle-entry-kind e *client*))))
 
 (defcommand (entry-undo :unlisted)
-  (let ((e (current-entry))) (when e (client-pop-overlay *client* e))))
+            (let ((e (current-entry))) (when e (client-pop-overlay *client* e))))
 
 (defcommand (entry-delete-backward :unlisted)
-  (let ((e (current-entry)))
-    (when (and e (plusp (length (entry-of-text e))))
-      (setf (entry-of-text e) (subseq (entry-of-text e) 0 (1- (length (entry-of-text e))))
-            (client-dirty *client*) t))))
+            (let ((e (current-entry)))
+              (when (and e (plusp (length (entry-of-text e))))
+                (setf (entry-of-text e) (subseq (entry-of-text e) 0 (1- (length (entry-of-text e))))
+                      (client-dirty *client*) t))))
 
 (defcommand (entry-click :unlisted)
-  (let* ((e (current-entry))
-         (hit (and e (entry-of-laid e) *mouse-position*
-                   (button-at (entry-of-laid e) (cdr *mouse-position*) (car *mouse-position*)))))
-    (when hit
-      (case (bar-button-runs hit)
-        (:keep (accept-entry e *client*))
-        (:swap (toggle-entry-kind e *client*))
-        (t (handle-button e (bar-button-runs hit) *client*))))))
+            (let* ((e (current-entry))
+                   (hit (and e (entry-of-laid e) *mouse-position*
+                             (button-at (entry-of-laid e) (cdr *mouse-position*) (car *mouse-position*)))))
+              (when hit
+                (case (bar-button-runs hit)
+                      (:keep (accept-entry e *client*))
+                      (:swap (toggle-entry-kind e *client*))
+                      (t (handle-button e (bar-button-runs hit) *client*))))))
 
 (defcommand (entry-ignore :unlisted) nil)
 
