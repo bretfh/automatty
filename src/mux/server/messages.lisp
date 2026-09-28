@@ -148,12 +148,31 @@ here handles, or one that needs a session the watcher has not joined."
 
 (define-message-handler :reload-init ()
   (load-user-init)
+  (fill-in-definitions server)
   (send-message watcher (list* :say (init-load-note)))
   (dolist (w (all-watchers server))
     (when (wire-open (watcher-wire w)) (send-config w))))
 
-(define-message-handler :command (name)
-  (run-init-command watcher name))
+(define-message-handler :command (name &optional arguments)
+  (run-init-command watcher name arguments))
+
+(define-message-handler :run (line)
+  (multiple-value-bind (name arguments) (split-command-line line)
+    (let ((wanted (command-arguments name)))
+      (cond ((not (and name (gethash name *init-commands*)))
+             (send-message watcher (list :note "no command"
+                                         (format nil "The init file has no command called ~A." line)
+                                         :warning)))
+            ((< (length arguments) (length wanted))
+             (send-message watcher (list :note "wants more"
+                                         (format nil "~A wants ~{~A~^, ~}" name
+                                                 (mapcar #'third (nthcdr (length arguments) wanted)))
+                                         :warning)))
+            (t (run-command name watcher arguments)))))
+  (send-message watcher (list :ran line)))
+
+(define-message-handler :definitions ()
+  (send-message watcher (list :definitions (mapcar #'car *definitions*))))
 
 (define-message-handler :settings ()
   (send-message watcher (list :settings (encode-settings))))
@@ -444,8 +463,8 @@ here handles, or one that needs a session the watcher has not joined."
   (dolist (w (session-watchers session))
     (send-message w (list :barp (session-bar-p session)))))
 
-(define-message-handler (:split :session) (&optional way)
-  (session-split session (or way :across)))
+(define-message-handler (:split :session) (&optional way pane)
+  (session-split session (or way :across) pane))
 
 (define-message-handler (:focus :session) ()
   (session-focus-next session))

@@ -32,26 +32,89 @@ reading or asking. The keys help groups by it.")
 
 (defvar *init-commands* (make-hash-table :test 'equal))
 
-(defmacro defcommand (name &body body)
+(defvar *command-arguments* (make-hash-table :test 'equal)
+  "What each command that takes any is to be given, by name: a list of
+(name type prompt candidates), CANDIDATES a function answering what to offer
+or nil.")
+
+(defun argument-spec (it)
+  "An argument as DEFCOMMAND is given it, as the form making its entry in
+*COMMAND-ARGUMENTS*: a bare name is a string asked for by that name."
+  (destructuring-bind (var &optional (type :string) prompt &key (from nil fromp))
+      (if (consp it) it (list it))
+    (unless (member type '(:string :number :directory))
+      (error "~S is not a kind of argument: :string, :number or :directory" type))
+    `(list ',var ,type ,(or prompt (format nil "~(~A~)" var))
+           ,(and fromp `(lambda () ,from)))))
+
+(defmacro defcommand (name arguments &body body)
   "Define a command, and register it under its name with the dashes read as
 spaces: DETACH is asked for as \"detach\", BAR-OFF as \"bar off\".
+
+ARGUMENTS are what it is given: each a name, or (name type prompt :from
+candidates), TYPE :string, :number or :directory. Whatever is not given when
+it is run is asked for, with PROMPT, offering CANDIDATES when there are any.
+Names after &optional are passed on when given and never asked for.
 
 A name written as (NAME :unlisted) is a command that still has a name and can
 still be bound, but is not among the ones offered when somebody asks for one.
 A name written as (NAME :group panes) says what it acts on. A string first in
 BODY is one line on what it does, shown beside it when it is offered."
   (destructuring-bind (name &rest marks) (if (listp name) name (list name))
-    (let ((said (string-downcase (substitute #\Space #\- (symbol-name name))))
-          (doc (and (stringp (first body)) (rest body) (first body)))
-          (group (second (member :group marks))))
+    (let* ((said (string-downcase (substitute #\Space #\- (symbol-name name))))
+           (doc (and (stringp (first body)) (rest body) (first body)))
+           (group (second (member :group marks)))
+            (optional (rest (member '&optional arguments)))
+           (arguments (ldiff arguments (member '&optional arguments)))
+           (vars (mapcar (lambda (it) (if (consp it) (first it) it)) arguments)))
       `(progn
-         (defun ,name () ,@(if doc (rest body) body))
+         (defun ,name (&optional ,@vars ,@optional) ,@(if doc (rest body) body))
          (setf (gethash ,said *commands*) (function ,name))
+         ,(if arguments
+              `(setf (gethash ,said *command-arguments*)
+                     (list ,@(mapcar #'argument-spec arguments)))
+              `(remhash ,said *command-arguments*))
          ,@(when doc `((setf (gethash ,said *command-docs*) ,doc)))
          ,@(when group `((setf (gethash ,said *command-groups*) ',group)))
          ,@(when (member :unlisted marks) `((setf (gethash ,said *unlisted*) t)))
          (when *loading-init* (setf (gethash ,said *init-commands*) t))
          ',name))))
+
+(defun command-arguments (name) (gethash name *command-arguments*))
+
+(defun as-argument (spec value)
+  "VALUE, as typed, as the kind SPEC says."
+  (if (and (eq (second spec) :number) (stringp value))
+      (or (parse-integer value :junk-allowed t)
+          (error "~A wants a number, and ~S is not one" (third spec) value))
+      value))
+
+(defun command-line-words (text)
+  "TEXT cut at its spaces, a stretch in double quotes kept whole."
+  (let ((out nil) (word nil) (quoted nil) (any nil))
+    (loop :for c :across text
+          :do (cond ((char= c #\") (setf quoted (not quoted) any t))
+                    ((and (char= c #\Space) (not quoted))
+                     (when any (push (coerce (nreverse word) 'string) out))
+                     (setf word nil any nil))
+                    (t (push c word) (setf any t))))
+    (when any (push (coerce (nreverse word) 'string) out))
+    (nreverse out)))
+
+(defun split-command-line (text)
+  "The command TEXT names and the arguments after it: the longest command
+name TEXT starts with, as a word. Answers (values name arguments), or nil."
+  (let* ((text (string-trim " " text))
+         (name (loop :with best := nil
+                     :for name :being :the :hash-keys :of *commands*
+                     :when (and (>= (length text) (length name))
+                                (string= name text :end2 (length name))
+                                (or (= (length text) (length name))
+                                    (char= #\Space (char text (length name))))
+                                (or (null best) (> (length name) (length best))))
+                       :do (setf best name)
+                     :finally (return best))))
+    (and name (values name (command-line-words (subseq text (length name)))))))
 
 (defun command-doc (name) (gethash name *command-docs*))
 (defun command-group (name) (gethash name *command-groups*))
@@ -72,15 +135,29 @@ out would take the screen with it."
       (when *client* (show-error *client* what e))
       nil)))
 
-(defgeneric run-for (client name))
+(defgeneric run-for (client name &optional arguments))
 
-(defmethod run-for (client name)
+(defgeneric ask-for-arguments (client name given)
+  (:documentation "Ask CLIENT for what the command NAME takes past GIVEN, one
+at a time, and run it with them."))
+
+(defmethod run-for (client name &optional arguments)
   (let ((does (gethash name *commands*))
+        (wanted (command-arguments name))
         (*client* client))
-    (when does (call-guarded does name))))
+    (when does
+      (if (< (length arguments) (length wanted))
+          (ask-for-arguments client name arguments)
+          (call-guarded (lambda ()
+                          (apply does (loop :for value :in arguments
+                                            :for spec := (pop wanted)
+                                            :collect (if spec (as-argument spec value) value))))
+                        name)))))
 
-(defun run-command (name &optional (client *client*))
-  (run-for client name))
+(defun run-command (name &optional (client *client*) arguments)
+  "Run the command called NAME for CLIENT with ARGUMENTS, asking for the ones
+it takes that are not given."
+  (run-for client name arguments))
 
 (setf atty/mode:*run* (lambda (does) (call-guarded does (or (atty/mode:pending) "that key"))))
 

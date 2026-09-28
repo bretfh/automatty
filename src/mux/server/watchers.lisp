@@ -38,7 +38,9 @@
   (setf (server-pending-watchers server) (remove watcher (server-pending-watchers server)))
   (leave-session watcher)
   (stop-following server watcher)
-  (when (watcher-interactive watcher) (send-client-list server)))
+  (when (watcher-interactive watcher)
+    (send-client-list server)
+    (run-hook 'client-detached watcher)))
 
 (defun join-session (server watcher session)
   "Put WATCHER on SESSION and tell it what it is looking at."

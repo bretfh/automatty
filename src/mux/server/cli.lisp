@@ -31,6 +31,26 @@ since-ms idle-ms) rows."
                                   :done (lambda (f) (eq :clients (first f))))
                        :key #'first)))))
 
+(defun run-in-server (args)
+  "atty do <command> [<argument>...]: run a command the server's init defines,
+saying whatever it shows."
+  (let ((path (server-socket-path)))
+    (unless (server-alive-p path) (error "no server is running"))
+    (let* ((line (format nil "~{~A~^ ~}"
+                         (mapcar (lambda (a) (if (find #\Space a) (format nil "\"~A\"" a) a)) args)))
+           (said (request path (list (list :run line))
+                          :patience 30 :done (lambda (f) (eq :ran (first f))))))
+      (dolist (form said)
+        (when (eq (first form) :note)
+          (format t "~&~A: ~A~%" (second form) (third form)))))))
+
+(defun request-definitions ()
+  (let ((path (server-socket-path)))
+    (and (server-alive-p path)
+         (second (find :definitions (request path '((:definitions))
+                                      :done (lambda (f) (eq :definitions (first f))))
+                       :key #'first)))))
+
 (defun client-name (row)
   "What to call an attached terminal: its tty without the /dev/, else its id."
   (let ((tty (second row)))
@@ -133,6 +153,10 @@ when a server is running and is another."
                               (format t "~&~12A a server from before one held them all; atty stop ~A~%"
                                       name name)
                             (format t "~&~12A another server; atty -L ~A list~%" name name))))
+    (dolist (name (request-definitions))
+      (unless (or (string= name (file-namestring (server-socket-path)))
+                  (find name others :key #'first :test #'string=))
+        (format t "~&~12A defined, not running; atty -L ~A start~%" name name)))
     (unless (or rows others)
       (let ((saved (saved-sessions)))
         (if saved

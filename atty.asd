@@ -64,7 +64,7 @@
                 :license "GPL-3.0-or-later"
                 :version "0.0.1"
                 :depends-on (#:libatty #:atty/pty #:atty/tty #:atty/mode #:atty/ui #:atty/cells
-                                  #:atty/agent
+                                  #:atty/agent #:cl-ppcre
                                   (:require #:sb-posix)
                                   (:require #:sb-bsd-sockets)
                                   (:require #:sb-sprof))
@@ -117,6 +117,7 @@
                                                          (:file "draw")
                                                          (:file "commands")))))
                              (:file "keymap")
+                             (:file "define")
                              (:file "user")
                              (:file "readers")
                              (:file "bench")
@@ -167,6 +168,7 @@
                              (:file "readers")
                              (:file "settings")
                              (:file "init")
+                             (:file "define")
                              (:file "state")
                              (:file "release"))
                 :perform (asdf:test-op (o c)

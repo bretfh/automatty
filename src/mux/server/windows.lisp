@@ -33,6 +33,7 @@ take whoever is attached away from what they were looking at."
         (dolist (w (session-watchers session)) (setf (watcher-behind w) t)))
     (pane-start pane :environment (pane-environment session pane))
     (run-hook 'pane-started session pane)
+    (run-hook 'window-made session window)
     window))
 
 (defun session-nth-window (session n)
@@ -61,7 +62,8 @@ one after. The last window stays, empty, which is a session that is over."
     (when (and at left)
       (setf (session-windows session) left)
       (when (eq window (session-window session))
-        (session-show-window session (nth (min at (1- (length left))) left))))
+        (session-show-window session (nth (min at (1- (length left))) left)))
+      (run-hook 'window-closed session window))
     (dolist (w (session-watchers session)) (setf (watcher-behind w) t))
     left))
 
@@ -96,9 +98,16 @@ attached is told the old and the new, and WATCHER whether it was done."
   (or (window-label window) (princ-to-string (window-number session window))))
 
 (defun encode-layout (it)
-  "A layout as it goes out: a pane's id, or a split as its way and its parts."
+  "A layout as it goes out: a pane's id, or a split as its way and its parts,
+a part with a size as (:size size part)."
   (cond ((null it) nil)
-        ((split-p it) (cons (split-way it) (mapcar #'encode-layout (split-parts it))))
+        ((split-p it)
+         (cons (split-way it)
+               (loop :for part :in (split-parts it)
+                     :for n :from 0
+                     :collect (if (split-size it n)
+                                  (list :size (split-size it n) (encode-layout part))
+                                  (encode-layout part)))))
         (t (pane-id it))))
 
 (defun encode-windows (session)
@@ -111,16 +120,23 @@ many of them are asking, and whether it is the one shown."
                               :key (lambda (p) (agent:agent-state (pane-agent p))))
                        (eq w (session-window session)))))
 
-(defun session-split (session way)
-  "Another pane beside the one that has the cursor, running what that one runs."
+(defun session-split (session way &optional form)
+  "Another pane beside the one that has the cursor, running what that one runs,
+or what the pane FORM says, where that one is."
   (let* ((focus (session-focus session))
          (term (pane-term focus))
-         (new (make-pane (pane-command focus)
-                         :rows (term:term-height term)
-                         :cols (term:term-width term)
-                         :directory (pane-directory focus))))
+         (new (if form
+                  (if (eq (first form) :pane)
+                      (build-arrangement form (pane-directory focus) (pane-env focus)
+                                         (term:term-height term) (term:term-width term))
+                      (error "a split is one pane; ~S is not" form))
+                  (make-pane (pane-command focus)
+                             :rows (term:term-height term)
+                             :cols (term:term-width term)
+                             :directory (pane-directory focus)))))
     (setf (session-layout session)
-          (layout-insert (session-layout session) focus way new)
+          (layout-insert (session-layout session) focus way new
+                         (and form (getf (rest form) :size)))
           (session-focus session) new)
     (session-compose session)
     (pane-start new :environment (pane-environment session new))
@@ -131,6 +147,33 @@ many of them are asking, and whether it is the one shown."
 (defun find-pane (server name id)
   (let ((session (session-named server name)))
     (and session (find id (session-panes session) :key #'pane-id))))
+
+(defun exit-code (status)
+  "What a program's wait status says it ended with: its exit code, or 128 and
+the signal that ended it, the way a shell says it."
+  (cond ((null status) nil)
+        ((zerop (logand status #x7f)) (ldb (byte 8 8) status))
+        (t (+ 128 (logand status #x7f)))))
+
+(defun pane-program-ended (session pane)
+  "PANE's program has gone. A pane that holds stays, saying how it ended;
+any other goes."
+  (let ((code (and (pane-started pane)
+                   (progn (ignore-errors (pty:pty-close (pane-fd pane)))
+                          (exit-code (ignore-errors (pty:pty-reap (pane-pid pane) 1)))))))
+    (setf (pane-fd pane) -1
+          (pane-running pane) nil
+          (pane-exited pane) (or code t))
+    (run-hook 'pane-exited session pane code)
+    (if (pane-hold pane)
+        (let ((term (pane-term pane)))
+          (write-rows-to-term term (list (divider-row (term:term-width term)
+                                                      (if code
+                                                          (format nil "exited ~D" code)
+                                                          "exited"))))
+          (setf (pane-dirty pane) t)
+          (dolist (w (session-watchers session)) (setf (watcher-behind w) t)))
+        (session-close-pane session pane))))
 
 (defun session-close-pane (session pane)
   "Take PANE out of its window and let its program go. A window left with

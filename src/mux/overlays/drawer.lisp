@@ -271,7 +271,7 @@ its actions."
 
 (defmethod close-overlay ((d drawer) client) (drawer-close client))
 
-(defcommand (close-drawer :unlisted)
+(defcommand (close-drawer :unlisted) ()
             (drawer-close *client*))
 
 (atty/mode:define-key 'drawer-mode "Escape" #'close-drawer)
@@ -282,7 +282,7 @@ its actions."
   (subscribe-panes client)
   (client-push-overlay client (%make-drawer :target target)))
 
-(defcommand (explain-pane :group agents)
+(defcommand (explain-pane :group agents) ()
             "why this pane is what it is, and who typed into it"
             (if (find-if (lambda (it) (typep it 'drawer)) (client-overlays *client*))
                 (drawer-close *client*)

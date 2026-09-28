@@ -24,40 +24,40 @@
 (defun current-scroll-view ()
   (find-if (lambda (it) (typep it 'scroll-view)) (client-overlays *client*)))
 
-(defcommand (scroll-mode :group scrolling)
+(defcommand (scroll-mode :group scrolling) ()
             "read this pane back from the keys; q leaves"
             (unless (current-scroll-view)
               (client-push-overlay *client* (%make-scroll-view))
               (send-if-supported (list :reading t))))
 
-(defcommand (exit-scroll-mode :unlisted)
+(defcommand (exit-scroll-mode :unlisted) ()
             (let ((r (current-scroll-view)))
               (when r (client-pop-overlay *client* r)))
             (send-if-supported (list :reading nil))
             (send-if-supported (list :find nil nil nil :clear))
             (scroll-to-bottom))
 
-(defcommand (find-in-pane :group scrolling)
+(defcommand (find-in-pane :group scrolling) ()
             "find in this pane's history, the hits listed as you type; n and N move between them after"
             (open-palette *client* :find))
 
-(defcommand (find-next :group scrolling)
+(defcommand (find-next :group scrolling) ()
             "the next older hit of the last find"
             (send-if-supported (list :find nil nil nil :next)))
 
-(defcommand (find-previous :group scrolling)
+(defcommand (find-previous :group scrolling) ()
             "the next newer hit of the last find"
             (send-if-supported (list :find nil nil nil :back)))
 
-(defcommand (start-selection :group scrolling)
+(defcommand (start-selection :group scrolling) ()
             "mark the top line shown; y copies from it to wherever you scroll"
             (send-if-supported (list :select :start)))
 
-(defcommand (copy-lines :group scrolling)
+(defcommand (copy-lines :group scrolling) ()
             "copy the lines marked, or the screen, to the clipboard"
             (send-if-supported (list :select :copy)))
 
-(defcommand (scroll-mode-page-up :group scrolling)
+(defcommand (scroll-mode-page-up :group scrolling) ()
             "the same, a page back to begin with"
             (scroll-mode)
             (scroll-page-up))

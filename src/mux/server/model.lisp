@@ -10,7 +10,7 @@ answered the moment a byte arrives, and only a client already being fed faster
 than this waits. A tick would add half its length to every keystroke, which is
 more than the terminal it is sitting inside costs in the first place.")
 
-(declaim (ftype function session-bar session-compose send-hello send-message load-user-init init-load-note
+(declaim (ftype function session-bar session-compose send-hello send-message load-user-init init-load-note fill-in-definitions
                         send-config run-init-command encode-settings))
 
 (defparameter +max-pane-size+ 1000)
@@ -305,8 +305,10 @@ becomes, rather than letting them go.")
   "What a program is told about where it is: its address as it starts. A pane
 moved to another window keeps the address it was born with; the server answers
 either."
-  (list (format nil "ATTY_PANE=~A" (pane-address-of session pane))
-        (format nil "ATTY_SOCKET=~A" (or (session-socket session) ""))))
+  (append (list (format nil "ATTY_PANE=~A" (pane-address-of session pane))
+                (format nil "ATTY_SOCKET=~A" (or (session-socket session) "")))
+          (loop :for (name . value) :in (pane-env pane)
+                :collect (format nil "~A=~A" name value))))
 
 (defun add-session (server command &key (name "0") (rows 24) (cols 80) directory)
   (let* ((pane (make-pane command :rows rows :cols cols :directory directory))

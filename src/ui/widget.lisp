@@ -9,7 +9,7 @@
    #:on-click #:on-change #:set-on-click #:set-on-change
    #:text #:value #:css-class-name #:hint #:hoveredp #:chosen #:expand
    #:background-color #:background-image #:border-radius #:font-size
-   #:padding #:margin #:min-width #:min-height
+   #:padding #:margin #:min-width #:min-height #:share
    #:top #:left #:bottom #:right #:width #:height #:fraction
    #:rule-glyph #:upright #:spacing #:align #:offset #:fixed-width #:fixed-height
    #:before #:after #:mark-of #:low #:high #:track #:thickness #:diameter
@@ -67,6 +67,7 @@ for itself."))
    (padding :initarg :padding :accessor padding :initform nil)
    (margin  :initarg :margin  :accessor margin  :initform nil)
    (expand  :initarg :expand  :accessor expand  :initform 0)
+   (share   :initarg :share   :accessor share   :initform nil)
    (min-width  :initarg :min-width  :accessor min-width  :initform 0)
    (min-height :initarg :min-height :accessor min-height :initform 0)
    (top     :initform 0 :accessor top)
@@ -85,11 +86,13 @@ for itself."))
 
 (defclass column (widget)
   ((spacing :initarg :spacing :accessor spacing :initform 0)
-   (align   :initarg :align   :accessor align   :initform :start)))
+   (align   :initarg :align   :accessor align   :initform :start)
+   (shrink  :initarg :shrink  :accessor shrink  :initform nil)))
 
 (defclass row (widget)
   ((spacing :initarg :spacing :accessor spacing :initform 1)
-   (align   :initarg :align   :accessor align   :initform :start)))
+   (align   :initarg :align   :accessor align   :initform :start)
+   (shrink  :initarg :shrink  :accessor shrink  :initform nil)))
 
 (defclass stack (widget) ())
 

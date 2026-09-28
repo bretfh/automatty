@@ -151,13 +151,48 @@ nothing. The bit only says whether; the face itself says which."
 (defmethod measure ((w column) m aw ah) (%stacked w m aw ah t))
 (defmethod measure ((w row) m aw ah) (%stacked w m aw ah nil))
 
+(defun %given-room (w all sizes room verticalp)
+  "SIZES with each part that has a share of ROOM given it, at least what it
+measures; and, when W shrinks and they come to more than ROOM, with what was
+asked for giving way: the parts that only expand keep an even share each, and
+the rest have what is left between them as they measured."
+  (let* ((main (if verticalp #'second #'first))
+         (sizes (loop :for part :in all
+                      :for (cw ch) :in sizes
+                      :for asked := (and (share part) (round (* (share part) room)))
+                      :collect (cond ((null asked) (list cw ch))
+                                     (verticalp (list cw (max ch asked)))
+                                     (t (list (max cw asked) ch)))))
+         (total (reduce #'+ sizes :key main)))
+    (if (not (and (shrink w) (> total room) (plusp total)))
+        sizes
+        (let* ((flexible (count-if (lambda (p) (plusp (expand p))) all))
+               (even (if (plusp flexible) (floor room (length all)) 0))
+               (fixed (loop :for part :in all :for s :in sizes
+                            :unless (plusp (expand part)) :sum (funcall main s)))
+               (left (max 0 (- room (* even flexible))))
+               (sum 0) (had 0))
+          (loop :for part :in all
+                :for (cw ch) :in sizes
+                :for n := (if (plusp (expand part))
+                              even
+                              (progn (incf sum (if (plusp fixed)
+                                                   (* left (/ (if verticalp ch cw) fixed))
+                                                   0))
+                                     (prog1 (- (round sum) had) (setf had (round sum)))))
+                :collect (if verticalp (list cw n) (list n ch)))))))
+
 (defun %lay (w m x y width height verticalp)
   (let* ((all (parts w))
-         (sizes (mapcar (lambda (p) (multiple-value-list (measure p m width height)))
-                        all))
+         (gaps (* (spacing w) (max 0 (1- (length all)))))
+         (room (- (if verticalp height width) gaps))
+         (sizes (%given-room w all
+                             (mapcar (lambda (p) (multiple-value-list (measure p m width height)))
+                                     all)
+                             room verticalp))
          (natural (+ (reduce #'+ sizes :initial-value 0
                                        :key (if verticalp #'second #'first))
-                     (* (spacing w) (max 0 (1- (length all))))))
+                     gaps))
          (slack (max 0 (- (if verticalp height width) natural)))
          (weight (reduce #'+ all :initial-value 0 :key #'expand))
          (acc 0) (given 0)
