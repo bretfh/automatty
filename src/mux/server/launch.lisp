@@ -130,16 +130,66 @@ foreground. With a name it holds that session from the start."
         (terminal-size tty:+stdin+)
       (let ((said-rows (and (third args) (parse-integer (third args) :junk-allowed t)))
             (said-cols (and (fourth args) (parse-integer (fourth args) :junk-allowed t))))
-        (let ((server (serve path (or (second args) (default-shell))
+        (let ((server (let ((*handing-over* t))
+                        (serve path (or (second args) (default-shell))
                              :name (first args)
                              :rows (or said-rows rows)
                              :cols (or said-cols cols)
-                             :fresh *fresh-start*)))
-          ;; asked to restart: the name is gone and the state is on disk, and
-          ;; the next server is this program again, started by the one leaving
-          ;; so that nobody has to stay around to do it
+                             :fresh *fresh-start*))))
+          ;; asked to restart: the name is gone and the state is on disk. The
+          ;; next server is this process become the new build, holding the
+          ;; panes it held, or when nothing was held, another started by the
+          ;; one leaving so that nobody has to stay around to do it
           (when (server-successor server)
-            (spawn-server path (server-successor server))))))))
+            (if *handoff*
+                (hand-over path (server-successor server))
+                (spawn-server path (server-successor server)))))))))
+
+(defun hand-over (path successor)
+  "Become SUCCESSOR in this process, the panes' terminals left open for it and
+said in a file it is pointed at. When it cannot be become, the panes go and it
+is started the way a server with nothing to hand over starts one."
+  (let ((file (namestring (handoff-file (state-dir (file-namestring path))))))
+    (handler-case
+        (progn
+          (write-form-atomically file (list :atty-handoff +state-version+ :panes *handoff*))
+          (dolist (held *handoff*) (pty:keep-on-exec (second held)))
+          (sb-posix:setenv "ATTY_ADOPT" file 1)
+          (pty:become successor (rest sb-ext:*posix-argv*)))
+      (error (e)
+        (report-error e)
+        (sb-posix:unsetenv "ATTY_ADOPT")
+        (ignore-errors (delete-file file))
+        (dolist (held *handoff*)
+          (ignore-errors (pty:pty-close (second held)))
+          (ignore-errors (pty:pty-reap (third held))))
+        (setf *handoff* nil)
+        (spawn-server path successor)))))
+
+(defun take-handoff ()
+  "The panes a server that became this one left running, from the file it
+pointed at, put where DECODE-PANE finds them."
+  (let ((file (sb-posix:getenv "ATTY_ADOPT")))
+    (when (and file (plusp (length file)))
+      (sb-posix:unsetenv "ATTY_ADOPT")
+      (let ((form (ignore-errors
+                   (with-open-file (in file :external-format :utf-8)
+                     (with-standard-io-syntax
+                       (let ((*read-eval* nil)) (read in)))))))
+        (ignore-errors (delete-file file))
+        (when (and (consp form) (eq :atty-handoff (first form)))
+          (loop :for (id fd pid) :in (getf (nthcdr 2 form) :panes)
+                :do (setf (gethash id *adopted*) (list (pty:close-on-exec fd) pid))))))))
+
+(defun let-go-of-unadopted ()
+  "Programs handed over that no saved pane took: their terminals are closed and
+they are told so."
+  (maphash (lambda (id held)
+             (declare (ignore id))
+             (ignore-errors (pty:pty-close (first held)))
+             (ignore-errors (pty:pty-reap (second held))))
+           *adopted*)
+  (clrhash *adopted*))
 
 (defun kill-server ()
   "atty kill-server: stop every session, saying what was kept."

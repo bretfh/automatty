@@ -433,3 +433,39 @@ encoded, on SELECTION.")
   (:method ((term term) selection data)
     (declare (ignore selection data))
     nil))
+
+(defparameter +modes+
+  '(cursor-x cursor-y saved-cursor-x saved-cursor-y alt-saved-cursor-x alt-saved-cursor-y
+    attrs saved-attrs alt-saved-attrs scroll-top scroll-bottom
+    auto-margin wrap-pending insert-mode keypad-mode keypad-application-mode
+    bracketed-paste cursor-visible cursor-style origin-mode newline-mode
+    reverse-video reverse-wraparound synchronized-output
+    mouse-mode mouse-utf8 mouse-sgr mouse-urxvt mouse-sgr-pixels
+    g0 g1 g2 g3 active-charset title cwd))
+
+(defun term-modes (term)
+  (append (loop :for slot :in +modes+
+                :collect (intern (symbol-name slot) :keyword)
+                :collect (let ((it (slot-value term slot)))
+                           (if (typep it 'face) (copy-face it) it)))
+          (list :tab-stops (loop :for x :below (length (term-tab-stops term))
+                                 :when (term-tab-stop-p term x) :collect x))))
+
+(defun (setf term-modes) (modes term)
+  (loop :for slot :in +modes+
+        :for value := (getf modes (intern (symbol-name slot) :keyword) '%none)
+        :unless (eq value '%none) :do (setf (slot-value term slot) value))
+  (let ((stops (getf modes :tab-stops :none)))
+    (unless (eq stops :none)
+      (fill (term-tab-stops term) 0)
+      (dolist (x stops)
+        (when (< -1 x (length (term-tab-stops term)))
+          (setf (aref (term-tab-stops term) x) 1)))))
+  (let ((w (term-width term)) (h (term-height term)))
+    (setf (term-cursor-x term) (max 0 (min (1- w) (term-cursor-x term)))
+          (term-cursor-y term) (max 0 (min (1- h) (term-cursor-y term)))
+          (term-scroll-top term) (max 0 (min (1- h) (term-scroll-top term)))
+          (term-scroll-bottom term) (max (term-scroll-top term) (min (1- h) (term-scroll-bottom term)))))
+  (unless (term-attrs term) (setf (term-attrs term) (make-face)))
+  (setf (term-face-now term) nil)
+  modes)

@@ -134,6 +134,7 @@
    #:term-scrollback-row-string
    #:push-scrollback
    #:term-main-grid
+   #:term-modes
 
    #:term-render-line
    #:term-render-ansi-line

@@ -36,6 +36,8 @@ shut to everybody else: a saved screen is somebody's shell history."
 
 (defun tree-file (dir) (merge-pathnames "tree.sexp" dir))
 
+(defun handoff-file (dir) (merge-pathnames "handoff.sexp" dir))
+
 (defun pane-file (dir id) (merge-pathnames (format nil "panes/~D.sexp" id) dir))
 
 (defun pane-files (dir)
@@ -212,7 +214,63 @@ log, and every row it holds, oldest first, with the faces said once."
           :faces (coerce table 'simple-vector)
           :behind behind
           :screen shown
-          :over over)))
+          :over over
+          :modes (encode-modes (term:term-modes term)))))
+
+(defun encode-modes (modes)
+  (loop :for (key value) :on modes :by #'cddr
+        :collect key
+        :collect (if (typep value 'term:face) (list :face (encode-face value)) value)))
+
+(defun decode-modes (modes)
+  (loop :for (key value) :on modes :by #'cddr
+        :collect key
+        :collect (if (and (consp value) (eq :face (first value))) (decode-face (second value)) value)))
+
+(defvar *adopted* (make-hash-table)
+  "Pane ids to (fd pid): the programs a server that handed over left running.")
+
+(defun fill-rows (term rows)
+  (loop :for row :in rows
+        :for y :from 0 :below (term:term-height term)
+        :do (let ((into (term:term-grid-row term y))
+                  (n (min (term:row-width row) (term:term-width term))))
+              (replace (term:row-chars into) (term:row-chars row) :end2 n)
+              (replace (term:row-faces into) (term:row-faces row) :end2 n))))
+
+(defun adopt-pane (form now fd pid)
+  "The pane FORM saved, around the program still running on FD as PID: its
+screen and its terminal's modes as they were, and nothing started."
+  (destructuring-bind (&key id command directory label named rows cols programs
+                            queued told since-clock states log faces behind screen over
+                            alt-screen modes &allow-other-keys)
+      (nthcdr 2 form)
+    (let* ((pane (make-pane command :id id :rows rows :cols cols :directory directory))
+           (term (pane-term pane))
+           (seen (map 'simple-vector #'decode-face faces)))
+      (flet ((rows-of (said) (mapcar (lambda (r) (decode-row r seen)) said)))
+        (push-rows-to-scrollback term (rows-of behind))
+        (fill-rows term (rows-of screen))
+        (when alt-screen
+          (term:term-enter-alt-screen term)
+          (fill-rows term (rows-of over))))
+      (when modes (setf (term:term-modes term) (decode-modes modes)))
+      (setf (pane-fd pane) fd
+            (pane-pid pane) pid
+            (pane-pushed-seen pane) (term:term-scrollback-pushed term)
+            (pane-label pane) label
+            (pane-named pane) named
+            (pane-programs pane) programs
+            (pane-pending-prompt pane) queued
+            (pane-log pane) (moments log now)
+            (pane-log-count pane) (length log))
+      (let ((agent (pane-agent pane)))
+        (when told (agent:agent-hear agent told))
+        (setf (agent:agent-history agent) (moments states now)
+              (agent::agent-historied agent) (length states)
+              (agent:agent-since-clock agent) since-clock)
+        (agent:agent-become agent :title named :command command :programs programs))
+      pane)))
 
 (defun shell-command-p (command)
   (member (program-name command) +shells+ :test #'string=))
@@ -272,6 +330,10 @@ What goes off the top goes behind, the way it would have."
   "A pane from what ENCODE-PANE wrote, with everything it held behind a screen
 its program starts afresh on. Answers the pane and a note when anything about
 it could not be as it was."
+  (let ((kept (gethash (getf (nthcdr 2 form) :id) *adopted*)))
+    (when kept
+      (remhash (getf (nthcdr 2 form) :id) *adopted*)
+      (return-from decode-pane (adopt-pane form now (first kept) (second kept)))))
   (destructuring-bind (&key id saved command directory label named rows cols
                             programs title queued told since-clock states log
                             faces behind screen over &allow-other-keys)

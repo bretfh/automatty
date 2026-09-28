@@ -66,6 +66,10 @@ layout rather than a list, so the whole family follows from the one rule."
   (%fcntl fd 2 1)
   fd)
 
+(defun keep-on-exec (fd)
+  (%fcntl fd 2 0)
+  fd)
+
 (sb-alien:define-alien-routine ("grantpt" %grantpt) sb-alien:int
   (fd sb-alien:int))
 

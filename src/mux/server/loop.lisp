@@ -269,12 +269,14 @@ the state is saved on the way out."
         (progn
           (when persist
             (when fresh (move-state-aside (file-namestring path)))
+            (take-handoff)
             (handler-case (restore-state server)
               (error (e)
                      (report-error e)
                      (push (list (format nil "what was on disk could not be brought back: ~A" e)
                                  :warning)
                            (server-notes server))))
+            (let-go-of-unadopted)
             (setf (server-saving server) t)
             (tty:hear-the-end t)
             (schedule-saves server)

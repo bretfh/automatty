@@ -262,6 +262,13 @@ brings back from disk is put in place first, so nobody sees half of it."
     (when listening (server-listen server))
     server))
 
+(defvar *handing-over* nil
+  "Whether a server asked to restart keeps its panes running for the build it
+becomes, rather than letting them go.")
+
+(defvar *handoff* nil
+  "The panes a server keeps running for the build it becomes, as (id fd pid).")
+
 (defun server-close (server)
   ;; the name goes first. Whatever else takes a while, a shell that will not go
   ;; or a client that will not read, nobody new must be able to reach a server
@@ -284,7 +291,11 @@ brings back from disk is put in place first, so nobody sees half of it."
   (dolist (session (server-sessions server))
     (dolist (w (session-watchers session))
       (wire-close (watcher-wire w)))
-    (mapc #'pane-close (session-panes session)))
+    (dolist (pane (session-panes session))
+      (if (and *handing-over* (server-successor server)
+               (pane-started pane) (pane-running pane))
+          (push (list (pane-id pane) (pane-fd pane) (pane-pid pane)) *handoff*)
+          (pane-close pane))))
   (setf (server-sessions server) nil
         (server-pending-watchers server) nil)
   (tty:free-waiting (server-waiting server))
