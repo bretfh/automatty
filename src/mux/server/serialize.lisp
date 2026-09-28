@@ -199,8 +199,6 @@ log, and every row it holds, oldest first, with the faces said once."
           :saved (get-universal-time)
           :command (pane-command pane)
           :directory (pane-directory pane)
-          :env (pane-env pane)
-          :hold (pane-hold pane)
           :label (pane-label pane)
           :named (pane-named pane)
           :rows (term:term-height term)
@@ -259,8 +257,6 @@ screen and its terminal's modes as they were, and nothing started."
       (when modes (setf (term:term-modes term) (decode-modes modes)))
       (setf (pane-fd pane) fd
             (pane-pid pane) pid
-            (pane-env pane) (getf (nthcdr 2 form) :env)
-            (pane-hold pane) (getf (nthcdr 2 form) :hold)
             (pane-pushed-seen pane) (term:term-scrollback-pushed term)
             (pane-label pane) label
             (pane-named pane) named
@@ -363,8 +359,6 @@ it could not be as it was."
                                                                      (getf (nthcdr 2 form) :directory)
                                                                      same)))))
       (setf (pane-pushed-seen pane) (term:term-scrollback-pushed term)
-            (pane-env pane) (getf (nthcdr 2 form) :env)
-            (pane-hold pane) (getf (nthcdr 2 form) :hold)
             (pane-label pane) label
             (pane-named pane) named
             (pane-programs pane) programs
@@ -419,14 +413,11 @@ so what it was last written as can be compared to what it is now."
 that is not there is left out, and a split left with one part is that part."
   (cond ((integerp said) (gethash said panes))
         ((consp said)
-         (let ((kept (loop :for each :in (rest said)
-                           :for (part size) := (multiple-value-list (sized-part each))
-                           :for made := (decode-layout part panes)
-                           :when made :collect (cons made size))))
-           (cond ((null kept) nil)
-                 ((null (rest kept)) (car (first kept)))
-                 (t (make-split (first said) (mapcar #'car kept)
-                                (and (some #'cdr kept) (mapcar #'cdr kept)))))))
+         (let ((parts (remove nil (mapcar (lambda (part) (decode-layout part panes))
+                                          (rest said)))))
+           (cond ((null parts) nil)
+                 ((null (rest parts)) (first parts))
+                 (t (make-split (first said) parts)))))
         (t nil)))
 
 (defun decode-window (form panes)
@@ -456,9 +447,8 @@ that is not there is left out, and a split left with one part is that part."
   "Every pane id the saved TREE names, in the order the layouts name them."
   (let ((ids nil))
     (labels ((walk (said)
-               (let ((said (sized-part said)))
-                 (cond ((integerp said) (pushnew said ids))
-                       ((consp said) (mapc #'walk (rest said)))))))
+               (cond ((integerp said) (pushnew said ids))
+                     ((consp said) (mapc #'walk (rest said))))))
       (dolist (session (getf (nthcdr 2 tree) :sessions))
         (dolist (window (getf session :windows))
           (walk (getf window :layout)))))

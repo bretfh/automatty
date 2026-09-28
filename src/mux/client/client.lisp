@@ -379,7 +379,7 @@ server said; from the pane rows alone, side by side, when it has not yet."
 
 (defun panes-in-tree (tree)
   (cond ((null tree) nil)
-        ((consp tree) (loop :for part :in (rest tree) :append (panes-in-tree (sized-part part))))
+        ((consp tree) (loop :for part :in (rest tree) :append (panes-in-tree part)))
         (t (list tree))))
 
 (defun pane-cells (client session id)

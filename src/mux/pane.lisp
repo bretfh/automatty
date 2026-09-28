@@ -39,12 +39,6 @@
   (pending-prompt nil)
   (command nil)
   (directory nil)
-  (env nil :type list)
-  (hold nil :type boolean)
-  (exited nil)
-  (happened nil :type list)
-  (watches nil :type list)
-  (partial "" :type string)
   (agent nil)
   (group nil)
   (programs nil)
@@ -97,33 +91,6 @@ did it, with TEXT saying what."
 
 (defparameter +program-poll-interval+ 1000)
 
-(declaim (ftype function hook-symbol))
-
-(defun pane-happened-to (pane hook &rest args)
-  "Keep that HOOK is to run for PANE with ARGS once its session is known, when
-anything is on it."
-  (when (symbol-value (hook-symbol hook))
-    (push (cons hook args) (pane-happened pane))))
-
-(defparameter +escapes+
-  (ppcre:create-scanner
-   "\\x1b\\[[0-9;?<=>]*[ -/]*[@-~]|\\x1b\\][^\\x07\\x1b]*(?:\\x07|\\x1b\\\\)|\\x1b[P^_][^\\x1b]*\\x1b\\\\|\\x1b.|\\r"))
-
-(defun pane-watch-lines (pane chars count)
-  "Every line PANE's program finished in CHARS, its escapes left out, to each
-thing watching its output for what it matches."
-  (let* ((text (concatenate 'string (pane-partial pane) (subseq chars 0 count)))
-         (end (position #\Newline text :from-end t)))
-    (setf (pane-partial pane)
-          (let ((rest (if end (subseq text (1+ end)) text)))
-            (if (> (length rest) 4096) (subseq rest (- (length rest) 4096)) rest)))
-    (when end
-      (dolist (line (uiop:split-string (subseq text 0 end) :separator '(#\Newline)))
-        (let ((plain (ppcre:regex-replace-all +escapes+ line "")))
-          (loop :for (kind scanner does) :in (pane-watches pane)
-                :when (and (eq kind :output) (ppcre:scan scanner plain))
-                  :do (push (list does plain) (pane-happened pane))))))))
-
 (defun make-pane (command &key (rows 24) (cols 80) directory id)
   "A pane with a terminal that size and no program in it yet.
 
@@ -140,14 +107,9 @@ made now takes the next."
           (term:make-term :width cols :height rows :max-scrollback +max-scrollback+
                         :bell-fn (lambda (term)
                                    (declare (ignore term))
-                                   (setf (pane-rang pane) t)
-                                   (pane-happened-to pane 'bell))
-                        :cwd-fn (lambda (term cwd)
-                                  (declare (ignore term))
-                                  (pane-happened-to pane 'cwd-changed cwd))
+                                   (setf (pane-rang pane) t))
                         :title-fn (lambda (term title)
                                     (declare (ignore term))
-                                    (pane-happened-to pane 'title-changed title)
                                     (setf (pane-named pane) title
                                           (pane-touched pane) (now-ms))
                                     (agent:agent-become (pane-agent pane) :title title
@@ -230,8 +192,7 @@ comes straight back, so one pane writing without pause cannot starve the rest."
         (t (multiple-value-bind (chars count)
                (term:decode-utf-8-into (pane-decoder pane) octets n *drain-chars*)
              (setf *drain-chars* chars)
-             (term:term-process-output (pane-term pane) chars count)
-             (when (pane-watches pane) (pane-watch-lines pane chars count)))
+             (term:term-process-output (pane-term pane) chars count))
            (pane-scroll-settle pane)
            (incf (pane-output pane) n)
            (decf most n)

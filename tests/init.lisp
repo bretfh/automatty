@@ -58,7 +58,7 @@
         (atty/mode:undefine-key 'mux::scroll-mode "C-wheel-up")))))
 
 (test a-command-of-ones-own-can-be-defined-and-run-by-name
-  (with-an-init-file (file "(defcommand wave () (setf (symbol-value 'atty/user::*waved*) t))")
+  (with-an-init-file (file "(defcommand wave (setf (symbol-value 'atty/user::*waved*) t))")
     (is-true (mux:load-user-init file))
     (is-true (gethash "wave" mux:*commands*))
     (mux:run-command "wave" nil)
@@ -112,7 +112,7 @@
 
 (test a-load-undoes-what-the-last-one-did
   (with-an-init-home ("(define-key 'scroll-mode \"C-wheel-up\" \"scroll to top\")
-                       (defcommand wave () (show-note *client* \"hi\" \"there\"))
+                       (defcommand wave (show-note *client* \"hi\" \"there\"))
                        (configure :wheel-rows 7)")
     (let ((rows mux:+wheel-rows+))
       (is-true (mux:load-user-init))
@@ -131,7 +131,7 @@
   (with-an-init-home ("(define-key 'scroll-mode \"C-wheel-up\" \"scroll to top\")
                        (undefine-key 'scroll-mode \"q\")
                        (define-key 'scroll-mode \"C-wheel-down\" (lambda () nil))
-                       (defcommand wave () \"waves\" (show-note *client* \"hi\" \"there\"))")
+                       (defcommand wave \"waves\" (show-note *client* \"hi\" \"there\"))")
     (mux:load-user-init)
     ;; a setting whose value cannot be written, a function, is not sent
     (with-setting-kept (:restore-command)
@@ -140,7 +140,7 @@
         (is (eq :config tag))
         (is (find :wheel-rows settings :key #'first))
         (is (null (find :restore-command settings :key #'first)) "~S" (find :restore-command settings :key #'first))
-        (is (equal '("wave" "waves" nil nil nil) (find "wave" commands :key #'first :test #'equal)))
+        (is (equal '("wave" "waves" nil nil) (find "wave" commands :key #'first :test #'equal)))
         (is (find '("SCROLL-MODE" "C-wheel-up" "scroll to top") keys :test #'equal))
         (is (find '("SCROLL-MODE" "q" nil) keys :test #'equal))
         (let ((bare (find "C-wheel-down" keys :key #'second :test #'equal)))
@@ -166,7 +166,7 @@
     (init-forgotten))))
 
 (test the-server-tells-a-client-the-config-when-it-attaches-and-after-a-reload
-  (with-an-init-home ("(defcommand wave () (show-note *client* \"hi\" \"there\"))")
+  (with-an-init-home ("(defcommand wave (show-note *client* \"hi\" \"there\"))")
     (mux:load-user-init)
     (with-a-server-here (server path)
       (mux:add-session server "sleep 30" :name "work" :rows 6 :cols 30)
@@ -174,7 +174,7 @@
         (say-to wire (list :open "work" nil nil 6 30 t))
         (let ((config (heard-from server wire :config)))
           (is (find "wave" (third config) :key #'first :test #'equal)))
-        (write-init "(defcommand shrug () (show-note *client* \"eh\" \"well\"))")
+        (write-init "(defcommand shrug (show-note *client* \"eh\" \"well\"))")
         (say-to wire (list :reload-init))
         (let ((config (heard-from server wire :config)))
           (is (find "shrug" (third config) :key #'first :test #'equal))
@@ -182,7 +182,7 @@
         (mux:wire-close wire)))))
 
 (test a-command-from-the-init-file-runs-in-the-server-and-its-note-comes-back
-  (with-an-init-home ("(defcommand wave () (show-note *client* \"hi\" \"there\" :face :accent))")
+  (with-an-init-home ("(defcommand wave (show-note *client* \"hi\" \"there\" :face :accent))")
     (mux:load-user-init)
     (with-a-server-here (server path)
       (mux:add-session server "sleep 30" :name "work" :rows 6 :cols 30)

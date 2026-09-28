@@ -125,14 +125,14 @@ rounded box that says what it is for and how to put it away."
     (setf (client-menu client) tree
           (tty:screen-cursor-visible screen) nil)))
 
-(defcommand (show-menu :group asking) ()
+(defcommand (show-menu :group asking)
             "the menu of every key that follows the prefix, as though it had been pressed"
             (client-chord *client* (event-key +prefix+))
             (when (client-partial-chord *client*)
               (setf (client-pending-since *client*) (- (client-ms) +menu-delay+)
                     (client-dirty *client*) t)))
 
-(defcommand (describe-mode :unlisted) ()
+(defcommand (describe-mode :unlisted)
             "the keys of whatever is on top, or of the session when nothing is"
             (let ((mode (client-mode *client*)))
               (if (eq mode 'pane-mode)
@@ -142,7 +142,7 @@ rounded box that says what it is for and how to put it away."
                              :foot (hints 'prompt-mode 'prompt-accept "run" 'prompt-cancel "close")
                              :chose (lambda (r client) (run-command (first r) client))))))
 
-(defcommand (describe-bindings :group asking) ()
+(defcommand (describe-bindings :group asking)
             "every command, its key and what it acts on; RET runs one"
             (open-prompt *client* "keys" (keys-help-rows)
                          :text (lambda (r) (format nil "~(~9A~) ~24A ~10A ~@[~A~]"

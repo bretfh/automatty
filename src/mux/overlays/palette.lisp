@@ -28,42 +28,20 @@ from what it is called now. TAB goes over to naming the window it is in."
                  (let ((*client* c)) (send-to-server (list :naming))))
          :swap-says "pane instead"))
 
-(defun command-item-line (line)
-  "A command as the prompt offers it: its name, its key when it has one, and a
-line on what it does, dim, cut where the row ends. A LINE with arguments after
-the name is offered whole."
-  (let* ((name (or (split-command-line line) line))
-         (key (command-key (intern (string-upcase (substitute #\- #\Space name)) :atty))))
+(defun command-item-line (name)
+  "NAME as the prompt offers it: the name, its key when it has one, and a line
+on what it does, dim, cut where the row ends."
+  (let ((key (command-key (intern (string-upcase (substitute #\- #\Space name)) :atty))))
     (squeezed (atty/ui:row :spacing 0
-                           (atty/ui:label (format nil "~24A " line))
+                           (atty/ui:label (format nil "~24A " name))
                            (atty/ui:label (format nil "~10A " (or key "")) :face :key-hint)
                            (atty/ui:label (or (command-doc name) "") :face :quiet)))))
 
-(defun command-line-items (client)
-  "The commands, or the line typed when it is a command with arguments after
-it: what RET runs as it is."
-  (let* ((p (and client (first (client-overlays client))))
-         (typed (and (typep p 'prompt) (prompt-query p))))
-    (multiple-value-bind (name arguments) (and typed (split-command-line typed))
-      (if (and name arguments) (list typed) (command-names)))))
-
 (defun prompt-command (client)
-  (open-prompt client "commands" nil :kind #\:
-       :items-fn #'command-line-items
+  (open-prompt client "commands" (command-names) :kind #\:
        :text #'command-item-line
        :foot (hints 'prompt-mode 'prompt-accept "run" 'prompt-descend "next kind")
-       :chose (lambda (line client)
-                (multiple-value-bind (name arguments) (split-command-line line)
-                  (if name
-                      (run-command name client arguments)
-                      (show-note client "no command" (format nil "There is no command called ~A." line)))))))
-
-(defmethod ask-for-arguments (client name given)
-  (let* ((spec (nth (length given) (command-arguments name)))
-         (offered (and (fourth spec) (funcall (fourth spec)))))
-    (open-prompt client (format nil "~A · ~A" name (third spec)) offered
-                 :foot (hints 'prompt-mode 'prompt-accept "run")
-                 :chose (lambda (it c) (run-command name c (append given (list it)))))))
+       :chose (lambda (name client) (run-command name client))))
 
 (defun window-choices (rows here)
   "Every session › window the server said, the ones asking first, from what

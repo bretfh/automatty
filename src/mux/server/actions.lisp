@@ -305,7 +305,6 @@ new window when it is :new. Answers the pane."
                                            :directory (or directory (pane-directory focus)))))
                        (setf (window-layout w) (layout-insert (window-layout w) focus :across it))
                        (pane-start it :environment (pane-environment session it))
-                       (run-hook 'pane-started session it)
                        it))
                     (t
                      ;; beside the focus, the way a split puts one, but running
@@ -319,7 +318,6 @@ new window when it is :new. Answers the pane."
                              (layout-insert (session-layout session) focus :across it))
                        (session-compose session)
                        (pane-start it :environment (pane-environment session it))
-                       (run-hook 'pane-started session it)
                        it)))
                  (session-focus (add-session server command :name name
                                              :directory directory)))))

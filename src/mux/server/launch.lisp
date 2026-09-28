@@ -7,10 +7,7 @@
 reach of this terminal. Answers its pid."
   (let ((me program))
     (if me
-        (pty:spawn-in-its-own-session me (append (list "-L" (server-name))
-                                                 (cond (*no-init* (list "--norc"))
-                                                       (*init-file* (list "--init" *init-file*)))
-                                                 (list "serve"))
+        (pty:spawn-in-its-own-session me (list "-L" (server-name) "serve")
                                       :output (log-path))
         (let ((form (format nil "(atty:serve ~S ~S :name nil)" path (default-shell))))
           (pty:spawn-in-its-own-session

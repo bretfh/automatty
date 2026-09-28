@@ -126,13 +126,13 @@ it, the way out at the right, and any more lines under it."
   (client-pop-overlay client c)
   (when (confirm-of-yes c) (funcall (confirm-of-yes c) client)))
 
-(defcommand (confirm-yes :unlisted) ()
+(defcommand (confirm-yes :unlisted)
             (let ((c (current-confirm))) (when c (accept-confirm c *client*))))
 
-(defcommand (confirm-no :unlisted) ()
+(defcommand (confirm-no :unlisted)
             (let ((c (current-confirm))) (when c (client-pop-overlay *client* c))))
 
-(defcommand (confirm-click :unlisted) ()
+(defcommand (confirm-click :unlisted)
             (let* ((c (current-confirm))
                    (hit (and c (confirm-of-laid c) *mouse-position*
                              (button-at (confirm-of-laid c) (cdr *mouse-position*) (car *mouse-position*)))))
@@ -141,7 +141,7 @@ it, the way out at the right, and any more lines under it."
                     (accept-confirm c *client*)
                   (handle-button c (bar-button-runs hit) *client*)))))
 
-(defcommand (confirm-ignore :unlisted) () nil)
+(defcommand (confirm-ignore :unlisted) nil)
 
 (atty/mode:define-key 'confirm-mode "y"      #'confirm-yes)
 (atty/mode:define-key 'confirm-mode "n"      #'confirm-no)
@@ -212,22 +212,22 @@ when there is one, and SWAP-SAYS says what TAB does."
   (client-pop-overlay client e)
   (when (entry-of-swap e) (funcall (entry-of-swap e) client)))
 
-(defcommand (entry-accept :unlisted) ()
+(defcommand (entry-accept :unlisted)
             (let ((e (current-entry))) (when e (accept-entry e *client*))))
 
-(defcommand (entry-toggle-kind :unlisted) ()
+(defcommand (entry-toggle-kind :unlisted)
             (let ((e (current-entry))) (when e (toggle-entry-kind e *client*))))
 
-(defcommand (entry-undo :unlisted) ()
+(defcommand (entry-undo :unlisted)
             (let ((e (current-entry))) (when e (client-pop-overlay *client* e))))
 
-(defcommand (entry-delete-backward :unlisted) ()
+(defcommand (entry-delete-backward :unlisted)
             (let ((e (current-entry)))
               (when (and e (plusp (length (entry-of-text e))))
                 (setf (entry-of-text e) (subseq (entry-of-text e) 0 (1- (length (entry-of-text e))))
                       (client-dirty *client*) t))))
 
-(defcommand (entry-click :unlisted) ()
+(defcommand (entry-click :unlisted)
             (let* ((e (current-entry))
                    (hit (and e (entry-of-laid e) *mouse-position*
                              (button-at (entry-of-laid e) (cdr *mouse-position*) (car *mouse-position*)))))
@@ -237,7 +237,7 @@ when there is one, and SWAP-SAYS says what TAB does."
                       (:swap (toggle-entry-kind e *client*))
                       (t (handle-button e (bar-button-runs hit) *client*))))))
 
-(defcommand (entry-ignore :unlisted) () nil)
+(defcommand (entry-ignore :unlisted) nil)
 
 (atty/mode:define-key 'entry-mode "RET"    #'entry-accept)
 (atty/mode:define-key 'entry-mode "TAB"    #'entry-toggle-kind)

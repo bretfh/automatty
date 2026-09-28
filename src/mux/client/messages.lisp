@@ -82,7 +82,7 @@
         (:bell (host-write client (string (code-char 7))))
         (:bracketed-paste
          (host-write client (format nil "~C[?2004~C" (code-char 27) (if (second form) #\h #\l))))
-        (:do (run-command (second form) client (third form)))
+        (:do (run-command (second form) client))
         (:say (show-note client "atty" (second form) :face (or (third form) :accent)))
         (:you (setf (client-id client) (second form)))
         (:pane

@@ -288,15 +288,15 @@ typed is the filter."
   (client-pop-overlay client q)
   (unsubscribe-panes client))
 
-(defcommand (queue-next :unlisted) ()
+(defcommand (queue-next :unlisted)
             (let ((q (current-queue)))
               (when q (setf (queue-index q) (1+ (queue-index q))))))
 
-(defcommand (queue-previous :unlisted) ()
+(defcommand (queue-previous :unlisted)
             (let ((q (current-queue)))
               (when q (setf (queue-index q) (max 0 (1- (queue-index q)))))))
 
-(defcommand (queue-goto :unlisted) ()
+(defcommand (queue-goto :unlisted)
             (let* ((q (current-queue))
                    (row (and q (queue-chosen q *client*))))
               (when q
@@ -304,13 +304,13 @@ typed is the filter."
                 (when row
                   (send-to-server (list :focus-pane (getf row :session) (getf row :id)))))))
 
-(defcommand (queue-read :unlisted) ()
+(defcommand (queue-read :unlisted)
             (let* ((q (current-queue))
                    (row (and q (queue-chosen q *client*))))
               (when row
                 (send-to-server (list :pane-read (getf row :session) (getf row :id))))))
 
-(defcommand (queue-prompt :unlisted) ()
+(defcommand (queue-prompt :unlisted)
             (let* ((q (current-queue))
                    (row (and q (queue-chosen q *client*))))
               (when row
@@ -324,39 +324,39 @@ typed is the filter."
                                           (when (plusp (length typed))
                                             (send-to-server (list :agent-prompt session id typed))))))))))
 
-(defcommand (queue-filter :unlisted) ()
+(defcommand (queue-filter :unlisted)
             (let ((q (current-queue)))
               (when q
                 (setf (queue-filtering q) t)
                 (current-client-mode *client*))))
 
-(defcommand (queue-delete-backward :unlisted) ()
+(defcommand (queue-delete-backward :unlisted)
             (let ((q (current-queue)))
               (when (and q (queue-filtering q))
                 (let ((s (queue-query q)))
                   (setf (queue-query q) (subseq s 0 (max 0 (1- (length s)))))))))
 
-(defcommand (queue-explain :unlisted) ()
+(defcommand (queue-explain :unlisted)
             "go to the one picked and open the drawer on it"
             (queue-goto)
             (explain-pane))
 
-(defcommand (queue-sort :unlisted) ()
+(defcommand (queue-sort :unlisted)
             "the questions oldest first, or by where they are"
             (let ((q (current-queue)))
               (when q (setf (queue-order q) (if (eq :name (queue-order q)) :oldest :name)))))
 
-(defcommand (queue-all-sessions :unlisted) ()
+(defcommand (queue-all-sessions :unlisted)
             "every session's questions, or this one's"
             (let ((q (current-queue)))
               (when q (setf (queue-every q) (not (queue-every q)) (queue-index q) 0))))
 
-(defcommand (queue-recent :unlisted) ()
+(defcommand (queue-recent :unlisted)
             "what was answered lately shown under the questions, or not"
             (let ((q (current-queue)))
               (when q (setf (queue-showing-recent q) (not (queue-showing-recent q))))))
 
-(defcommand (queue-click :unlisted) ()
+(defcommand (queue-click :unlisted)
             "a click on a question picks it; on an answer, answers; on a control, does
 what it says"
             (let* ((q (current-queue))
@@ -372,19 +372,19 @@ what it says"
                         (:filter (queue-filter))
                         (t (handle-button q runs *client*)))))))
 
-(defcommand (queue-ignore :unlisted) () nil)
+(defcommand (queue-ignore :unlisted) nil)
 
-(defcommand (queue-close :unlisted) ()
+(defcommand (queue-close :unlisted)
             (let ((q (current-queue)))
               (when q (close-queue q *client*))))
 
-(defcommand (queue-accept-filter :unlisted) ()
+(defcommand (queue-accept-filter :unlisted)
             (let ((q (current-queue)))
               (when q
                 (setf (queue-filtering q) nil)
                 (current-client-mode *client*))))
 
-(defcommand (queue-clear-filter :unlisted) ()
+(defcommand (queue-clear-filter :unlisted)
             (let ((q (current-queue)))
               (when q
                 (setf (queue-filtering q) nil
@@ -415,7 +415,7 @@ what it says"
 (atty/mode:define-key 'queue-filter-mode "Escape" #'queue-clear-filter)
 (atty/mode:define-key 'queue-filter-mode "C-g"    #'queue-clear-filter)
 
-(defcommand (show-queue :group agents) ()
+(defcommand (show-queue :group agents)
             "every question anywhere, oldest first; a digit answers it"
             (let ((q (%make-queue)))
               (subscribe-panes *client*)

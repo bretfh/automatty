@@ -239,21 +239,9 @@ while one is laid out.")
 ;;; laid out that way, each of which is a pane or another split, so any
 ;;; arrangement is a tree and any tree becomes a row or column of widgets.
 
-(defstruct (split (:constructor make-split (way parts &optional sizes)))
+(defstruct (split (:constructor make-split (way parts)))
   (way :across)
-  (parts nil :type list)
-  (sizes nil :type list))
-
-(defun split-size (split n)
-  "How much room part N of SPLIT is to have: a whole number of cells, a share
-of the split between 0 and 1, or nil for an even part of what is left."
-  (nth n (split-sizes split)))
-
-(defun sized-part (said)
-  "A part as ENCODE-LAYOUT wrote it: (values part size)."
-  (if (and (consp said) (eq (first said) :size))
-      (values (third said) (second said))
-      (values said nil)))
+  (parts nil :type list))
 
 (defun layout-panes (it)
   "Every pane under IT, left to right and top to bottom. A layout with nothing
@@ -263,12 +251,12 @@ left in it holds no panes, which is not the same as holding one that is nothing.
          (loop :for part :in (split-parts it) :append (layout-panes part)))
         (t (list it))))
 
-(defun layout-insert (it pane way new &optional size)
-  "IT with NEW put beside PANE, the way given, SIZE big."
-  (cond ((eq it pane) (make-split way (list pane new) (and size (list nil size))))
+(defun layout-insert (it pane way new)
+  "IT with NEW put beside PANE, the way given."
+  (cond ((eq it pane) (make-split way (list pane new)))
         ((split-p it)
          (setf (split-parts it)
-               (mapcar (lambda (p) (layout-insert p pane way new size)) (split-parts it)))
+               (mapcar (lambda (p) (layout-insert p pane way new)) (split-parts it)))
          it)
         (t it)))
 
@@ -277,15 +265,11 @@ left in it holds no panes, which is not the same as holding one that is nothing.
 one part is that part: nobody wants a border around a single pane."
   (cond ((eq it pane) nil)
         ((split-p it)
-         (let ((kept (loop :for part :in (split-parts it)
-                           :for n :from 0
-                           :for left := (layout-remove part pane)
-                           :when left :collect (cons left (split-size it n)))))
+         (let ((kept (remove nil (mapcar (lambda (p) (layout-remove p pane))
+                                         (split-parts it)))))
            (cond ((null kept) nil)
-                 ((null (rest kept)) (car (first kept)))
-                 (t (setf (split-parts it) (mapcar #'car kept)
-                          (split-sizes it) (and (some #'cdr kept) (mapcar #'cdr kept)))
-                    it))))
+                 ((null (rest kept)) (first kept))
+                 (t (setf (split-parts it) kept) it))))
         (t it)))
 
 (defun layout-tree (it &optional focus session zoomed)
@@ -299,20 +283,7 @@ what it is doing still shows while the others are out of sight."
 
 (defun framed-tree (it focus &optional session)
   (if (split-p it)
-      (let ((across (eq (split-way it) :across)))
-        (apply (if across #'atty/ui:row #'atty/ui:column)
-               :align :stretch :spacing 0 :expand 1 :shrink t
-               (loop :for part :in (split-parts it)
-                     :for n :from 0
-                     :for size := (split-size it n)
-                     :for w := (framed-tree part focus session)
-                     :do (cond ((and (integerp size) (plusp size))
-                                (setf (atty/ui:expand w) 0)
-                                (if across
-                                    (setf (atty/ui:min-width w) size)
-                                    (setf (atty/ui:min-height w) size)))
-                               ((and (realp size) (< 0 size 1))
-                                (setf (atty/ui:expand w) 0
-                                      (atty/ui:share w) size)))
-                     :collect w)))
+      (apply (if (eq (split-way it) :across) #'atty/ui:row #'atty/ui:column)
+             :align :stretch :spacing 0 :expand 1
+             (mapcar (lambda (part) (framed-tree part focus session)) (split-parts it)))
       (pane-frame it (eql it focus) session)))

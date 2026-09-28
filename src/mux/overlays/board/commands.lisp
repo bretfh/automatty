@@ -45,19 +45,19 @@ follows it when it is drawn."
     (setf (board-following b) t
           (client-dirty client) t)))
 
-(defcommand (switchboard-left :unlisted) ()
+(defcommand (switchboard-left :unlisted)
   (let* ((b (current-board)) (place (and b (board-place b *client*))))
     (when place (board-goto b *client* (first place) (max 1 (1- (second place)))))))
 
-(defcommand (switchboard-right :unlisted) ()
+(defcommand (switchboard-right :unlisted)
   (let* ((b (current-board)) (place (and b (board-place b *client*))))
     (when place (board-goto b *client* (first place) (1+ (second place))))))
 
-(defcommand (switchboard-first-window :unlisted) ()
+(defcommand (switchboard-first-window :unlisted)
   (let* ((b (current-board)) (place (and b (board-place b *client*))))
     (when place (board-goto b *client* (first place) 1))))
 
-(defcommand (switchboard-last-window :unlisted) ()
+(defcommand (switchboard-last-window :unlisted)
   (let* ((b (current-board)) (place (and b (board-place b *client*))))
     (when place (board-goto b *client* (first place) (length (windows-of *client* (first place)))))))
 
@@ -69,11 +69,11 @@ follows it when it is drawn."
              (to (max 0 (min (1- (length sessions)) (+ (or at 0) by)))))
         (board-goto b *client* (nth to sessions) (second place))))))
 
-(defcommand (switchboard-up :unlisted) () (switchboard-session-by -1))
+(defcommand (switchboard-up :unlisted) (switchboard-session-by -1))
 
-(defcommand (switchboard-down :unlisted) () (switchboard-session-by 1))
+(defcommand (switchboard-down :unlisted) (switchboard-session-by 1))
 
-(defcommand (switchboard-next-pane :unlisted) ()
+(defcommand (switchboard-next-pane :unlisted)
   (let* ((b (current-board)) (place (and b (board-place b *client*))))
     (when place
       (let* ((window (find (second place) (windows-of *client* (first place)) :key #'first))
@@ -83,7 +83,7 @@ follows it when it is drawn."
           (board-goto b *client* (first place) (second place)
                        (nth (mod (1+ (or at -1)) (length ids)) ids)))))))
 
-(defcommand (switchboard-select :unlisted) ()
+(defcommand (switchboard-select :unlisted)
   "pick the cursor's pane, for a prompt to several at once"
   (let* ((b (current-board)) (key (and b (cursor-key b *client*))))
     (when key
@@ -96,7 +96,7 @@ follows it when it is drawn."
   (client-pop-overlay client b)
   (unsubscribe-panes client))
 
-(defcommand (switchboard-goto :unlisted) ()
+(defcommand (switchboard-goto :unlisted)
   "go to the cursor's pane"
   (let* ((b (current-board)) (row (and b (board-row b *client*))))
     (when b
@@ -109,38 +109,38 @@ follows it when it is drawn."
         (board-following b) t
         (client-dirty client) t))
 
-(defcommand (switchboard-zoom-in :unlisted) ()
+(defcommand (switchboard-zoom-in :unlisted)
   "closer: the sessions as rows of windows, then the windows themselves, then one session"
   (let ((b (current-board)))
     (when b (board-zoom-to b *client* (ecase (board-zoom b) (:overview :cards) ((:cards :one) :one))))))
 
-(defcommand (switchboard-zoom-out :unlisted) ()
+(defcommand (switchboard-zoom-out :unlisted)
   "further: one session to every session's windows, then to a row of windows each"
   (let ((b (current-board)))
     (when b (board-zoom-to b *client* (ecase (board-zoom b) (:one :cards) ((:cards :overview) :overview))))))
 
-(defcommand (switchboard-toggle-side :unlisted) ()
+(defcommand (switchboard-toggle-side :unlisted)
   "the side pane off or on"
   (let ((b (current-board)))
     (when b (setf (board-side b) (not (board-side b)) (client-dirty *client*) t))))
 
-(defcommand (switchboard-sort :unlisted) ()
+(defcommand (switchboard-sort :unlisted)
   "the sessions asking first, by name, or as made"
   (let ((b (current-board)))
     (when b (setf (board-sort b) (ecase (board-sort b) (:asking :name) (:name :order) (:order :asking))
                   (client-dirty *client*) t))))
 
-(defcommand (switchboard-fold-quiet :unlisted) ()
+(defcommand (switchboard-fold-quiet :unlisted)
   "lanes with nothing doing folded to their header, or not"
   (let ((b (current-board)))
     (when b (setf (board-fold-quiet b) (not (board-fold-quiet b)) (client-dirty *client*) t))))
 
-(defcommand (switchboard-toggle-live :unlisted) ()
+(defcommand (switchboard-toggle-live :unlisted)
   "windows showing their panes' last rows, or what each says it is doing"
   (let ((b (current-board)))
     (when b (setf (board-live b) (not (board-live b)) (client-dirty *client*) t))))
 
-(defcommand (switchboard-fold :unlisted) ()
+(defcommand (switchboard-fold :unlisted)
   "fold the cursor's session to its header and foot, or unfold it"
   (let* ((b (current-board)) (place (and b (board-place b *client*))))
     (when place
@@ -149,42 +149,42 @@ follows it when it is drawn."
                                  (cons (first place) (board-folded b)))
             (client-dirty *client*) t))))
 
-(defcommand (switchboard-new-window :unlisted) ()
+(defcommand (switchboard-new-window :unlisted)
   "another window in the cursor's session"
   (let* ((b (current-board)) (place (and b (board-place b *client*))))
     (when place
       (send-to-server (list :new-window (first place)))
       (setf (board-requested-at b) 0))))
 
-(defcommand (switchboard-new-session :unlisted) ()
+(defcommand (switchboard-new-session :unlisted)
   "another session"
   (when (current-board) (send-to-server (list :new))))
 
-(defcommand (switchboard-clients :unlisted) ()
+(defcommand (switchboard-clients :unlisted)
   (let ((b (current-board)))
     (when b (close-board b *client*))
     (run-command "clients" *client*)))
 
-(defcommand (switchboard-prompt :unlisted) ()
+(defcommand (switchboard-prompt :unlisted)
   "prompt the picked panes, or the cursor's, from here"
   (let ((b (current-board)))
     (when (and b (board-targets b *client*))
       (setf (board-composing b) "")
       (current-client-mode *client*))))
 
-(defcommand (switchboard-read :unlisted) ()
+(defcommand (switchboard-read :unlisted)
   "read the cursor's pane whole"
   (let* ((b (current-board)) (row (and b (board-row b *client*))))
     (when row (send-to-server (list :pane-read (getf row :session) (getf row :id))))))
 
-(defcommand (switchboard-name :unlisted) ()
+(defcommand (switchboard-name :unlisted)
   "name the cursor's window; TAB names its pane instead"
   (let* ((b (current-board)) (place (and b (board-place b *client*))))
     (when place
       (let ((window (find (second place) (windows-of *client* (first place)) :key #'first)))
         (prompt-window-name *client* (first place) (second place) (and window (second window)))))))
 
-(defcommand (switchboard-rename :unlisted) ()
+(defcommand (switchboard-rename :unlisted)
   "name the cursor's session"
   (let* ((b (current-board)) (place (and b (board-place b *client*))))
     (when place (prompt-session-name *client* (first place)))))
@@ -201,7 +201,7 @@ follows it when it is drawn."
         (remhash old (board-offsets b))
         (setf (gethash new (board-offsets b)) slid)))))
 
-(defcommand (switchboard-next-blocked :unlisted) ()
+(defcommand (switchboard-next-blocked :unlisted)
   "the cursor to whatever has been asking longest, in any session"
   (let* ((b (current-board))
          (asking (and b (remove-if-not (lambda (r) (getf r :asks)) (board-rows b *client*))))
@@ -209,12 +209,12 @@ follows it when it is drawn."
     (when oldest
       (board-goto b *client* (getf oldest :session) (getf oldest :window) (getf oldest :id)))))
 
-(defcommand (switchboard-explain :unlisted) ()
+(defcommand (switchboard-explain :unlisted)
   "why the cursor's pane is what it is, and who typed into it"
   (let* ((b (current-board)) (row (and b (board-row b *client*))))
     (when row (open-drawer *client* (row-key row)))))
 
-(defcommand (switchboard-close-pane :unlisted) ()
+(defcommand (switchboard-close-pane :unlisted)
   "close the cursor's pane, after a yes"
   (let* ((b (current-board)) (row (and b (board-row b *client*))))
     (when row
@@ -223,18 +223,18 @@ follows it when it is drawn."
                  :yes (lambda (c)
                         (let ((*client* c)) (send-to-server (list :close-pane session id)))))))))
 
-(defcommand (switchboard-filter :unlisted) ()
+(defcommand (switchboard-filter :unlisted)
   "narrow the board to what matches"
   (let ((b (current-board)))
     (when b
       (setf (board-filtering b) t)
       (current-client-mode *client*))))
 
-(defcommand (switchboard-close :unlisted) ()
+(defcommand (switchboard-close :unlisted)
   (let ((b (current-board)))
     (when b (close-board b *client*))))
 
-(defcommand (switchboard-typed :unlisted) ()
+(defcommand (switchboard-typed :unlisted)
   ;; RET while typing: a prompt goes to its targets, a filter is kept
   (let ((b (current-board)))
     (when b
@@ -249,7 +249,7 @@ follows it when it is drawn."
         (t (setf (board-filtering b) nil)))
       (current-client-mode *client*))))
 
-(defcommand (switchboard-cancel-typing :unlisted) ()
+(defcommand (switchboard-cancel-typing :unlisted)
   ;; Esc while typing: the prompt or the filter is dropped
   (let ((b (current-board)))
     (when b
@@ -258,7 +258,7 @@ follows it when it is drawn."
           (setf (board-filtering b) nil (board-query b) ""))
       (current-client-mode *client*))))
 
-(defcommand (switchboard-delete-backward :unlisted) ()
+(defcommand (switchboard-delete-backward :unlisted)
   (let ((b (current-board)))
     (when b
       (flet ((less (s) (subseq s 0 (max 0 (1- (length s))))))
@@ -333,7 +333,7 @@ thumb was taken hold of when it was the thumb, else nil."
                      (setf (board-requested-at b) 0)))
       (t (handle-button b runs client)))))
 
-(defcommand (switchboard-click :unlisted) ()
+(defcommand (switchboard-click :unlisted)
   "a click on a card or a row puts the cursor there, and on the cursor goes
 there; on an answer, answers; on a control, does what it says; on a rail,
 slides"
@@ -350,7 +350,7 @@ slides"
                        (board-held b) (and (third hit) (cons :rail-v (third hit)))
                        (board-following b) nil (client-dirty *client*) t))))))
 
-(defcommand (switchboard-drag :unlisted) ()
+(defcommand (switchboard-drag :unlisted)
   "a thumb taken hold of goes where the pointer goes"
   (let* ((b (current-board)) (held (and b (board-held b))))
     (when (and held *mouse-position*)
@@ -361,10 +361,10 @@ slides"
                    (setf (board-scroll-y b) (rail-at r (cdr *mouse-position*) grabbed)))))
       (setf (board-following b) nil (client-dirty *client*) t))))
 
-(defcommand (switchboard-release :unlisted) ()
+(defcommand (switchboard-release :unlisted)
   (let ((b (current-board))) (when b (setf (board-held b) nil))))
 
-(defcommand (switchboard-ignore :unlisted) () nil)
+(defcommand (switchboard-ignore :unlisted) nil)
 
 (defun board-scroll (b client dy)
   (setf (board-scroll-y b) (max 0 (+ (board-scroll-y b) dy))
@@ -404,22 +404,22 @@ slides"
             (client-dirty client) t)
       (board-scroll b client dy)))
 
-(defcommand (switchboard-wheel-up :unlisted) ()
+(defcommand (switchboard-wheel-up :unlisted)
   (let ((b (current-board))) (when b (board-wheel b *client* -3))))
 
-(defcommand (switchboard-wheel-down :unlisted) ()
+(defcommand (switchboard-wheel-down :unlisted)
   (let ((b (current-board))) (when b (board-wheel b *client* 3))))
 
-(defcommand (switchboard-wheel-left :unlisted) ()
+(defcommand (switchboard-wheel-left :unlisted)
   (let ((b (current-board))) (when b (board-slide b *client* -4))))
 
-(defcommand (switchboard-wheel-right :unlisted) ()
+(defcommand (switchboard-wheel-right :unlisted)
   (let ((b (current-board))) (when b (board-slide b *client* 4))))
 
-(defcommand (switchboard-page-up :unlisted) ()
+(defcommand (switchboard-page-up :unlisted)
   (let ((b (current-board))) (when b (board-scroll b *client* (- (board-height *client*))))))
 
-(defcommand (switchboard-page-down :unlisted) ()
+(defcommand (switchboard-page-down :unlisted)
   (let ((b (current-board))) (when b (board-scroll b *client* (board-height *client*)))))
 
 (atty/mode:define-key 'board-mode "Left"   #'switchboard-left)
@@ -516,6 +516,6 @@ looking once there are rows."
   (subscribe-panes client)
   (client-push-overlay client (%make-board :starting session)))
 
-(defcommand (switchboard :group sessions) ()
+(defcommand (switchboard :group sessions)
   "the whole server: every session, window and pane, and who is looking"
   (open-board *client*))

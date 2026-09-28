@@ -181,50 +181,50 @@ which switches to that prompt instead."
                           (prompt-typed p client))))
                t)))
 
-(defcommand (prompt-next :unlisted) ()
+(defcommand (prompt-next :unlisted)
             (let ((p (current-prompt))) (when p (prompt-moved p (1+ (prompt-index p))))))
 
-(defcommand (prompt-previous :unlisted) ()
+(defcommand (prompt-previous :unlisted)
             (let ((p (current-prompt))) (when p (prompt-moved p (1- (prompt-index p))))))
 
-(defcommand (prompt-page-down :unlisted) ()
+(defcommand (prompt-page-down :unlisted)
             (let ((p (current-prompt)))
               (when p (prompt-moved p (+ (prompt-index p) (prompt-most p))))))
 
-(defcommand (prompt-page-up :unlisted) ()
+(defcommand (prompt-page-up :unlisted)
             (let ((p (current-prompt)))
               (when p (prompt-moved p (- (prompt-index p) (prompt-most p))))))
 
-(defcommand (prompt-first :unlisted) ()
+(defcommand (prompt-first :unlisted)
             (let ((p (current-prompt))) (when p (prompt-moved p 0))))
 
-(defcommand (prompt-last :unlisted) ()
+(defcommand (prompt-last :unlisted)
             (let ((p (current-prompt)))
               (when p (prompt-moved p (length (prompt-showing p))))))
 
-(defcommand (prompt-delete-backward :unlisted) ()
+(defcommand (prompt-delete-backward :unlisted)
             (let ((p (current-prompt)))
               (when p
                 (let ((q (prompt-query p)))
                   (setf (prompt-query p) (subseq q 0 (max 0 (1- (length q)))))
                   (prompt-typed p *client*)))))
 
-(defcommand (prompt-clear :unlisted) ()
+(defcommand (prompt-clear :unlisted)
             (let ((p (current-prompt)))
               (when p (setf (prompt-query p) "") (prompt-typed p *client*))))
 
-(defcommand (prompt-accept :unlisted) ()
+(defcommand (prompt-accept :unlisted)
             (let ((p (current-prompt)))
               (when p
                 (let ((it (if (prompt-free p) (prompt-query p) (or (prompt-chosen p) (prompt-query p)))))
                   (prompt-close p *client*)
                   (when (and it (prompt-chose p)) (funcall (prompt-chose p) it *client*))))))
 
-(defcommand (prompt-cancel :unlisted) ()
+(defcommand (prompt-cancel :unlisted)
             (let ((p (current-prompt)))
               (when p (close-overlay p *client*))))
 
-(defcommand (prompt-accept-alternate :unlisted) ()
+(defcommand (prompt-accept-alternate :unlisted)
             "C-RET: the other thing a prompt does with the choice, when it has one."
             (let ((p (current-prompt)))
               (when (and p (prompt-alt p))
@@ -232,7 +232,7 @@ which switches to that prompt instead."
                   (prompt-close p *client*)
                   (when it (funcall (prompt-alt p) it *client*))))))
 
-(defcommand (prompt-accept-third :unlisted) ()
+(defcommand (prompt-accept-third :unlisted)
             "C-f: the third thing a prompt does with the choice, when it has one."
             (let ((p (current-prompt)))
               (when (and p (prompt-third p))
@@ -245,7 +245,7 @@ which switches to that prompt instead."
   (let ((at (position (prompt-kind p) +palette-kinds+ :key #'first)))
     (and at (nth (mod (1+ at) (length +palette-kinds+)) +palette-kinds+))))
 
-(defcommand (prompt-descend :unlisted) ()
+(defcommand (prompt-descend :unlisted)
             "TAB: go into the choice when the prompt has somewhere to go, else over to
 the palette's next kind."
             (let ((p (current-prompt)))
@@ -259,7 +259,7 @@ the palette's next kind."
                   (close-overlay p *client*)
                   (run-command (third kind) *client*))))))
 
-(defcommand (prompt-click :unlisted) ()
+(defcommand (prompt-click :unlisted)
             "A click on a row chooses it; on a tab, opens that kind; on a control, does
 what it says; on the field, nothing."
             (let* ((p (current-prompt))
@@ -276,7 +276,7 @@ what it says; on the field, nothing."
                   (run-command runs *client*))
                  (t (handle-button p runs *client*))))))
 
-(defcommand (prompt-ignore :unlisted) () nil)
+(defcommand (prompt-ignore :unlisted) nil)
 
 (atty/mode:define-key 'prompt-mode "Down"     #'prompt-next)
 (atty/mode:define-key 'prompt-mode "C-n"      #'prompt-next)

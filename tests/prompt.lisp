@@ -81,7 +81,7 @@
 
 (test a-command-can-be-named-and-run
   (let ((ran nil))
-    (mux:defcommand a-test-command () (setf ran t))
+    (mux:defcommand a-test-command (setf ran t))
     (unwind-protect
          (progn
            (is (member "a test command" (mux:command-names) :test #'equal)

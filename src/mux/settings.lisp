@@ -6,21 +6,6 @@
 ;;; asked for by, and a line saying what it is. The line is what `atty help
 ;;; init' prints, so what is settable and what the docs say are one list.
 
-(defvar *definitions* nil
-  "Every server the init defines, in the order it did: (name . form).")
-
-(defvar *server* nil
-  "The server this process is.")
-
-(defvar *here* nil
-  "The session a hook or a definition acts in when no client says which.")
-
-(defvar *init-file* nil
-  "The init file --init named, read instead of the one in the config directory.")
-
-(defvar *no-init* nil
-  "Whether --norc was said: no init file is read.")
-
 (defvar *init-error* nil
   "Why the init file did not load, or nil when it did or there is none.")
 
@@ -201,7 +186,7 @@ says so to the next client to attach. Nil never reaches the network for it."
 
 (defvar *hooks* nil "Every hook: (name symbol doc).")
 
-(declaim (ftype function show-error session-p))
+(declaim (ftype function show-error))
 
 (defmacro defhook (name doc)
   (let ((symbol (intern (format nil "*~A-HOOK*" (symbol-name name)))))
@@ -212,7 +197,7 @@ says so to the next client to attach. Nil never reaches the network for it."
        ',symbol)))
 
 (defun hook-symbol (name)
-  (or (second (find name *hooks* :key #'first :test #'string=))
+  (or (second (find name *hooks* :key #'first))
       (error "there is no hook called ~S; there are ~{~(~S~)~^, ~}"
              name (mapcar #'first *hooks*))))
 
@@ -231,8 +216,7 @@ says so to the next client to attach. Nil never reaches the network for it."
 (defun run-hook (name &rest args)
   "Run everything on the hook called NAME with ARGS. Answers how many ran."
   (let ((ran 0)
-        (client (and (boundp '*client*) (symbol-value '*client*)))
-        (*here* (if (session-p (first args)) (first args) *here*)))
+        (client (and (boundp '*client*) (symbol-value '*client*))))
     (dolist (does (symbol-value (hook-symbol name)) ran)
       (handler-case (progn (apply does args) (incf ran))
         (error (e)
@@ -246,10 +230,3 @@ says so to the next client to attach. Nil never reaches the network for it."
 (defhook client-attached "This client is attached and has been greeted: (client).")
 (defhook before-save "The server is about to save its state to disk: (server).")
 (defhook server-restored "The server brought its sessions back from disk: (server sessions).")
-(defhook pane-exited "A pane's program ended: (session pane code), CODE its exit code, or 128 and the signal.")
-(defhook bell "A pane rang: (session pane).")
-(defhook title-changed "A pane's program named it: (session pane title).")
-(defhook cwd-changed "A pane's program said where it is: (session pane directory).")
-(defhook window-made "A window was made: (session window).")
-(defhook window-closed "A window was closed: (session window).")
-(defhook client-detached "A client went: (client).")

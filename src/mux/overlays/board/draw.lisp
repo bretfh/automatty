@@ -75,7 +75,7 @@ them, a rule between; a pane under another has its title in the rule."
   (cond
    ((null tree) (atty/ui:gap :expand 1))
    ((consp tree)
-    (let* ((parts (mapcar #'sized-part (rest tree)))
+    (let* ((parts (rest tree))
            (across (eq (first tree) :across))
            (n (max 1 (length parts))))
       (apply (if across #'atty/ui:row #'atty/ui:column)
