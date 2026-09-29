@@ -468,9 +468,6 @@ stands at the right of the rows."
                       (apply #'atty/ui:column :align :stretch rows))
                   (atty/ui:rule :glyph #\▁ :face :well-edge-light)))
 
-;;; A sheet: what is on top of the panes, a header band, its body, a footer
-;;; of keys and a shadow, in a place, a border and a colour of its kind's.
-
 (defparameter +sheet-places+ '(:corner :centre :window :top-right :foot :side))
 
 (defun check-sheets (value)
@@ -501,8 +498,6 @@ border is :single, :double or :none."
   (or (getf +sheets+ kind) (list :window :single :fg-dim)))
 
 (defun sheet (kind title body &key right hints (width 0) (height 0))
-  "BODY under a header band of TITLE and RIGHT and over a footer of HINTS, in
-the border and colour of KIND's."
   (destructuring-bind (place border colour) (sheet-style kind)
     (declare (ignore place))
     (let* ((inside (apply #'atty/ui:column :align :stretch :expand 1 :background-color (bar-face :bg-dim)
@@ -521,7 +516,6 @@ the border and colour of KIND's."
 
 (declaim (ftype (function (t keyword fixnum fixnum) (values fixnum fixnum)) place-sheet))
 (defun place-sheet (watcher kind width height)
-  "Where a sheet of KIND WIDTH by HEIGHT goes: its left and its top."
   (let* ((cols (view-cols watcher))
          (rows (view-rows watcher))
          (top (chrome-top watcher rows))
@@ -538,12 +532,10 @@ the border and colour of KIND's."
       (values (max 0 x) (max top y)))))
 
 (defun sheet-room (watcher kind rows)
-  "How many rows a sheet of KIND has, where it goes."
   (- rows (chrome-top watcher rows) (chrome-bottom watcher)
      (if (member (first (sheet-style kind)) '(:window :top-right)) 3 0)))
 
 (defun draw-sheet (tree watcher kind screen width height)
-  "TREE, a sheet WIDTH by HEIGHT, where KIND's go on SCREEN, with its shadow."
   (let ((cols (tty:screen-width screen))
         (rows (tty:screen-height screen)))
     (multiple-value-bind (left top) (place-sheet watcher kind width height)

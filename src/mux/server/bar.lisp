@@ -47,7 +47,7 @@ least this.")
 ;;; shorter is padded, and a slot with nothing to say is still there, blank.
 
 (defparameter +chip-width+ 14 "A window's chip: its number and name, and one glyph.")
-(defparameter +narrow-chip-width+ 5 "A window's chip on a narrow bar: its number and one glyph.")
+(defparameter +narrow-chip-width+ 5)
 (defparameter +mode-width+ 16 "Zoomed, or reading back, or nothing, and its ends.")
 (defparameter +needs-width+ 17 "What needs you anywhere, or nothing.")
 (defparameter +session-width+ 8 "One other session: its name and its worst pane's glyph.")
@@ -201,11 +201,6 @@ NARROW keeps three letters of each name."
                                            :face :state-blocked-strong)))))))
 
 (defun session-rail (session)
-  "The sessions down the left, by name, each with the glyph of its pane that
-most wants somebody; this one on the panes' ground. Under them the way to a
-new one, and the terminals on this one. A click on a session goes to the pane
-there that most wants somebody. When they do not all fit, the ones round this
-one are shown, with a ▲ at the edge an asking one is cut off at."
   (let* ((server (session-server session))
          (all (if server (server-sessions server) (list session)))
          (terminals (remove-if-not #'watcher-interactive (session-watchers session)))
@@ -234,19 +229,15 @@ one are shown, with a ▲ at the edge an asking one is cut off at."
                                       width :face :driven))
                               terminals))))))))
 
-(defparameter +mode-chip-width+ 8 "The mode chip's room at the foot when there is no rail.")
+(defparameter +mode-chip-width+ 8)
 
 (defun kind-hints (prefix)
-  "The palette's kinds other than PREFIX's, each a hint that opens it."
   (apply #'atty/ui:row :spacing 0
          (loop :for (other name opens) :in +palette-kinds+
                :unless (eql other prefix)
                  :collect (hint (string other) name :runs opens))))
 
 (defun session-field (session)
-  "Where everything is typed, sunk into the foot: the kind's prefix, which
-cycles the kind when clicked, the cursor, what it is for, and the other kinds
-at its end, each a click away."
   (let* ((kind (nth (mod (session-field-kind session) (length +palette-kinds+)) +palette-kinds+)))
     (destructuring-bind (prefix name runs placeholder) kind
       (declare (ignore name))

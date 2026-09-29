@@ -70,8 +70,8 @@ in the order the groups are listed."
                            (atty/ui:label (format nil " ~3A" key) :face :state-blocked-strong)
                            (atty/ui:label (truncate-string name (max 1 (- width 4)))))))
 
-(defparameter +menu-width+ 36 "How wide the menu down from the corner is.")
-(defparameter +keys-width+ 44 "How wide the sheet of keys after the prefix is.")
+(defparameter +menu-width+ 36)
+(defparameter +keys-width+ 44)
 
 (defun menu-title ()
   (atty/ui:row :spacing 0
@@ -93,8 +93,6 @@ the corner."
             width height)))
 
 (defun keys-tree (watcher rows)
-  "The keys after the prefix, two to a row, as many as there is room for; the
-way to every key in the foot when they do not all fit."
   (let* ((width +keys-width+)
          (half (floor (- width 2) 2))
          (entries (loop :for group :in (menu-groups watcher)

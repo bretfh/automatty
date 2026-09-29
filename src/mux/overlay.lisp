@@ -42,9 +42,6 @@ would.")
   (:method (thing old new) (declare (ignore thing old new)) nil))
 
 (defgeneric overlay-field (thing)
-  (:documentation "What is typed into the field while THING is on top: its
-prefix, the text so far, and the hints at the field's end; nil when THING
-takes nothing typed.")
   (:method (thing) (declare (ignore thing)) nil))
 
 (defgeneric overlay-unbound-key (thing chord watcher)
@@ -93,7 +90,6 @@ for it, so they are worked out once.")
     work))
 
 (defun mode-word (watcher)
-  "What the keys WATCHER types do now, as one word, and its face."
   (if (menu-due-p watcher)
       (values "MENU" :mode-menu)
       (case (watcher-mode watcher)
@@ -103,7 +99,6 @@ for it, so they are worked out once.")
         (t (values "PANE" :mode-pane)))))
 
 (defun draw-mode-chip (watcher screen)
-  "The mode chip, in the bottom-left corner on the field's middle row."
   (let ((rows (tty:screen-height screen))
         (cols (tty:screen-width screen)))
     (when (and (plusp (chrome-bottom watcher)) (> rows 2))
@@ -113,7 +108,6 @@ for it, so they are worked out once.")
                          :left (if (plusp (chrome-left watcher)) 1 0) :top (- rows 2))))))
 
 (defun draw-field (watcher screen)
-  "What WATCHER is typing, in the field's row, with the cursor after it."
   (let* ((top (first (watcher-overlays watcher)))
          (typed (and top (overlay-field top)))
          (cols (tty:screen-width screen))

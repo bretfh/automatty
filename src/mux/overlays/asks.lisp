@@ -2,10 +2,6 @@
 
 (in-package #:atty)
 
-;;; What one pane is asking, opened from where it is said to ask: its session
-;;; on the rail, or what needs you on the bar. Its answers are keys; going
-;;; there is RET, or the same click again.
-
 (defstruct (asks (:constructor %make-asks) (:conc-name asks-of-))
            (session "" :type string)
            (pane 0)
@@ -46,7 +42,7 @@
                                  (hint "Esc" "close" :runs :close))
              :width width :height 7))))
 
-(defparameter +asks-width+ 46 "How wide the sheet of what a pane asks is.")
+(defparameter +asks-width+ 46)
 
 (defmethod draw-overlay ((a asks) screen)
            (let* ((watcher *client*)
@@ -69,7 +65,6 @@
   (push-overlay watcher (%make-asks :session (session-name session) :pane (pane-id pane))))
 
 (defun asks-or-go (watcher session pane)
-  "Open what PANE asks, or go there when it is what is open already."
   (let ((top (first (watcher-overlays watcher))))
     (if (and (asks-p top) (equal (asks-of-session top) (session-name session))
              (eql (asks-of-pane top) (pane-id pane)))

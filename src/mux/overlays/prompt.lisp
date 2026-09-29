@@ -62,7 +62,7 @@ FOOT a line under the items saying what the keys do."
 (defun prompt-sheet-kind (p)
   (case (prompt-kind p) (#\@ :windows) (#\# :clients) (#\/ :find) (t :commands)))
 
-(defparameter +prompt-width+ 66 "The most a prompt's sheet is wide.")
+(defparameter +prompt-width+ 66)
 
 (defun prompt-tree (p watcher &key (width 0) (height 0) (most (prompt-most p)))
   (let* ((showing (prompt-showing p))
