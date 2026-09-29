@@ -484,6 +484,7 @@ stands at the right of the rows."
   '(:menu (:corner :single :fg-dim)
     :commands (:centre :single :fg-dim) :windows (:centre :single :fg-dim)
     :clients (:centre :single :fg-dim) :keys-list (:centre :single :fg-dim)
+    :drawer (:side :single :fg-dim)
     :keys (:window :single :fg-dim) :find (:window :single :fg-dim)
     :asks (:window :double :yellow) :confirm (:window :single :red)
     :note (:window :none nil))
@@ -539,8 +540,12 @@ border is :single, :double or :none."
   (let ((cols (tty:screen-width screen))
         (rows (tty:screen-height screen)))
     (multiple-value-bind (left top) (place-sheet watcher kind width height)
-      (atty/cells:draw tree (tty:screen-grid screen) cols rows :left left :top top)
-      (cast-shadow (atty/cells:make-cells (tty:screen-grid screen) cols rows) left top width height)
+      (let ((m (atty/cells:make-cells (tty:screen-grid screen) cols rows)))
+        (atty/cells:draw tree (tty:screen-grid screen) cols rows :left left :top top)
+        (if (eq :side (first (sheet-style kind)))
+            (let ((fg (atty/ui:unhex (atty/ui:color :edge-dark))))
+              (loop :for y :from top :below (+ top height) :do (half-over m (1- left) y #\▐ fg)))
+            (cast-shadow m left top width height)))
       (values left top))))
 
 ;;; An event, as the activity log and the command line say it: a glyph for

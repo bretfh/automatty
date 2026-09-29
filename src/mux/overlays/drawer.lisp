@@ -150,7 +150,7 @@ key that closes the drawer."
         (list (hint (key-hint 'pane-mode 'explain-pane) "closes" :runs :close))))
 
 (defun drawer-tree (d watcher key row width
-                    &optional (context (multiple-value-list (drawer-context watcher key))))
+                    &optional (context (multiple-value-list (drawer-context watcher key))) (height 0))
   "The drawer for KEY's pane: CONTEXT is what explained its state, what it is,
 and its log."
   (destructuring-bind (explained info log) context
@@ -161,15 +161,14 @@ and its log."
                               (name (or (getf row :label) (getf row :says) (cdr key)))
                               (session (car key)) (id (cdr key)))
                          (flet ((open-p (what) (not (member what (drawer-folded d)))))
-                               (apply #'atty/ui:column :align :stretch :expand 1
-                                      :background-color (bar-face :bg-dim)
-                                      :min-width width
+                               (sheet :drawer
+                                      (atty/ui:label (format nil " ~A "
+                                                             (if state
+                                                                 (format nil "why is ~A ~A?" name (if (eq state :blocked) "asking" (string-downcase state)))
+                                                                 (format nil "what is ~A?" name)))
+                                                     :face :strong)
                                       (append
-                                       (list (header-band (if state
-                                                              (format nil "why is ~A ~A?" name (if (eq state :blocked) "asking" (string-downcase state)))
-                                                            (format nil "what is ~A?" name))
-                                                          :right (atty/ui:label (format nil " ~A " (key-hint 'pane-mode 'explain-pane)) :face :quiet))
-                                             (atty/ui:row :spacing 0 (atty/ui:label " ")
+                                       (list (atty/ui:row :spacing 0 (atty/ui:label " ")
                                                           (path '(:quiet "default") (getf row :session)
                                                                 (and (getf row :window)
                                                                      (format nil "~D~@[ ~A~]" (getf row :window)
@@ -196,7 +195,9 @@ and its log."
                                          (or (log-lines watcher log)
                                              (list (atty/ui:label "  nobody yet" :face :quiet))))
                                        (list (atty/ui:gap :expand 1))
-                                       (list (answer-bar row asks))))))))
+                                       (list (answer-bar row asks)))
+                                      :right (atty/ui:label (format nil " ~A " (key-hint 'pane-mode 'explain-pane)) :face :quiet)
+                                      :width width :height height)))))
 
 (defmethod draw-overlay ((d drawer) screen)
            (let* ((watcher *client*)
@@ -208,14 +209,10 @@ and its log."
                            (focused-row watcher)))
                   (key (and row (row-key row))))
              (when key
-               (let* ((tree (drawer-tree d watcher key row width))
-                      (left (- cols width))
-                      (top (chrome-top watcher rows))
-                      (m (atty/cells:make-cells (tty:screen-grid screen) cols rows)))
-                 (atty/cells:fill-rect m left top width (- rows top) (term:make-face :bg (bar-face :bg-dim)))
-                 (atty/cells:draw tree (tty:screen-grid screen) cols rows :left left :top top)
-                 (let ((fg (atty/ui:unhex (atty/ui:color :edge-dark))))
-                   (loop :for y :from top :below rows :do (half-over m (1- left) y #\▐ fg)))
+               (let* ((height (max 1 (sheet-room watcher :drawer rows)))
+                      (tree (drawer-tree d watcher key row width
+                                         (multiple-value-list (drawer-context watcher key)) height)))
+                 (draw-sheet tree watcher :drawer screen width height)
                  (setf (drawer-laid d) tree)))))
 
 (defmethod overlay-laid-tree ((d drawer)) (drawer-laid d))
