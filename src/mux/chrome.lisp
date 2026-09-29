@@ -95,6 +95,15 @@ what a click on something drawn client-side lands on."
   (let ((part (first (atty/ui:parts w))))
     (values 0 (if part (nth-value 1 (atty/ui:measure part m aw ah)) 1))))
 
+(defclass unwidened (atty/ui:clip) ())
+
+(defun unwidened (child)
+  (make-instance 'unwidened :parts (list child)))
+
+(defmethod atty/ui:measure ((w unwidened) m aw ah)
+  (let ((part (first (atty/ui:parts w))))
+    (values 0 (if part (nth-value 1 (atty/ui:measure part m aw ah)) 1))))
+
 ;;; A box of a set size whatever is in it wants: what does not fit is cut at
 ;;; its edge, never allowed to widen it.
 

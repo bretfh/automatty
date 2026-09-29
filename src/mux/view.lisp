@@ -239,10 +239,10 @@ while one is laid out.")
     (atty/ui:framed (if session
                         (destructuring-bind (&key tl tr bl br) (frame-corners session pane focusp)
                           (atty/ui:column :align :stretch :expand 1
-                                          (band (list tl (and focusp (atty/ui:label "◆ " :face :here))) tr
-                                                :ground (if focusp :bg-alt :bg-dim))
+                                          (unwidened (band (list (atty/ui:label (if focusp " ◆" "  ") :face :here) (squeezed tl)) tr
+                                                           :ground (if focusp :bg-alt :bg-dim)))
                                           area
-                                          (band (list (atty/ui:label "") bl) br)))
+                                          (unwidened (band (list (atty/ui:label "") bl) br))))
                         area)
                     :background-color (bar-face (if focusp :bg :bg-well))
                     :face (frame-face pane focusp)
@@ -277,8 +277,14 @@ left in it holds no panes, which is not the same as holding one that is nothing.
         (t (list it))))
 
 (defun layout-insert (it pane way new)
-  "IT with NEW put beside PANE, the way given."
+  "IT with NEW put beside PANE, the way given: into PANE's own split when that
+already goes that way, so the panes in it share alike."
   (cond ((eq it pane) (make-split way (list pane new)))
+        ((and (split-p it) (eq (split-way it) way) (member pane (split-parts it)))
+         (let ((at (1+ (position pane (split-parts it)))))
+           (setf (split-parts it)
+                 (append (subseq (split-parts it) 0 at) (list new) (nthcdr at (split-parts it))))
+           it))
         ((split-p it)
          (setf (split-parts it)
                (mapcar (lambda (p) (layout-insert p pane way new)) (split-parts it)))

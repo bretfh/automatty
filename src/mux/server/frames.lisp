@@ -98,13 +98,17 @@ last option is never the one that goes."
                                                  (atty/ui:label (format nil " ~A " text)
                                                                 :face :key))))))
 
-(defun question-title (asks)
-  (atty/ui:row :spacing 0
-               (atty/ui:label " ▲ " :face :state-blocked-strong)
-               (atty/ui:label (getf asks :subject) :face :state-blocked-strong)
-               (atty/ui:label (format nil "  ~A "
-                                      (or (first (getf asks :detail))
-                                          (getf asks :question))))))
+(defun question-title (asks room)
+  (let ((subject (truncate-string (or (getf asks :subject) "") (max 1 (- room 3)))))
+    (atty/ui:row :spacing 0
+                 (atty/ui:label " ▲ " :face :state-blocked-strong)
+                 (atty/ui:label subject :face :state-blocked-strong)
+                 (atty/ui:label (let ((left (- room 3 (length subject) 3)))
+                                  (if (> left 3)
+                                      (format nil "  ~A " (truncate-string (or (first (getf asks :detail))
+                                                                               (getf asks :question) "")
+                                                                           left))
+                                      " "))))))
 
 (defun answer-extras (session pane won)
   "What follows the answers, most wanted first: read the whole of it, give it
@@ -173,12 +177,12 @@ between them."
                             (atty/ui:label "")))))
     (list
      :tl tl
-     :tr (cond (asks (question-title asks))
+     :tr (cond (asks (question-title asks (max 8 (- width 12))))
                ((pane-known-p pane)
                 (let* ((says (format nil "~(~A~) ~A " state (format-duration (agent:agent-for agent now))))
                        (doing (agent:agent-doing agent term))
                        ;; what it is doing gives way before the state does
-                       (room (- width (columns-in tl) (length says) 7 (if focusp 2 0))))
+                       (room (- width (columns-in tl) (length says) 9)))
                   (atty/ui:row :spacing 0
                                (atty/ui:label (format nil " ~A " (state-glyph state)) :face (state-face state))
                                (atty/ui:label (if (and doing (> room 3))
