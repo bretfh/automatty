@@ -186,8 +186,6 @@ says so to the next client to attach. Nil never reaches the network for it."
 
 (defvar *hooks* nil "Every hook: (name symbol doc).")
 
-(declaim (ftype function show-error))
-
 (defmacro defhook (name doc)
   (let ((symbol (intern (format nil "*~A-HOOK*" (symbol-name name)))))
     `(progn

@@ -143,6 +143,7 @@ watching blocked windows)."
                       (pane-label pane) (pane-named pane)
                       :address (pane-address-of session pane))))
 
+(declaim (ftype (function (watcher string) t) prompt-session-name))
 (defun prompt-session-name (watcher session)
   "What to call SESSION, on the line at the foot, starting from its name."
   (entry watcher "name" (format nil "session ~A" session) session

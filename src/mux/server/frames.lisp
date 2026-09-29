@@ -3,6 +3,7 @@
 (in-package #:atty)
 
 
+(declaim (ftype (function (t) keyword) state-face))
 (defun state-face (state)
   (case state
         (:working :state-working)
@@ -17,6 +18,7 @@
         (:idle :number-idle)
         (t :number-unknown)))
 
+(declaim (ftype (function (t) string) state-glyph))
 (defun state-glyph (state)
   (case state
         (:working "◐")
@@ -24,9 +26,11 @@
         (:idle "○")
         (t "·")))
 
+(declaim (ftype (function (pane) boolean) pane-known-p))
 (defun pane-known-p (pane)
   (agent:agent-known-p (pane-agent pane)))
 
+(declaim (ftype (function (pane t) keyword) frame-face))
 (defun frame-face (pane focusp)
   "What colour PANE's frame is: what a known agent is doing, and a colour that
 never changes for anything else, since for a program nobody knows how to read
@@ -37,6 +41,7 @@ is the double line, not a colour."
       (state-face (agent:agent-state (pane-agent pane)))
     :state-unknown))
 
+(declaim (ftype (function (symbol) (or null string)) command-key))
 (defun command-key (command)
   "The chord COMMAND is bound to in the pane's mode, as a hint says it, or nil
 when nothing is. Only ever a hint: the binding is whoever set it up's, and a
@@ -128,6 +133,7 @@ the whole session, and which rule decided it was asking."
   (+ (reduce #'+ extras :key #'columns-in)
      (max 0 (1- (length extras)))))
 
+(declaim (ftype (function (pane) t) search-marker))
 (defun search-marker (pane)
   "What was looked for in PANE and which hit this is, with the keys that move
 between them."
@@ -144,6 +150,7 @@ between them."
                                   " nothing ")
                                 :face :quiet))))
 
+(declaim (ftype (function (session pane t) list) frame-corners))
 (defun frame-corners (session pane focusp)
   "The four corners of PANE's frame."
   (let* ((agent (pane-agent pane))

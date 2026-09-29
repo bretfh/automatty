@@ -151,8 +151,6 @@ cells down from its head is at LINE."
   (make-instance 'live-chip :pane pane :face :chip-scrolled
                             :text (format nil " ↓ ~D to live " (pane-scrolled pane))))
 
-(declaim (ftype function search-marker))
-
 (defun scroll-strip (pane)
   "What a pane read back says over its last line when it has no frame to say
 it in: what was found, a way to find, and the way back to live."
@@ -209,8 +207,6 @@ with no frame to say it in: the chip goes over the pane's own last line."
 ;;; A pane sits inside a frame of its own, all four sides, coloured by what its
 ;;; program is doing and drawn heavy where the focus is, on the pane's ground. What the corners say
 ;;; is src/mux/frames.lisp's business.
-
-(declaim (ftype function frame-corners frame-face pane-top-row))
 
 (defvar *scrollbars* t
   "Whether panes are drawn with a scrollbar. The session's to say, and bound

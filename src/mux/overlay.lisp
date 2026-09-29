@@ -2,8 +2,6 @@
 
 (in-package #:atty)
 
-(declaim (ftype function menu-due-p draw-menu))
-
 (defgeneric overlay-laid-tree (overlay)
   (:documentation "The widget tree OVERLAY was last laid out as, for clicks."))
 
@@ -32,11 +30,13 @@ front of them, that only says things, need not take the keyboard away.")
 something that need not be said.")
   (:method (thing) (declare (ignore thing)) nil))
 
+(declaim (ftype (function (t watcher) t) close-overlay))
 (defgeneric close-overlay (thing watcher)
   (:documentation "Take THING off the top of WATCHER, the way its own close key
 would.")
   (:method (thing watcher) (pop-overlay watcher thing)))
 
+(declaim (ftype (function (t string string) t) overlay-session-renamed))
 (defgeneric overlay-session-renamed (thing old new)
   (:documentation "THING, drawn on top, hears that session OLD is now NEW.")
   (:method (thing old new) (declare (ignore thing old new)) nil))
@@ -62,6 +62,7 @@ puts it in what has been typed; most things ignore it.")
   "While one frame is drawn or one key is handled, the pane rows worked out
 for it, so they are worked out once.")
 
+(declaim (ftype (function (session watcher) tty:screen) watcher-view))
 (defun watcher-view (session watcher)
   "SESSION's screen with whatever WATCHER has on top drawn over it."
   (let ((screen (session-screen session)))
@@ -88,6 +89,7 @@ for it, so they are worked out once.")
   (let ((session (watcher-session watcher)))
     (or (null session) (session-bar-p session))))
 
+(declaim (ftype (function (watcher t) t) push-overlay))
 (defun push-overlay (watcher it)
   (push it (watcher-overlays watcher))
   (update-mode watcher)

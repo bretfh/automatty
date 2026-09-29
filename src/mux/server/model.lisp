@@ -10,13 +10,11 @@ answered the moment a byte arrives, and only a client already being fed faster
 than this waits. A tick would add half its length to every keystroke, which is
 more than the terminal it is sitting inside costs in the first place.")
 
-(declaim (ftype function session-bar session-compose send-hello send-message load-user-init init-load-note
-                        encode-settings show-note found-in-pane push-overlay overlay-session-renamed))
-
 (defparameter +max-pane-size+ 1000)
 
 (defvar *watcher-count* 0)
 
+(declaim (ftype (function () integer) now-ms))
 (defun now-ms () (floor (monotonic-ns) 1000000))
 
 (defun actor-of (watcher &optional caller-pane)

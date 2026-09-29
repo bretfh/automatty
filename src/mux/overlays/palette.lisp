@@ -13,6 +13,7 @@ from what it is called now. TAB goes over to naming the window it is in."
          :swap (lambda (w) (run-command "rename window" w))
          :swap-says "window instead"))
 
+(declaim (ftype (function (watcher string integer (or null string)) t) prompt-window-name))
 (defun prompt-window-name (watcher session n label)
   "Ask what to call window N of SESSION. TAB goes over to naming the pane."
   (entry watcher "name"
@@ -169,6 +170,7 @@ what it is doing."
                                   :face (if current :find-hit-current :find-hit))
                    (atty/ui:label (subseq text (min end (length text))))))))
 
+(declaim (ftype (function (watcher integer list (or null integer)) t) found-in-pane))
 (defun found-in-pane (watcher n hits current)
   "WATCHER's find found N, HITS near the one gone to, CURRENT among them."
   (setf (watcher-found watcher) (list :n n :hits hits :current current)

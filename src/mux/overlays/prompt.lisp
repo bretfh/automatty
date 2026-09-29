@@ -3,7 +3,6 @@
 (in-package #:atty)
 
 
-(declaim (ftype function hints command-key button-at scroll-mode))
 (defstruct (prompt (:constructor %make-prompt))
            (title "" :type string)
            (query "" :type string)

@@ -3,9 +3,11 @@
 (in-package #:atty)
 
 
+(declaim (ftype (function (watcher list) t) send-message))
 (defun send-message (watcher form)
   (wire-send (watcher-wire watcher) form))
 
+(declaim (ftype (function (watcher session) t) send-hello))
 (defun send-hello (watcher session)
   "Tell WATCHER how big what it is looking at is."
   (send-message watcher (list :hello (session-name session)

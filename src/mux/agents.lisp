@@ -6,12 +6,6 @@
 ;;; line, so a program in a pane can do for another what a person does at the
 ;;; keyboard. Each says what it has to say, and that is what is printed.
 
-(defvar *caller* nil
-  "The pane a command run from a command line was run in, as ATTY_PANE says.")
-
-(defvar *caller-directory* nil
-  "Where the command line a command was run from was.")
-
 (defun pane-at-address (server address)
   "The pane ADDRESS names, session:window.pane or session:id, and its session."
   (multiple-value-bind (name id window n) (parse-pane-address address)

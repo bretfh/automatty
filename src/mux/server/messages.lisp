@@ -154,7 +154,11 @@ here handles, or one that needs a session the watcher has not joined."
                            :key (lambda (p) (pane-address-of session p)) :test #'equal)
         :when pane :return (values pane session)))
 
-(declaim (special *caller* *caller-directory*))
+(defvar *caller* nil
+  "The pane a command run from a command line was run in, as ATTY_PANE says.")
+
+(defvar *caller-directory* nil
+  "Where the command line a command was run from was.")
 
 (define-message-handler :run (name arguments &optional here directory)
   (let ((does (gethash name *commands*))

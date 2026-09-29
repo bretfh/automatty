@@ -261,10 +261,12 @@ its actions."
 (atty/mode:define-key 'drawer-mode "Escape" #'close-drawer)
 (atty/mode:define-key 'drawer-mode "C-g" #'close-drawer)
 
+(declaim (ftype (function (watcher &optional t) t) open-drawer))
 (defun open-drawer (watcher &optional target)
   "The drawer over WATCHER's screen, on the pane TARGET names or the focus."
   (push-overlay watcher (%make-drawer :target target)))
 
+(declaim (ftype (function () t) explain-pane))
 (defcommand (explain-pane :group agents) ()
             "why this pane is what it is, and who typed into it"
             (if (find-if (lambda (it) (typep it 'drawer)) (watcher-overlays *client*))

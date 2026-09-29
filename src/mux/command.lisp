@@ -14,8 +14,6 @@ editor reads which buffer it is in.")
 (defvar *commands* (make-hash-table :test 'equal)
   "Every command, by the name it is asked for by.")
 
-(declaim (ftype function show-error))
-
 (defvar *unlisted* (make-hash-table :test 'equal)
   "Commands that are not offered when asking for one by name: the ones that only
 mean anything while something is up that the asking would have closed.")

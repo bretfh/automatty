@@ -79,8 +79,6 @@ it."
   (setf (watcher-partial watcher)
         (if (> (- n at) +max-partial-sequence+) "" (subseq said at n))))
 
-(declaim (ftype function handle-menu-click))
-
 (defun chord-event (watcher event)
   "EVENT, a key or a click as the terminal sent it, to the mode WATCHER is in.
 A click is a key a mode can bind, and says where it landed as *MOUSE-POSITION*."
@@ -112,6 +110,7 @@ arrived yet is kept until it has."
 (defparameter +menu-delay+ 300
   "How long a prefix has to hang, in milliseconds, before the menu is drawn.")
 
+(declaim (ftype (function (watcher) boolean) menu-due-p))
 (defun menu-due-p (watcher)
   (and (watcher-partial-chord watcher)
        (watcher-pending-since watcher)

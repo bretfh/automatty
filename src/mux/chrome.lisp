@@ -10,8 +10,6 @@
 ;;; of these and nothing else, so what a thing looks like says what it does
 ;;; wherever it is.
 
-(declaim (ftype function state-face state-glyph command-key close-overlay))
-
 (defun bar-face (role)
   "The hex of the theme's colour called ROLE, as a widget's background wants it."
   (atty/ui:unhex (atty/ui:color role)))
@@ -42,6 +40,7 @@
              (<= (atty/ui:left w) col) (< col (atty/ui:right w)))
     w))
 
+(declaim (ftype (function (t fixnum fixnum) (or null bar-button)) button-at))
 (defun button-at (tree line col)
   "The innermost bar-button in TREE at LINE, COL, titles of frames included:
 what a click on something drawn client-side lands on."
@@ -195,6 +194,7 @@ part among LEFT's takes the gap's place, so it has the room the gap would."
                            (atty/ui:label (format nil " ~A" key) :face :key-hint)
                            (atty/ui:label (format nil " ~A  " verb) :face :quiet))))
 
+(declaim (ftype (function (symbol &rest t) t) hints))
 (defun hints (mode &rest pairs)
   "A row of what the keys in MODE do: PAIRS is a command, then what it does,
 each a hint that runs the command when clicked. A string in place of the

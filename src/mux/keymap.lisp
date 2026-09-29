@@ -40,6 +40,7 @@
     ("PageUp" . scroll-mode-page-up)
     ("R" . reload-init)))
 
+(declaim (ftype (function (&optional character) string) prefix-string))
 (defun prefix-string (&optional (prefix +prefix+))
   (atty/mode:spelled (event-key prefix)))
 

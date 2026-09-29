@@ -6,8 +6,6 @@
 ;;; doing, so the server composes it and it crosses the wire as cells like
 ;;; everything else. Everyone attached sees the same one.
 
-(declaim (ftype function command-key state-glyph state-face pane-known-p prefix-string))
-
 (defun field-slot (session)
   "The bar's own way in: one field, styled like a search bar and a shade
 deeper than the bar it sits on, and one button naming what it currently opens.
@@ -312,6 +310,7 @@ windows their least room, :tight when its narrow forms do, else :narrow."
         (t :narrow)))
 (defvar *bar* #'default-bar)
 
+(declaim (ftype (function (session) t) session-bar))
 (defun session-bar (session)
   "The bar for SESSION, or nothing when it is turned off. It is the first child
 of the column the panes are in, so how many rows it takes is whatever it

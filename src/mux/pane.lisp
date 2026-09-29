@@ -4,8 +4,6 @@
 
 (defvar *panes-made* 0)
 
-(declaim (ftype function now-ms))
-
 (defparameter +pulse-cells+ 16 "How many cells a pane's pulse has.")
 (defparameter +pulse-interval+ 75000 "How long one cell of the pulse covers, in milliseconds.")
 (defparameter +max-events+ 64 "How many events a pane keeps.")
@@ -235,8 +233,7 @@ program has taken the whole screen is back at it."
             (max 0 (min (pane-history pane)
                         (+ (pane-scrolled pane) (max 0 more))))))))
 
-(declaim (ftype function pane-write))
-
+(declaim (ftype (function (pane string) t) pane-write))
 (defun pane-write (pane said)
   (when (and (pane-running pane) (pane-started pane))
     (setf (pane-typed-at pane) (now-ms))

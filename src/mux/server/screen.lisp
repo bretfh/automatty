@@ -89,6 +89,7 @@ was put."
                (term:term-cursor-visible term))
           (tty:screen-cursor-style screen) (term:term-cursor-style term))))
 
+(declaim (ftype (function (session) tty:screen) session-compose))
 (defun session-compose (session)
   "Measure the session, lay it out, give each pane what it was given, and paint
 it. One pass: the panes are resized between the laying and the painting, so what
@@ -108,8 +109,6 @@ is drawn is what they have just been told they are."
       (atty/ui:paint tree m))
     (place-cursor session tree)
     screen))
-
-(declaim (ftype function send-message watcher-view))
 
 (defun watcher-frame (session watcher)
   (let* ((screen (watcher-view session watcher))

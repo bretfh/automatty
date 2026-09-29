@@ -83,6 +83,7 @@
   (loop :for (place was) :in changes
         :unless (eq (first place) :setting) :do (put-place place was)))
 
+(declaim (ftype (function (&optional (or string pathname)) boolean) load-user-init))
 (defun load-user-init (&optional (file (user-init-file)))
   "Load FILE if there is one, as source, in the user's package. Answers whether
 it loaded. One that does not load is said, kept as *INIT-PROBLEM* for whoever
@@ -103,6 +104,7 @@ not a reason not to start."
     (setf *init-changes* (changes-between before (init-places)))
     loaded))
 
+(declaim (ftype (function () list) init-load-note))
 (defun init-load-note ()
   "What to say after loading the init file: (text face)."
   (cond (*init-error* (list *init-error* :warning))
@@ -110,6 +112,7 @@ not a reason not to start."
          (list (format nil "~A loaded" (user-init-file)) :accent))
         (t (list (format nil "there is no ~A" (user-init-file)) :accent))))
 
+(declaim (ftype (function () list) encode-settings))
 (defun encode-settings ()
   (flet ((shown (key value)
            (if (eq key :prefix) (prefix-string value) (prin1-to-string value))))

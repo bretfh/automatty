@@ -65,6 +65,7 @@ it, the way out at the right, and any more lines under it."
 (defun split-lines (text)
   (atty/ui:split-string text :separator (list #\Newline)))
 
+(declaim (ftype (function (t string string &key (:face keyword)) t) show-note))
 (defgeneric show-note (watcher title text &key face))
 
 (defmethod show-note ((watcher watcher) title text &key (face :warning))
@@ -74,6 +75,7 @@ what it says is written out with whatever else the command says."
       (push-overlay watcher (make-note title (split-lines text) :face face))
       (format t "~&~A: ~A~%" title text)))
 
+(declaim (ftype (function (t t condition) t) show-error))
 (defun show-error (watcher what e)
   "What went wrong, and where it went wrong."
   (show-note watcher
@@ -94,6 +96,7 @@ what it says is written out with whatever else the command says."
            (no-label "no")
            (laid nil))
 
+(declaim (ftype (function (watcher string &key (:yes t) (:yes-says string) (:no-says string)) t) confirm))
 (defun confirm (watcher question &key yes (yes-says "yes") (no-says "no"))
   "Ask WATCHER QUESTION; YES is called with the watcher when they say so."
   (push-overlay watcher (%make-confirm :question question :yes yes

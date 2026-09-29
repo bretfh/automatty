@@ -35,6 +35,7 @@
         (watcher-menu watcher) nil
         (watcher-behind watcher) t))
 
+(declaim (ftype (function (watcher) t) handle-menu-click))
 (defun handle-menu-click (watcher)
   "A press while the menu is up: an entry under it runs, and either way the
 menu goes away with the half chord it was for."
@@ -101,6 +102,7 @@ rounded box that says what it is for and how to put it away."
                                     (atty/ui:label "Esc" :face :key-hint)
                                     (atty/ui:label " cancels · no timeout " :face :quiet))))))
 
+(declaim (ftype (function (watcher tty:screen) t) draw-menu))
 (defun draw-menu (watcher screen)
   "Draw the menu over the foot of SCREEN and keep the tree for clicks."
   (let* ((cols (tty:screen-width screen))

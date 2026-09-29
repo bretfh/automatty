@@ -24,6 +24,7 @@
 (defun current-scroll-view ()
   (find-if (lambda (it) (typep it 'scroll-view)) (watcher-overlays *client*)))
 
+(declaim (ftype (function () t) scroll-mode))
 (defcommand (scroll-mode :group scrolling) ()
             "read this pane back from the keys; q leaves"
             (unless (current-scroll-view)

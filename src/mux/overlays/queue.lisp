@@ -3,8 +3,6 @@
 (in-package #:atty)
 
 
-(declaim (ftype function explain-pane))
-
 (defclass screen-view (atty/ui:widget)
   ((screen :initarg :screen :reader view-screen)))
 

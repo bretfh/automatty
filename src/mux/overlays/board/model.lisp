@@ -2,7 +2,6 @@
 
 (in-package #:atty)
 
-(declaim (ftype function confirm open-drawer prompt-window-name prompt-session-name))
 (defparameter +side-width+ 34 "How wide the side pane is.")
 (defparameter +tree-width+ 22 "How wide the side pane is folded to its tree, in the one-session zoom.")
 (defparameter +side-from+ 110 "A terminal narrower than this has no room for the side pane.")

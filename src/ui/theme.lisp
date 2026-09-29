@@ -18,8 +18,6 @@
 (defvar *active* +theme+)
 (defvar *worn* nil)
 
-(declaim (ftype function forget-rules))
-
 (defun %as-keyword (name)
   (etypecase name
     (keyword name)

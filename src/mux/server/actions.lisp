@@ -150,6 +150,7 @@ it back when it already has it."
           ((< a (pane-row-count pane)) (term:term-dump-row-string term (- a kept)))
           (t ""))))
 
+(declaim (ftype (function (pane) integer) pane-top-row))
 (defun pane-top-row (pane)
   "Which row is at the top of what PANE shows."
   (- (pane-history pane) (pane-scrolled pane)))

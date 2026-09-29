@@ -1,7 +1,5 @@
 (in-package #:atty/ui)
 
-(declaim (ftype function rules))
-
 (defvar *properties* nil)
 
 (defun property (key parser)
@@ -302,6 +300,8 @@
 than compiled again. PUT-RULES and (SETF ACTIVE) are the two things that change
 it, and each forgets this.")
 
+(declaim (ftype (function () null) forget-rules))
 (defun forget-rules () (setf *sheet* nil))
 
+(declaim (ftype (function () t) rules))
 (defun rules () (or *sheet* (setf *sheet* (%compiled (append (built-in) (styles))))))
