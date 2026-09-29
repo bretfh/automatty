@@ -164,7 +164,10 @@ between them."
                                          :face (if (pane-known-p pane) (number-face state) :number-unknown))
                           (atty/ui:label (format nil " ~A " (pane-display-name pane))
                                          :face (if focusp :strong :default))
-                          (atty/ui:label (format nil "~A " (pane-kind pane)) :face :quiet)
+                          (atty/ui:label (if (equal (pane-kind pane) (pane-display-name pane))
+                                             ""
+                                             (format nil "~A " (pane-kind pane)))
+                                         :face :quiet)
                           (if (eq pane (session-zoomed session))
                               (atty/ui:label " ⤢ zoomed " :face :state-blocked-strong)
                             (atty/ui:label "")))))
@@ -206,13 +209,15 @@ between them."
            (atty/ui:row :spacing 0
                         (bar-button "find in pane" (atty/ui:label " ⌕ find " :face :quiet))
                         (if (plusp (pane-scrolled pane)) (live-chip pane) (atty/ui:label ""))
-                        (atty/ui:label (format nil " line ~D of ~D "
-                                               (1+ (pane-top-row pane)) (pane-row-count pane))
-                                       :face :quiet)))
+                        (pane-position pane)))
           ((and (eq state :blocked) (null asks))
            (let ((answer (command-key 'goto-blocked-pane))
                  (zoom (command-key 'zoom-pane)))
-             (when (or answer zoom)
-               (atty/ui:label (format nil " ~@[~A answer~]~:[~; · ~]~@[~A zoom~] "
-                                      answer (and answer zoom) zoom)
-                              :face :state-blocked))))))))
+             (atty/ui:row :spacing 0
+                          (if (or answer zoom)
+                              (atty/ui:label (format nil " ~@[~A answer~]~:[~; · ~]~@[~A zoom~] "
+                                                     answer (and answer zoom) zoom)
+                                             :face :state-blocked)
+                              (atty/ui:label ""))
+                          (pane-position pane))))
+          (t (pane-position pane))))))

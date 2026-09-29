@@ -169,6 +169,28 @@ cells down from its head is at LINE."
   (make-instance 'live-chip :pane pane :face :chip-scrolled
                             :text (format nil " ↓ ~D to live " (pane-scrolled pane))))
 
+(defclass pane-position (atty/ui:label)
+  ((pane :initarg :pane :reader view-pane)))
+
+(defun pane-position (pane)
+  (make-instance 'pane-position :pane pane :face :quiet :text ""))
+
+(defmethod atty/ui:measure ((w pane-position) m aw ah)
+  (declare (ignore m aw ah))
+  (let ((digits (1+ (length (princ-to-string (pane-row-count (view-pane w)))))))
+    (values (+ 11 (* 2 digits)) 1)))
+
+(defmethod atty/ui:paint ((w pane-position) (m atty/cells:cells))
+  (let* ((pane (view-pane w))
+         (text (format nil " line ~D of ~D " (1+ (pane-top-row pane)) (pane-row-count pane)))
+         (face (atty/cells:face-of w))
+         (width (atty/ui:width w)))
+    (unless (term:face-bg face)
+      (setf (term:face-bg face) (bar-face :bg-dim)))
+    (atty/cells:fill-rect m (atty/ui:left w) (atty/ui:top w) width 1 face)
+    (atty/cells:say-at m (+ (atty/ui:left w) (max 0 (- width (length text)))) (atty/ui:top w)
+                       (subseq text (max 0 (- (length text) width))) face)))
+
 (defmethod atty/ui:under ((w live-chip) line col)
   (when (and (<= (atty/ui:top w) line) (< line (atty/ui:bottom w))
              (<= (atty/ui:left w) col) (< col (atty/ui:right w)))
@@ -217,7 +239,7 @@ while one is laid out.")
     (atty/ui:framed (if session
                         (destructuring-bind (&key tl tr bl br) (frame-corners session pane focusp)
                           (atty/ui:column :align :stretch :expand 1
-                                          (band (list (and focusp (atty/ui:label " ◆" :face :here)) tl) tr
+                                          (band (list tl (and focusp (atty/ui:label "◆ " :face :here))) tr
                                                 :ground (if focusp :bg-alt :bg-dim))
                                           area
                                           (band (list (atty/ui:label "") bl) br)))

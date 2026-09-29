@@ -65,10 +65,11 @@ in the order the groups are listed."
                                      :when (eq g group) :collect (list key name))))))
 
 (defun menu-entry (key name width)
-  (bar-button name
-              (atty/ui:row :spacing 0
-                           (atty/ui:label (format nil " ~3A" key) :face :state-blocked-strong)
-                           (atty/ui:label (truncate-string name (max 1 (- width 4)))))))
+  (let ((said (format nil " ~2A " key)))
+    (bar-button name
+                (atty/ui:row :spacing 0
+                             (atty/ui:label said :face :state-blocked-strong)
+                             (atty/ui:label (truncate-string name (max 1 (- width (length said)))))))))
 
 (defparameter +menu-width+ 36)
 (defparameter +keys-width+ 44)
@@ -81,13 +82,25 @@ in the order the groups are listed."
 (defun menu-tree (watcher rows)
   "The menu: every key after the prefix, in its groups, one column down from
 the corner."
-  (let* ((width +menu-width+)
-         (body (loop :for group :in (menu-groups watcher)
-                     :append (list* (section (group-title (first group)))
-                                    (loop :for (key name) :in (rest group)
-                                          :collect (menu-entry key name (- width 2))))))
-         (height (max 4 (min rows (+ 4 (length body))))))
-    (values (sheet :menu (menu-title) (subseq body 0 (min (length body) (- height 4)))
+  (let* ((groups (menu-groups watcher))
+         (room (max 1 (- rows 4)))
+         (columns (let ((out nil) (column nil))
+                    (dolist (group groups (nreverse (if column (cons (nreverse column) out) out)))
+                      (let ((rows (cons (section (group-title (first group)))
+                                        (loop :for (key name) :in (rest group)
+                                              :collect (menu-entry key name (- +menu-width+ 2))))))
+                        (when (and column (> (+ (length column) (length rows)) room))
+                          (push (nreverse column) out)
+                          (setf column nil))
+                        (dolist (row rows) (push row column))))))
+         (width (* +menu-width+ (max 1 (length columns))))
+         (height (max 4 (min rows (+ 4 (reduce #'max columns :key #'length :initial-value 0))))))
+    (values (sheet :menu (menu-title)
+                   (apply #'atty/ui:row :spacing 0 :align :start
+                          (loop :for column :in columns
+                                :collect (fixed (apply #'atty/ui:column :align :stretch
+                                                       (subseq column 0 (min (length column) room)))
+                                                +menu-width+ (min room (length column)))))
                    :hints (hints 'pane-mode "Esc" "cancels, no timeout")
                    :width width :height height)
             width height)))

@@ -185,10 +185,11 @@ that changed. Answers the screen, or nil when it takes a compose."
       (let ((m (atty/cells:make-cells (tty:screen-grid screen) cols rows)))
         (atty/ui:with-pass
           (labels ((walk (w)
-                     (if (typep w 'pane-area)
-                         (progn (atty/ui:paint (area-view w) m)
-                                (when (area-bar w) (atty/ui:paint (area-bar w) m)))
-                         (dolist (part (atty/ui:parts w)) (walk part)))))
+                     (typecase w
+                       (pane-area (atty/ui:paint (area-view w) m)
+                                  (when (area-bar w) (atty/ui:paint (area-bar w) m)))
+                       (pane-position (atty/ui:paint w m))
+                       (t (dolist (part (atty/ui:parts w)) (walk part))))))
             (walk tree))))
       (place-cursor session tree)
       screen)))

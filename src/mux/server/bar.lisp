@@ -101,7 +101,9 @@ asking. The one shown is a pill on the ground of the panes. A click shows it."
                                 (slot (format nil "▲~D " asking) glyph :face :state-blocked-strong)
                                 (slot (if worst (state-glyph worst) "") glyph
                                       :face (if worst (state-face worst) :quiet))))))
-    (bar-button runs (if shown (pill chip :ground :bg) chip))))
+    (bar-button runs (if shown
+                         (pill chip :ground :bg)
+                         (atty/ui:row :spacing 0 (atty/ui:label " ") chip (atty/ui:label " "))))))
 
 (defun plus-chip (session)
   "The way to another window, by mouse."
@@ -184,7 +186,7 @@ NARROW keeps three letters of each name."
                         :key (lambda (p) (agent:agent-state (pane-agent p)))))
          (worst (worst-pane session))
          (yours (eq session here))
-         (name (- +rail-width+ 8)))
+         (name (- +rail-width+ 7)))
     (make-instance 'rail-row
                    :session (session-name session)
                    :runs (cond ((eq state :blocked)
@@ -202,7 +204,7 @@ NARROW keeps three letters of each name."
                                                      (atty/ui:label " ")
                                                      (slot (state-glyph state) 1
                                                            :face (if (eq state :blocked) :state-blocked-strong (state-face state)))
-                                                     (slot (if (> asking 1) (princ-to-string asking) "") 3
+                                                     (slot (if (> asking 1) (princ-to-string asking) "") 2
                                                            :face :state-blocked-strong))))))))
 
 (defun session-rail (session)
@@ -277,7 +279,7 @@ session answering another tree, and it is another bar."
          (fit (bar-fit session cols))
          (narrow (eq fit :narrow))
          (tight (not (eq fit :wide)))
-         (chip (if narrow +narrow-chip-width+ +chip-width+))
+         (chip (+ 2 (if narrow +narrow-chip-width+ +chip-width+)))
          (rail (rail-shown-p session))
          (lead (if rail +rail-width+ 4))
          (room (max 0 (- cols (bar-right-width session fit) 3)))

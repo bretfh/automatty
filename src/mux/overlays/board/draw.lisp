@@ -593,8 +593,7 @@ newest first."
                (push (list :tree (draw-in (board-header b watcher sessions) screen from top cols (1+ top))) regions)
                ;; the side pane and its rule
                (when (plusp side)
-                 (push (list :tree (draw-in (side-pane b watcher sessions room) screen side-left area-top cols area-bottom)) regions)
-                 (atty/cells:fill-rect m (1- side-left) area-top 1 room (atty/cells:face-of (atty/ui:label "" :face :card)) #\│))
+                 (push (list :tree (draw-in (side-pane b watcher sessions room) screen side-left area-top cols area-bottom)) regions))
                ;; the lanes, and the rail they slide under
                (setf regions (append (draw-lanes b watcher sessions screen left wide area-top area-bottom) regions))
                (let* ((tall (loop :for s :in sessions :sum (lane-height b watcher s)))

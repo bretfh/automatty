@@ -111,10 +111,7 @@ what it says is written out with whatever else the command says."
                             (keycap "y" (confirm-of-yes-label c) :runs :yes)
                             (atty/ui:label " ")
                             (keycap "n" (confirm-of-no-label c) :runs :close)))
-         :hints (atty/ui:row :spacing 0
-                             (hint "y" (confirm-of-yes-label c) :runs :yes)
-                             (hint "n" (confirm-of-no-label c) :runs :close))
-         :width width :height 6))
+         :width width :height 5))
 
 (defmethod draw-overlay ((c confirm) screen)
            (let* ((watcher *client*)
@@ -122,7 +119,7 @@ what it says is written out with whatever else the command says."
                   (width (max 1 (min (- cols (chrome-left watcher) 4)
                                      (max 44 (+ 10 (length (confirm-of-question c)))))))
                   (tree (confirm-tree c width)))
-             (draw-sheet tree watcher :confirm screen width 6)
+             (draw-sheet tree watcher :confirm screen width 5)
              (setf (confirm-of-laid c) tree
                    (tty:screen-cursor-visible screen) nil)))
 
