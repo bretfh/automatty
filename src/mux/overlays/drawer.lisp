@@ -210,7 +210,7 @@ and its log."
              (when key
                (let* ((tree (drawer-tree d watcher key row width))
                       (left (- cols width))
-                      (top (if (bar-shown-p watcher) (min 1 (max 0 (1- rows))) 0))
+                      (top (chrome-top watcher rows))
                       (m (atty/cells:make-cells (tty:screen-grid screen) cols rows)))
                  (atty/cells:fill-rect m left top width (- rows top) (term:make-face :bg (bar-face :bg-dim)))
                  (atty/cells:draw tree (tty:screen-grid screen) cols rows :left left :top top)

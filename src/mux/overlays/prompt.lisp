@@ -122,7 +122,7 @@ FOOT a line under the items saying what the keys do."
                   (high (nth-value 1 (atty/ui:with-pass
                                       (atty/ui:restyle tree)
                                       (atty/ui:measure tree m cols rows))))
-                  (top (if (or (null watcher) (bar-shown-p watcher)) (min 1 (max 0 (1- rows))) 0))
+                  (top (chrome-top watcher rows))
                   (bottom (min rows (+ top high))))
              (atty/cells:draw tree (tty:screen-grid screen) cols bottom :top top)
              (cast-shadow m 0 top cols (- bottom top))

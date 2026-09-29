@@ -113,7 +113,7 @@ for it, so they are worked out once.")
 own ground, and hide the cursor. Answers the laid tree."
   (let* ((cols (tty:screen-width screen))
          (rows (tty:screen-height screen))
-         (top (or top (if (bar-shown-p watcher) (min 1 (max 0 (1- rows))) 0)))
+         (top (or top (chrome-top watcher rows)))
          (m (atty/cells:make-cells (tty:screen-grid screen) cols rows)))
     (atty/cells:fill-rect m 0 top cols (- rows top) (term:make-face :bg (bar-face :bg)))
     (atty/cells:draw tree (tty:screen-grid screen) cols rows :top top)

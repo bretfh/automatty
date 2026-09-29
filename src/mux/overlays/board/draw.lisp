@@ -195,7 +195,8 @@ pane in it asks, lit where the cursor is."
 (defun board-height (watcher)
   "The rows the lanes have: under the bar and the header, above the status
 and the footer."
-  (max 3 (- (view-rows watcher) (if (bar-shown-p watcher) 1 0) 3)))
+  (let ((rows (view-rows watcher)))
+    (max 3 (- rows (chrome-top watcher rows) (chrome-bottom watcher) 3))))
 
 (defun card-size (b watcher)
   "How wide and tall a card is at this zoom."
@@ -615,7 +616,7 @@ newest first."
            (let* ((watcher *client*)
                   (cols (tty:screen-width screen))
                   (rows (tty:screen-height screen))
-                  (top (if (bar-shown-p watcher) (min 1 (max 0 (1- rows))) 0))
+                  (top (chrome-top watcher rows))
                   (m (atty/cells:make-cells (tty:screen-grid screen) cols rows))
                   (regions nil))
              (board-place b watcher)

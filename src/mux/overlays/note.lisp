@@ -39,11 +39,12 @@ it, the way out at the right, and any more lines under it."
            (let* ((cols (tty:screen-width screen))
                   (rows (tty:screen-height screen))
                   (m (atty/cells:make-cells (tty:screen-grid screen) cols rows))
-                  (tree (note-tree n cols (max 1 (- rows 3))))
+                  (foot (- rows (chrome-bottom *client*)))
+                  (tree (note-tree n cols (max 1 (- foot 3))))
                   (high (nth-value 1 (atty/ui:with-pass
                                       (atty/ui:restyle tree)
                                       (atty/ui:measure tree m cols rows))))
-                  (top (max 0 (- rows high))))
+                  (top (max 0 (- foot high))))
              (atty/cells:draw tree (tty:screen-grid screen) cols rows :top top)
              (top-edge m 0 top cols :bg-dim)
              (setf (note-laid n) tree
@@ -113,9 +114,10 @@ what it says is written out with whatever else the command says."
 (defmethod draw-overlay ((c confirm) screen)
            (let* ((cols (tty:screen-width screen))
                   (rows (tty:screen-height screen))
-                  (tree (confirm-tree c cols)))
-             (atty/cells:draw tree (tty:screen-grid screen) cols rows :top (max 0 (1- rows)))
-             (top-edge (atty/cells:make-cells (tty:screen-grid screen) cols rows) 0 (max 0 (1- rows)) cols :bg-dim)
+                  (tree (confirm-tree c cols))
+                  (top (max 0 (- rows (chrome-bottom *client*) 1))))
+             (atty/cells:draw tree (tty:screen-grid screen) cols rows :top top)
+             (top-edge (atty/cells:make-cells (tty:screen-grid screen) cols rows) 0 top cols :bg-dim)
              (setf (confirm-of-laid c) tree
                    (tty:screen-cursor-visible screen) nil)))
 
@@ -188,9 +190,10 @@ when there is one, and SWAP-SAYS says what TAB does."
 (defmethod draw-overlay ((e entry) screen)
            (let* ((cols (tty:screen-width screen))
                   (rows (tty:screen-height screen))
-                  (tree (entry-tree e cols)))
-             (atty/cells:draw tree (tty:screen-grid screen) cols rows :top (max 0 (1- rows)))
-             (top-edge (atty/cells:make-cells (tty:screen-grid screen) cols rows) 0 (max 0 (1- rows)) cols :bg-dim)
+                  (tree (entry-tree e cols))
+                  (top (max 0 (- rows (chrome-bottom *client*) 1))))
+             (atty/cells:draw tree (tty:screen-grid screen) cols rows :top top)
+             (top-edge (atty/cells:make-cells (tty:screen-grid screen) cols rows) 0 top cols :bg-dim)
              (setf (entry-of-laid e) tree
                    (tty:screen-cursor-visible screen) nil)))
 

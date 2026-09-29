@@ -14,6 +14,20 @@
   "The hex of the theme's colour called ROLE, as a widget's background wants it."
   (atty/ui:unhex (atty/ui:color role)))
 
+(declaim (ftype (function (t fixnum) fixnum) chrome-top))
+(defun chrome-top (watcher rows)
+  (if (or (null watcher) (bar-shown-p watcher)) (min 1 (max 0 (1- rows))) 0))
+
+(declaim (ftype (function (t) fixnum) chrome-left))
+(defun chrome-left (watcher)
+  (declare (ignore watcher))
+  0)
+
+(declaim (ftype (function (t) fixnum) chrome-bottom))
+(defun chrome-bottom (watcher)
+  (declare (ignore watcher))
+  0)
+
 ;;; A button is a widget like any other, except a click on it does not run
 ;;; anything itself: what it does is said by RUNS, a form for the server to
 ;;; do as though whoever clicked had said it, or the name of a command for

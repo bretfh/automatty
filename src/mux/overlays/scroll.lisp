@@ -18,7 +18,8 @@
                                    :key #'cdr))))
              (atty/cells:draw (atty/ui:label (format nil " reading back~@[ · ~A leaves~] " leave)
                                              :face :chip-scrolled)
-                              (tty:screen-grid screen) cols rows :left 0 :top (max 0 (1- rows)))
+                              (tty:screen-grid screen) cols rows
+                              :left (chrome-left *client*) :top (max 0 (- rows (chrome-bottom *client*) 1)))
              (setf (tty:screen-cursor-visible screen) nil)))
 
 (defun current-scroll-view ()
