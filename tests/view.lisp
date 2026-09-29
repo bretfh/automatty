@@ -3,7 +3,7 @@
 (def-suite view :in all)
 (in-suite view)
 
-(defun a-pane (said &key (rows 3) (cols 8))
+(defun pane (said &key (rows 3) (cols 8))
   (let ((pane (mux:make-pane "true" :rows rows :cols cols)))
     (term:term-process-output (mux:pane-term pane) said)
     pane))
@@ -14,8 +14,8 @@
   screen)
 
 (test two-panes-side-by-side-each-get-half-the-columns
-  (let* ((left (a-pane "aaaa" :rows 3 :cols 10))
-         (right (a-pane "bbbb" :rows 3 :cols 10))
+  (let* ((left (pane "aaaa" :rows 3 :cols 10))
+         (right (pane "bbbb" :rows 3 :cols 10))
          (a (mux:pane-view left))
          (b (mux:pane-view right))
          (screen (tty:make-screen :width 20 :height 3))
@@ -29,7 +29,7 @@
     (is (equal "aaaa      bbbb" (string-right-trim " " (shown screen 0))))))
 
 (test the-bar-takes-its-row-off-the-pane-under-it
-  (let* ((pane (a-pane "hello" :rows 5 :cols 12))
+  (let* ((pane (pane "hello" :rows 5 :cols 12))
          (v (mux:pane-view pane))
          (screen (tty:make-screen :width 12 :height 5))
          (tree (atty/ui:column :align :stretch v (atty/ui:label "bar"))))
@@ -42,7 +42,7 @@
         "the bar is not at the foot: ~S" (shown screen 4))))
 
 (test a-pane-is-drawn-where-it-was-put-and-clipped-to-it
-  (let* ((pane (a-pane "0123456789" :rows 2 :cols 10))
+  (let* ((pane (pane "0123456789" :rows 2 :cols 10))
          (v (mux:pane-view pane))
          (screen (tty:make-screen :width 10 :height 2))
          (tree (atty/ui:row :align :stretch :spacing 0 (atty/ui:gap) v)))
@@ -52,14 +52,14 @@
         "what did not fit was drawn past the edge: ~S" (shown screen 0))))
 
 (test every-pane-in-a-tree-is-found
-  (let* ((one (mux:pane-view (a-pane "")))
-         (two (mux:pane-view (a-pane "")))
+  (let* ((one (mux:pane-view (pane "")))
+         (two (mux:pane-view (pane "")))
          (tree (atty/ui:column (atty/ui:row one) two (atty/ui:label "bar"))))
     (is (equal (list one two) (mux:views-in tree)))))
 
 (test a-split-lays-its-panes-out-with-a-rule-between-them
-  (let* ((one (a-pane "aaa" :rows 3 :cols 20))
-         (two (a-pane "bbb" :rows 3 :cols 20))
+  (let* ((one (pane "aaa" :rows 3 :cols 20))
+         (two (pane "bbb" :rows 3 :cols 20))
          (layout (mux:make-split :across (list one two)))
          (screen (tty:make-screen :width 21 :height 3))
          (tree (mux::layout-tree layout)))
@@ -70,7 +70,7 @@
           "the frame around each pane took no column"))))
 
 (test a-pane-put-beside-another-and-taken-out-again
-  (let ((one (a-pane "")) (two (a-pane "")) (three (a-pane "")))
+  (let ((one (pane "")) (two (pane "")) (three (pane "")))
     (let ((layout (mux:layout-insert one one :across two)))
       (is (equal (list one two) (mux:layout-panes layout)))
       (setf layout (mux:layout-insert layout two :down three))
@@ -85,8 +85,8 @@
           "taking the last pane out left something behind"))))
 
 (test the-focused-pane-is-framed-heavy-and-every-frame-is-coloured-by-state
-  (let* ((one (a-pane "aaa" :rows 3 :cols 20))
-         (two (a-pane "bbb" :rows 3 :cols 20))
+  (let* ((one (pane "aaa" :rows 3 :cols 20))
+         (two (pane "bbb" :rows 3 :cols 20))
          (layout (mux:make-split :across (list one two)))
          (screen (tty:make-screen :width 44 :height 5))
          (tree (mux::layout-tree layout two)))
@@ -103,8 +103,8 @@
     (is (search "╭" (shown screen 0)))))
 
 (test a-frame-with-no-session-given-has-no-titles
-  (let* ((one (a-pane "aaa" :rows 3 :cols 20))
-         (two (a-pane "bbb" :rows 3 :cols 20))
+  (let* ((one (pane "aaa" :rows 3 :cols 20))
+         (two (pane "bbb" :rows 3 :cols 20))
          (layout (mux:make-split :across (list one two)))
          (tree (mux::layout-tree layout)))
     (dolist (frame (atty/ui:parts tree))
@@ -148,7 +148,7 @@
   (is (equal "" (mux::format-duration nil))))
 
 (test a-lone-pane-with-no-split-has-no-frame
-  (let* ((pane (a-pane "solo"))
+  (let* ((pane (pane "solo"))
          (tree (mux::layout-tree pane pane)))
     (is (typep tree 'mux::pane-area)
         "a lone pane is itself and its scrollbar, with no frame round them")
@@ -160,17 +160,17 @@
 
 ;;; Reading a pane back, and the scrollbar that says how far.
 
-(defun a-pane-with-history (lines &key (rows 3) (cols 8))
+(defun pane-with-history (lines &key (rows 3) (cols 8))
   "A pane that has had LINES lines written to it, numbered from nought, so all
 but the last ROWS of them are behind the screen."
-  (a-pane (with-output-to-string (s)
+  (pane (with-output-to-string (s)
             (dotimes (i lines)
               (unless (zerop i) (format s "~C~C" #\Return #\Newline))
               (format s "~D" i)))
           :rows rows :cols cols))
 
 (test a-pane-scrolled-back-shows-the-rows-that-far-behind-the-screen
-  (let* ((pane (a-pane-with-history 10))
+  (let* ((pane (pane-with-history 10))
          (v (mux:pane-view pane))
          (screen (tty:make-screen :width 8 :height 3)))
     (laid v screen)
@@ -185,7 +185,7 @@ but the last ROWS of them are behind the screen."
     (is (equal '("0" "1" "2") (loop :for y :below 3 :collect (shown screen y))))))
 
 (test a-pane-being-read-back-holds-still-while-its-program-goes-on-writing
-  (let* ((pane (a-pane-with-history 10))
+  (let* ((pane (pane-with-history 10))
          (v (mux:pane-view pane))
          (screen (tty:make-screen :width 8 :height 3)))
     (mux::pane-scroll-settle pane)
@@ -197,14 +197,14 @@ but the last ROWS of them are behind the screen."
     (is (equal '("3" "4" "5") (loop :for y :below 3 :collect (shown screen y))))))
 
 (test a-pane-at-the-foot-stays-at-the-foot
-  (let ((pane (a-pane-with-history 10)))
+  (let ((pane (pane-with-history 10)))
     (mux::pane-scroll-settle pane)
     (term:term-process-output (mux:pane-term pane) (format nil "~C~%ten" #\Return))
     (mux::pane-scroll-settle pane)
     (is (eql 0 (mux::pane-scrolled pane)))))
 
 (test a-program-with-the-whole-screen-has-nothing-behind-it
-  (let ((pane (a-pane-with-history 10)))
+  (let ((pane (pane-with-history 10)))
     (mux::pane-scroll-to pane 4)
     (term:term-process-output (mux:pane-term pane) (format nil "~C[?1049h" #\Escape))
     (mux::pane-scroll-settle pane)
@@ -220,7 +220,7 @@ but the last ROWS of them are behind the screen."
   (is (equal '(0 10) (multiple-value-list (mux::scrollbar-thumb 10 20 0 0)))))
 
 (test a-pane-gives-its-last-column-to-its-scrollbar
-  (let* ((pane (a-pane-with-history 30 :rows 8 :cols 12))
+  (let* ((pane (pane-with-history 30 :rows 8 :cols 12))
          (area (mux::pane-area pane))
          (screen (tty:make-screen :width 12 :height 8)))
     (laid area screen)
@@ -236,7 +236,7 @@ but the last ROWS of them are behind the screen."
       (is (eq v (atty/ui:under area 3 10))))))
 
 (test a-pane-too-narrow-for-one-keeps-every-column
-  (let* ((pane (a-pane "abc" :rows 3 :cols 3))
+  (let* ((pane (pane "abc" :rows 3 :cols 3))
          (area (mux::pane-area pane))
          (screen (tty:make-screen :width 3 :height 3)))
     (laid area screen)
@@ -244,14 +244,14 @@ but the last ROWS of them are behind the screen."
     (is (equal "abc" (shown screen 0)))))
 
 (test a-session-that-wants-no-scrollbars-has-none
-  (let* ((pane (a-pane "solo" :rows 3 :cols 8))
+  (let* ((pane (pane "solo" :rows 3 :cols 8))
          (tree (let ((mux::*scrollbars* nil)) (mux::layout-tree pane pane)))
          (screen (tty:make-screen :width 8 :height 3)))
     (laid tree screen)
     (is (eql 8 (atty/ui:width (first (mux:views-in tree)))))))
 
 (test each-part-of-a-scrollbar-is-where-it-is-drawn
-  (let* ((pane (a-pane-with-history 38 :rows 8 :cols 12))
+  (let* ((pane (pane-with-history 38 :rows 8 :cols 12))
          (area (mux::pane-area pane))
          (bar (mux::area-bar area))
          (screen (tty:make-screen :width 12 :height 8)))
@@ -267,7 +267,7 @@ but the last ROWS of them are behind the screen."
       (is (eq :below (mux::scrollbar-part bar (1+ thumb)))))))
 
 (test a-scrollbar-with-nothing-behind-the-pane-has-no-parts
-  (let* ((pane (a-pane "abc" :rows 8 :cols 12))
+  (let* ((pane (pane "abc" :rows 8 :cols 12))
          (area (mux::pane-area pane))
          (screen (tty:make-screen :width 12 :height 8)))
     (laid area screen)
@@ -275,7 +275,7 @@ but the last ROWS of them are behind the screen."
     (is (= 8 (count #\│ (loop :for y :below 8 :collect (char-at screen 11 y)))) "a thin line the whole way when there is nothing behind")))
 
 (test dragging-the-thumb-goes-from-live-at-the-foot-to-the-oldest-at-the-head
-  (let* ((pane (a-pane-with-history 38 :rows 8 :cols 12))
+  (let* ((pane (pane-with-history 38 :rows 8 :cols 12))
          (area (mux::pane-area pane))
          (bar (mux::area-bar area))
          (screen (tty:make-screen :width 12 :height 8)))
@@ -286,7 +286,7 @@ but the last ROWS of them are behind the screen."
     (is (< 0 (mux::scrollbar-back-at bar 3 0) 30))))
 
 (test a-lone-pane-read-back-says-so-over-its-own-last-line
-  (let* ((pane (a-pane-with-history 30 :rows 4 :cols 24))
+  (let* ((pane (pane-with-history 30 :rows 4 :cols 24))
          (screen (tty:make-screen :width 24 :height 4)))
     (mux::pane-scroll-to pane 5)
     (let ((tree (mux::layout-tree pane pane)))
@@ -295,7 +295,7 @@ but the last ROWS of them are behind the screen."
       (is (typep (atty/ui:under tree 3 (search "↓" (shown screen 3))) 'mux::live-chip)))))
 
 (test the-focused-pane-is-framed-heavy-and-the-others-rounded
-  (let* ((pane (a-pane "abc" :rows 4 :cols 12))
+  (let* ((pane (pane "abc" :rows 4 :cols 12))
          (screen (tty:make-screen :width 12 :height 4)))
     (laid (mux::pane-frame pane t) screen)
     (is (char= #\┏ (char-at screen 0 0)) "~S" (shown screen 0))

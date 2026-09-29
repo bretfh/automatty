@@ -56,23 +56,27 @@ it, the way out at the right, and any more lines under it."
 (defmethod mode-of ((n note)) 'note-mode)
 (defmethod overlay-name ((n note)) (note-title n))
 
-(defmethod overlay-unbound-key ((n note) chord client)
+(defmethod overlay-unbound-key ((n note) chord watcher)
            "Anything at all puts it away."
            (declare (ignore chord))
-           (client-pop-overlay client n)
+           (pop-overlay watcher n)
            t)
 
 (defun split-lines (text)
   (atty/ui:split-string text :separator (list #\Newline)))
 
-(defgeneric show-note (client title text &key face))
+(defgeneric show-note (watcher title text &key face))
 
-(defmethod show-note ((client client) title text &key (face :warning))
-           (client-push-overlay client (make-note title (split-lines text) :face face)))
+(defmethod show-note ((watcher watcher) title text &key (face :warning))
+  "A note over WATCHER's terminal; for one with no terminal, a command line,
+what it says is written out with whatever else the command says."
+  (if (watcher-interactive watcher)
+      (push-overlay watcher (make-note title (split-lines text) :face face))
+      (format t "~&~A: ~A~%" title text)))
 
-(defun show-error (client what e)
+(defun show-error (watcher what e)
   "What went wrong, and where it went wrong."
-  (show-note client
+  (show-note watcher
              (format nil "~A came apart" what)
              (format nil "~A~%~A" e
                      (with-output-to-string (s)
@@ -90,9 +94,9 @@ it, the way out at the right, and any more lines under it."
            (no-label "no")
            (laid nil))
 
-(defun confirm (client question &key yes (yes-says "yes") (no-says "no"))
-  "Ask CLIENT QUESTION; YES is called with the client when they say so."
-  (client-push-overlay client (%make-confirm :question question :yes yes
+(defun confirm (watcher question &key yes (yes-says "yes") (no-says "no"))
+  "Ask WATCHER QUESTION; YES is called with the watcher when they say so."
+  (push-overlay watcher (%make-confirm :question question :yes yes
                                              :yes-label yes-says :no-label no-says)))
 
 (defun confirm-tree (c cols)
@@ -119,20 +123,20 @@ it, the way out at the right, and any more lines under it."
 (defmethod overlay-laid-tree ((c confirm)) (confirm-of-laid c))
 
 (defun current-confirm ()
-  (let ((it (first (client-overlays *client*))))
+  (let ((it (first (watcher-overlays *client*))))
     (when (typep it 'confirm) it)))
 
-(defun accept-confirm (c client)
-  (client-pop-overlay client c)
-  (when (confirm-of-yes c) (funcall (confirm-of-yes c) client)))
+(defun accept-confirm (c watcher)
+  (pop-overlay watcher c)
+  (when (confirm-of-yes c) (funcall (confirm-of-yes c) watcher)))
 
-(defcommand (confirm-yes :unlisted)
+(defcommand (confirm-yes :unlisted) ()
             (let ((c (current-confirm))) (when c (accept-confirm c *client*))))
 
-(defcommand (confirm-no :unlisted)
-            (let ((c (current-confirm))) (when c (client-pop-overlay *client* c))))
+(defcommand (confirm-no :unlisted) ()
+            (let ((c (current-confirm))) (when c (pop-overlay *client* c))))
 
-(defcommand (confirm-click :unlisted)
+(defcommand (confirm-click :unlisted) ()
             (let* ((c (current-confirm))
                    (hit (and c (confirm-of-laid c) *mouse-position*
                              (button-at (confirm-of-laid c) (cdr *mouse-position*) (car *mouse-position*)))))
@@ -141,7 +145,7 @@ it, the way out at the right, and any more lines under it."
                     (accept-confirm c *client*)
                   (handle-button c (bar-button-runs hit) *client*)))))
 
-(defcommand (confirm-ignore :unlisted) nil)
+(defcommand (confirm-ignore :unlisted) () nil)
 
 (atty/mode:define-key 'confirm-mode "y"      #'confirm-yes)
 (atty/mode:define-key 'confirm-mode "n"      #'confirm-no)
@@ -162,11 +166,11 @@ it, the way out at the right, and any more lines under it."
            (swap-label nil)
            (laid nil))
 
-(defun entry (client title what text &key keep swap swap-says)
-  "Ask CLIENT for a line of TEXT to start from, under TITLE, about WHAT. KEEP
-is called with the text and the client on RET; SWAP with the client on TAB,
+(defun entry (watcher title what text &key keep swap swap-says)
+  "Ask WATCHER for a line of TEXT to start from, under TITLE, about WHAT. KEEP
+is called with the text and the watcher on RET; SWAP with the watcher on TAB,
 when there is one, and SWAP-SAYS says what TAB does."
-  (client-push-overlay client (%make-entry :title title :what what :text text
+  (push-overlay watcher (%make-entry :title title :what what :text text
                                            :keep keep :swap swap :swap-label swap-says)))
 
 (defun entry-tree (e cols)
@@ -193,41 +197,41 @@ when there is one, and SWAP-SAYS says what TAB does."
 (defmethod overlay-name ((e entry)) (entry-of-title e))
 (defmethod overlay-laid-tree ((e entry)) (entry-of-laid e))
 
-(defmethod overlay-unbound-key ((e entry) chord client)
+(defmethod overlay-unbound-key ((e entry) chord watcher)
            (let ((said (atty/mode:self-inserting chord)))
              (when said
                (setf (entry-of-text e) (concatenate 'string (entry-of-text e) said)
-                     (client-dirty client) t)
+                     (watcher-behind watcher) t)
                t)))
 
 (defun current-entry ()
-  (let ((it (first (client-overlays *client*))))
+  (let ((it (first (watcher-overlays *client*))))
     (when (typep it 'entry) it)))
 
-(defun accept-entry (e client)
-  (client-pop-overlay client e)
-  (when (entry-of-keep e) (funcall (entry-of-keep e) (entry-of-text e) client)))
+(defun accept-entry (e watcher)
+  (pop-overlay watcher e)
+  (when (entry-of-keep e) (funcall (entry-of-keep e) (entry-of-text e) watcher)))
 
-(defun toggle-entry-kind (e client)
-  (client-pop-overlay client e)
-  (when (entry-of-swap e) (funcall (entry-of-swap e) client)))
+(defun toggle-entry-kind (e watcher)
+  (pop-overlay watcher e)
+  (when (entry-of-swap e) (funcall (entry-of-swap e) watcher)))
 
-(defcommand (entry-accept :unlisted)
+(defcommand (entry-accept :unlisted) ()
             (let ((e (current-entry))) (when e (accept-entry e *client*))))
 
-(defcommand (entry-toggle-kind :unlisted)
+(defcommand (entry-toggle-kind :unlisted) ()
             (let ((e (current-entry))) (when e (toggle-entry-kind e *client*))))
 
-(defcommand (entry-undo :unlisted)
-            (let ((e (current-entry))) (when e (client-pop-overlay *client* e))))
+(defcommand (entry-undo :unlisted) ()
+            (let ((e (current-entry))) (when e (pop-overlay *client* e))))
 
-(defcommand (entry-delete-backward :unlisted)
+(defcommand (entry-delete-backward :unlisted) ()
             (let ((e (current-entry)))
               (when (and e (plusp (length (entry-of-text e))))
                 (setf (entry-of-text e) (subseq (entry-of-text e) 0 (1- (length (entry-of-text e))))
-                      (client-dirty *client*) t))))
+                      (watcher-behind *client*) t))))
 
-(defcommand (entry-click :unlisted)
+(defcommand (entry-click :unlisted) ()
             (let* ((e (current-entry))
                    (hit (and e (entry-of-laid e) *mouse-position*
                              (button-at (entry-of-laid e) (cdr *mouse-position*) (car *mouse-position*)))))
@@ -237,7 +241,7 @@ when there is one, and SWAP-SAYS says what TAB does."
                       (:swap (toggle-entry-kind e *client*))
                       (t (handle-button e (bar-button-runs hit) *client*))))))
 
-(defcommand (entry-ignore :unlisted) nil)
+(defcommand (entry-ignore :unlisted) () nil)
 
 (atty/mode:define-key 'entry-mode "RET"    #'entry-accept)
 (atty/mode:define-key 'entry-mode "TAB"    #'entry-toggle-kind)

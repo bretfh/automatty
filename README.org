@@ -215,24 +215,26 @@ and carries a =⌕ find= button; a click on the =↓ N to live= chip is back to
 live.
 
 These are defaults. =~/.config/atty/init.lisp= (or under =$XDG_CONFIG_HOME=)
-is read by the server when it starts, from source, and every client attached
-is told what it says; a client never reads it, and neither does any other
-=atty= command. It binds a key, a button or the wheel to any command by name,
-defines commands, sets settings, and hooks what happens. A command defined
-there runs in the server, for whichever client asked:
+is Lisp the server loads when it starts. Keys, modes, commands and everything
+drawn over the panes live in the server; a terminal attached only sends what
+is typed and draws what it is sent. The file binds a key, a button or the
+wheel to any command by name, defines commands, sets settings, and hooks what
+happens:
 
 #+begin_src lisp
 (define-key 'pane-mode "M-wheel-up" "scroll page up")
 (undefine-key 'pane-mode "C-b t")
-(defcommand say-hello (show-note *client* "hi" "hello"))
+(defcommand say-hello () (show-note *client* "hi" "hello"))
 (configure :prefix "C-a" :wheel-rows 6 :theme :ef-dream)
 (add-hook 'pane-started (lambda (session pane) ...))
 #+end_src
 
-=atty help init= lists every setting with what the server has it as now. A file
-that does not load is said in the log and shown as a note to whoever attaches
-next; atty starts anyway. =^-b R= has the server read it again, undoing what the
-last reading did first, and every client attached is told.
+A command is called from Lisp, from a key, from =^-b := or by name from a shell,
+dashes for spaces: =atty say-hello=, =atty split-right=. =atty help init= lists
+every setting with what the server has it as now. A file that does not load is
+said in the log and shown as a note to whoever attaches next; atty starts
+anyway. =^-b R= has the server load it again, undoing what the last load did
+first.
 
 ** What is kept when the server stops
 

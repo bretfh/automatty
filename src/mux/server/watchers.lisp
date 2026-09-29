@@ -7,17 +7,9 @@
   (wire-send (watcher-wire watcher) form))
 
 (defun send-hello (watcher session)
-  "Tell WATCHER what it is looking at, and what this server can be asked to do."
+  "Tell WATCHER how big what it is looking at is."
   (send-message watcher (list :hello (session-name session)
-                      (session-rows session) (session-cols session)
-                      (message-types)))
-  ;; on its own rather than on the end of the greeting: a client from before
-  ;; this takes the greeting apart by its exact shape, and passes over a
-  ;; message it has never heard of
-  (send-message watcher (list :you (watcher-id watcher)))
-  ;; and which build this server is, for a client that is another
-  (send-message watcher (list :version *version*))
-  (send-message watcher (list :barp (session-bar-p session))))
+                      (session-rows session) (session-cols session))))
 
 (defun leave-session (watcher)
   "Take WATCHER off whatever session it was on."
@@ -45,7 +37,6 @@
   (leave-session watcher)
   (setf (server-pending-watchers server) (remove watcher (server-pending-watchers server))
         (watcher-session watcher) session)
-  (send-config watcher)
   (push watcher (session-watchers session))
   ;; a fit that changed the size has already told everybody, this one included;
   ;; only a fit that changed nothing leaves it to be said here
@@ -60,7 +51,8 @@
   ;; first to arrive is told, and it is said once
   (when (server-notes server)
     (dolist (note (reverse (server-notes server)))
-      (send-message watcher (list* :say note)))
+      (destructuring-bind (text &optional (face :accent)) note
+        (show-note watcher "atty" text :face face)))
     (setf (server-notes server) nil))
   (send-client-list server)
   (let ((*client* watcher)) (run-hook 'client-attached watcher))
@@ -121,10 +113,7 @@ typed."
           :collect (encode-client server w now)))
 
 (defun send-client-list (server)
-  "Everybody keeping up with the panes is told who is attached now: the same
-watchers that hear about panes, since what they draw from one they draw
-from the other."
-  (let ((rows (encode-clients server (now-ms))))
-    (dolist (w (all-watchers server))
-      (when (and (watcher-watch-panes w) (wire-open (watcher-wire w)))
-        (send-message w (list :clients rows))))))
+  "Everybody attached is drawn again: who is attached is on the bar and in
+what lists the terminals."
+  (dolist (w (all-watchers server))
+    (when (watcher-interactive w) (setf (watcher-behind w) t))))

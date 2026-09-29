@@ -26,29 +26,21 @@
          :when name :collect (list name chord (or (command-group name) 'other)))
    #'string< :key #'second))
 
-(defparameter +menu-delay+ 300
-              "How long a prefix has to hang, in milliseconds, before the menu is drawn.")
-
 (defparameter +menu-column+ 60 "The least a column of the menu is: room for what most keys do.")
 
-(defun menu-due-p (client)
-  (and (client-partial-chord client)
-       (client-pending-since client)
-       (>= (- (client-ms) (client-pending-since client)) +menu-delay+)))
-
-(defun close-menu (client)
+(defun close-menu (watcher)
   "Put the menu away, and the half chord it was for."
-  (setf (client-partial-chord client) nil
-        (client-pending-since client) nil
-        (client-menu client) nil
-        (client-dirty client) t))
+  (setf (watcher-partial-chord watcher) nil
+        (watcher-pending-since watcher) nil
+        (watcher-menu watcher) nil
+        (watcher-behind watcher) t))
 
-(defun handle-menu-click (client)
+(defun handle-menu-click (watcher)
   "A press while the menu is up: an entry under it runs, and either way the
 menu goes away with the half chord it was for."
-  (let ((hit (button-at (client-menu client) (cdr *mouse-position*) (car *mouse-position*))))
-    (close-menu client)
-    (when hit (run-command (bar-button-runs hit) client))))
+  (let ((hit (button-at (watcher-menu watcher) (cdr *mouse-position*) (car *mouse-position*))))
+    (close-menu watcher)
+    (when hit (run-command (bar-button-runs hit) watcher))))
 
 (defun group-title (group)
   (case group
@@ -56,12 +48,12 @@ menu goes away with the half chord it was for."
         (agents "agents") (scrolling "reading") (asking "look around")
         (t "more")))
 
-(defun menu-groups (client)
-  "What can follow the chord CLIENT has half typed, as (group (key name) ...)
+(defun menu-groups (watcher)
+  "What can follow the chord WATCHER has half typed, as (group (key name) ...)
 in the order the groups are listed."
-  (let* ((prefix (let ((atty/mode:*pending* (client-partial-chord client))) (atty/mode:pending)))
+  (let* ((prefix (let ((atty/mode:*pending* (watcher-partial-chord watcher))) (atty/mode:pending)))
          (start (concatenate 'string prefix " "))
-         (rows (loop :for (name chord group) :in (mode-keys-rows (client-mode client))
+         (rows (loop :for (name chord group) :in (mode-keys-rows (watcher-mode watcher))
                      :when (and (> (length chord) (length start))
                                 (string= start chord :end2 (length start)))
                      :collect (list group (subseq chord (length start)) name)))
@@ -77,10 +69,10 @@ in the order the groups are listed."
                            (atty/ui:label (format nil "  ~5@A " key) :face :state-blocked-strong)
                            (atty/ui:label (truncate-string (or (command-doc name) name) (max 1 (- width 10)))))))
 
-(defun menu-tree (client cols)
+(defun menu-tree (watcher cols)
   "The menu: columns of groups, each its title and the keys under it, in a
 rounded box that says what it is for and how to put it away."
-  (let* ((groups (menu-groups client))
+  (let* ((groups (menu-groups watcher))
          (across (max 1 (min 4 (floor (- cols 4) +menu-column+))))
          (width (max 20 (floor (- cols 4) across)))
          (columns (make-array across :initial-element nil))
@@ -103,18 +95,18 @@ rounded box that says what it is for and how to put it away."
      :titles (list :tl (atty/ui:row :spacing 0
                                     (atty/ui:label (format nil " ~A " (prefix-string)) :face :key)
                                     (atty/ui:label " then one key" :face :strong))
-                   :tr (and (client-session client)
-                            (atty/ui:label (format nil " ~A " (client-session client)) :face :quiet))
+                   :tr (and (watcher-session-name watcher)
+                            (atty/ui:label (format nil " ~A " (watcher-session-name watcher)) :face :quiet))
                    :br (atty/ui:row :spacing 0
                                     (atty/ui:label "Esc" :face :key-hint)
                                     (atty/ui:label " cancels · no timeout " :face :quiet))))))
 
-(defun draw-menu (client screen)
+(defun draw-menu (watcher screen)
   "Draw the menu over the foot of SCREEN and keep the tree for clicks."
   (let* ((cols (tty:screen-width screen))
          (rows (tty:screen-height screen))
          (m (atty/cells:make-cells (tty:screen-grid screen) cols rows))
-         (tree (menu-tree client cols))
+         (tree (menu-tree watcher cols))
          (high (nth-value 1 (atty/ui:with-pass
                              (atty/ui:restyle tree)
                              (atty/ui:measure tree m cols rows))))
@@ -122,30 +114,30 @@ rounded box that says what it is for and how to put it away."
     (atty/cells:fill-rect m 0 top cols (- rows top) (term:make-face :bg (bar-face :bg-dim)))
     (top-edge m 0 top cols :bg-dim)
     (atty/cells:draw tree (tty:screen-grid screen) cols (+ top (min high rows)) :top top)
-    (setf (client-menu client) tree
+    (setf (watcher-menu watcher) tree
           (tty:screen-cursor-visible screen) nil)))
 
-(defcommand (show-menu :group asking)
+(defcommand (show-menu :group asking) ()
             "the menu of every key that follows the prefix, as though it had been pressed"
-            (client-chord *client* (event-key +prefix+))
-            (when (client-partial-chord *client*)
-              (setf (client-pending-since *client*) (- (client-ms) +menu-delay+)
-                    (client-dirty *client*) t)))
+            (press-chord *client* (event-key +prefix+))
+            (when (watcher-partial-chord *client*)
+              (setf (watcher-pending-since *client*) (- (now-ms) +menu-delay+)
+                    (watcher-behind *client*) t)))
 
-(defcommand (describe-mode :unlisted)
+(defcommand (describe-mode :unlisted) ()
             "the keys of whatever is on top, or of the session when nothing is"
-            (let ((mode (client-mode *client*)))
+            (let ((mode (watcher-mode *client*)))
               (if (eq mode 'pane-mode)
                   (describe-bindings)
                 (open-prompt *client* (format nil "keys · ~(~A~)" mode) (mode-keys-rows mode)
                              :text (lambda (r) (format nil "~12A ~24A ~@[~A~]" (second r) (first r) (command-doc (first r))))
                              :foot (hints 'prompt-mode 'prompt-accept "run" 'prompt-cancel "close")
-                             :chose (lambda (r client) (run-command (first r) client))))))
+                             :chose (lambda (r watcher) (run-command (first r) watcher))))))
 
-(defcommand (describe-bindings :group asking)
+(defcommand (describe-bindings :group asking) ()
             "every command, its key and what it acts on; RET runs one"
             (open-prompt *client* "keys" (keys-help-rows)
                          :text (lambda (r) (format nil "~(~9A~) ~24A ~10A ~@[~A~]"
                                                    (third r) (first r) (or (second r) "") (command-doc (first r))))
                          :foot (hints 'prompt-mode 'prompt-accept "run" 'prompt-cancel "close")
-                         :chose (lambda (r client) (run-command (first r) client))))
+                         :chose (lambda (r watcher) (run-command (first r) watcher))))

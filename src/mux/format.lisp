@@ -38,34 +38,34 @@ is none."
         (format nil "~2,'0D:~2,'0D:~2,'0D" h m s))
       "        "))
 
-(defun format-actor (actor client &key short)
+(defun format-actor (actor watcher &key short)
   "WHO from a pane's log as it is said: ◆ here for this terminal, ⌨ and its
 tty for another, ⌁ and its path for a pane, $ for the command line. SHORT is
 the glyph alone."
   (case (first actor)
-    (:client (cond ((and client (eql (second actor) (client-id client))) (if short "◆" "◆ here"))
+    (:client (cond ((and watcher (eql (second actor) (watcher-id watcher))) (if short "◆" "◆ here"))
                    (short "⌨")
                    (t (format nil "⌨ ~A" (format-tty (third actor) (second actor))))))
     (:pane (if short "⌁" (format nil "⌁ ~A" (second actor))))
     (:atty (if short "↺" "atty"))
     (t (if short "$" "$ cli"))))
 
-(defun actor-face (actor client)
+(defun actor-face (actor watcher)
   (case (first actor)
-    (:client (if (and client (eql (second actor) (client-id client))) :here :client))
+    (:client (if (and watcher (eql (second actor) (watcher-id watcher))) :here :client))
     (:pane :driven)
     (t :quiet)))
 
-(defun actor-label (actor client &key (pad 0))
+(defun actor-label (actor watcher &key (pad 0))
   "WHO as a label in its own colour, PAD wide at least."
-  (atty/ui:label (format nil "~vA" pad (format-actor actor client)) :face (actor-face actor client)))
+  (atty/ui:label (format nil "~vA" pad (format-actor actor watcher)) :face (actor-face actor watcher)))
 
-(defun client-label (row client &key (pad 0))
+(defun client-label (row watcher &key (pad 0))
   "An attached terminal as the server lists it, (id tty …), as a label."
-  (actor-label (list :client (first row) (second row)) client :pad pad))
+  (actor-label (list :client (first row) (second row)) watcher :pad pad))
 
-(defun this-client-p (row client)
-  (and client (eql (first row) (client-id client))))
+(defun this-client-p (row watcher)
+  (and watcher (eql (first row) (watcher-id watcher))))
 
 (defun event-glyph (kind)
   (case kind

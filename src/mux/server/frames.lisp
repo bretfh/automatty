@@ -83,7 +83,10 @@ last option is never the one that goes."
   (apply #'atty/ui:row :spacing 1
          (loop :for (n) :in options
                :for text :in (fit-options options room)
-               :collect (bar-button (list :answer (session-name session) (pane-id pane) n)
+               :collect (bar-button (let ((n n))
+                                      (lambda ()
+                                        (answer-pane (session-server session) *client*
+                                                     (session-name session) (pane-id pane) n)))
                                     (atty/ui:row :spacing 0
                                                  (atty/ui:label (format nil " ~D" n)
                                                                 :face :key-number)
@@ -106,9 +109,9 @@ the whole session, and which rule decided it was asking."
     (remove nil
             ;; dim words beside the answers, not keys of their own: the
             ;; answers are what the eye should land on
-            (list (bar-button (list :pane-read name id)
+            (list (bar-button (lambda () (read-pane (session-server session) *client* name id))
                               (atty/ui:label " read " :face :quiet))
-                  (bar-button (list :zoom name id)
+                  (bar-button (lambda () (session-zoom-pane (session-server session) *client* name id))
                               (atty/ui:label (if (eq pane (session-zoomed session))
                                                  " unzoom " " zoom ")
                                              :face :quiet))

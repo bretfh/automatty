@@ -6,6 +6,7 @@
   (format s "~&atty: many terminals inside one~%~%")
   (format s "  atty                 a shell in a session called 0, made if it is not there~%")
   (format s "  atty <name>          the same, under another name~%")
+  (format s "  atty <command> [<argument>...]   run a command by name, dashes for spaces: atty split-right~%")
   (format s "  atty run <name> <command> [--name <n>]   the same, running COMMAND~%")
   (format s "  atty attach [<name>] join a session already running~%")
   (format s "  atty list            the sessions, their windows and panes, how many need you, who is attached~%")
@@ -73,6 +74,15 @@
         (init-help *standard-output* (second said))
         (init-help *standard-output* (encode-settings) :defaults))))
 
+(defun ran (outcome)
+  "Ending the command line as a command run in the server came to: no server
+is an error, and a command that did not go through exits with its status."
+  (case outcome
+    ((nil) (error "no server is running"))
+    (:no-command (error "the server has no such command"))
+    ((t) t)
+    (t (sb-ext:quit :unix-status outcome))))
+
 (defun main (&optional (args (rest sb-ext:*posix-argv*)))
   (setf *self-inode* (and (executable-path) (inode-of (executable-path))))
   (handler-case
@@ -86,15 +96,29 @@
         (let ((what (first args)))
           (cond
             ((null what) (attach-or-create))
-            ((string= what "list") (list-sessions))
+            ((string= what "list")
+             (unless (run-in-server "list sessions" nil)
+               (let ((saved (saved-sessions)))
+                 (if saved
+                     (loop :for (name windows panes at) :in saved
+                           :do (format t "~&~12A ~D window~:P  ~D pane~:P  saved ~A; not running, atty ~A brings it back~%"
+                                       name windows panes (format-day-time at) name))
+                     (format t "~&nothing is running~%")))))
             ((or (string= what "version") (string= what "--version") (string= what "-V"))
              (print-version))
             ((string= what "update")
              (update-atty :check (member "--check" args :test #'string=)))
-            ((string= what "clients") (list-clients))
-            ((string= what "events") (list-events args))
-            ((string= what "rename") (request-rename-session args))
-            ((string= what "stop") (stop-session (or (second args) (error "atty stop <name>: which session?"))))
+            ((string= what "clients") (ran (run-in-server "list clients" nil)))
+            ((string= what "events") (ran (run-in-server "list events" (rest args))))
+            ((string= what "rename")
+             (unless (third args) (error "atty rename <old> <new>: which session, and what to call it?"))
+             (ran (run-in-server "rename session" (rest args))))
+            ((string= what "stop")
+             (let ((name (or (second args) (error "atty stop <name>: which session?"))))
+               (unless (eq t (run-in-server "stop session" (list name)))
+                 (if (delete-saved-session name)
+                     (format t "~&~A was not running; what was saved of it is gone~%" name)
+                     (sb-ext:quit :unix-status 1)))))
             ((string= what "start")
              (if *fresh-start* (start-fresh-server) (ensure-server))
              (format t "~&~A~%" (if (request-sessions)
@@ -102,11 +126,7 @@
                                     "the server is up, holding nothing yet")))
             ((string= what "restart-server")
              (format t "~&the server is back with ~D session~:P~%" (restart-server)))
-            ((string= what "save")
-             (let ((path (server-socket-path)))
-               (unless (server-alive-p path) (error "no server is running"))
-               (request path '((:save)) :done (lambda (f) (eq :saved (first f))))
-               (format t "~&saved~%")))
+            ((string= what "save") (ran (run-in-server "save" nil)))
             ((string= what "kill-server") (kill-server))
             ((string= what "attach")
              (let ((path (server-socket-path)))
@@ -129,7 +149,11 @@
              (if (equal (second args) "init")
                  (help-init)
                  (usage *standard-output*)))
-            (t (attach-or-create :name what)))))
+            (t (let ((ran (run-in-server (command-word what) (rest args))))
+                 (case ran
+                   ((t) nil)
+                   ((nil :no-command) (attach-or-create :name what))
+                   (t (sb-ext:quit :unix-status ran))))))))
     (stream-error ()
       (sb-ext:quit :unix-status 0 :recklessly-p t))
     ;; ^C while this waits on something, a server restarting say, is somebody

@@ -71,10 +71,10 @@
     (signals error (taken reader))))
 
 (test a-frame-that-went-across-the-wire-is-the-same-screen
-  (let* ((pane (a-term :width 20 :height 3))
-         (screen (a-screen :width 20 :height 3))
-         (was (a-screen :width 20 :height 3))
-         (there (a-screen :width 20 :height 3)))
+  (let* ((pane (term:make-term :width 20 :height 3))
+         (screen (tty:make-screen :width 20 :height 3))
+         (was (tty:make-screen :width 20 :height 3))
+         (there (tty:make-screen :width 20 :height 3)))
     (say pane (csi "1;31m") "red" (csi "0m") " plain "
          (csi "38;2;10;200;30m") "green" (csi "0m")
          (esc "[2;1H") (format nil "~C~C" (code-char #x6F22) (code-char #x5B57)))
@@ -94,11 +94,11 @@
             "~D,~D wears a different face there" x y)))))
 
 (test what-came-off-the-wire-drawn-is-what-was-put-on-it
-  (let* ((pane (a-term :width 20 :height 3))
-         (screen (a-screen :width 20 :height 3))
-         (was (a-screen :width 20 :height 3))
-         (there (a-screen :width 20 :height 3))
-         (host (a-host there)))
+  (let* ((pane (term:make-term :width 20 :height 3))
+         (screen (tty:make-screen :width 20 :height 3))
+         (was (tty:make-screen :width 20 :height 3))
+         (there (tty:make-screen :width 20 :height 3))
+         (host (host there)))
     (say pane (csi "4:3;58;5;9m") "curly" (csi "0m") (esc "[2;1H") (csi "7m") "flipped")
     (blit screen pane)
     (multiple-value-bind (said faces)

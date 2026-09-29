@@ -7,7 +7,7 @@
 ;;; direction is libatty's and is tested in tests/term/input.lisp; a round trip
 ;;; needs both, so it lives on this side.
 
-(defun a-key-again (term event)
+(defun key-round-trip (term event)
   (let ((said (term:key-event-to-escape-sequence term event)))
     (when said
       (multiple-value-bind (back took)
@@ -22,7 +22,7 @@
                        (:ctrl :meta) (:shift :meta :ctrl)))
 
 (test what-was-typed-and-read-back-is-the-same-key
-  (let ((term (a-term)))
+  (let ((term (term:make-term)))
     (dolist (keypad '(nil t))
       (when keypad (say term (csi "?1h")))
       (dolist (key '(:up :down :left :right :home :end
@@ -30,23 +30,23 @@
                      :f1 :f2 :f3 :f4 :f5 :f6 :f7 :f8 :f9 :f10 :f11 :f12))
         (dolist (mods +mods+)
           (let ((event (list* key mods)))
-            (multiple-value-bind (back took length said) (a-key-again term event)
+            (multiple-value-bind (back took length said) (key-round-trip term event)
               (is (same-key-p event back)
                   "~S went out as ~S and came back as ~S" event said back)
               (is (eql took length)
                   "~S came back after ~D of its ~D characters" said took length))))))))
 
 (test a-backspace-comes-back-with-the-modifiers-it-was-sent-with
-  (let ((term (a-term)))
+  (let ((term (term:make-term)))
     (dolist (mods '(() (:ctrl) (:meta) (:ctrl :meta)))
       (let ((event (list* :backspace mods)))
-        (multiple-value-bind (back took length said) (a-key-again term event)
+        (multiple-value-bind (back took length said) (key-round-trip term event)
           (is (same-key-p event back)
               "~S went out as ~S and came back as ~S" event said back)
           (is (eql took length)))))))
 
 (test a-modifier-the-old-encoding-has-no-room-for-is-dropped
-  (let ((term (a-term)))
+  (let ((term (term:make-term)))
     (dolist (event '((:tab :ctrl) (:enter :shift) (:escape :meta)
                      (:backspace :shift)))
       (let ((said (term:key-event-to-escape-sequence term event)))
@@ -55,7 +55,7 @@
         (is (same-key-p (list (first event))
                         (tty:escape-sequence-to-key-event said 0 1 nil))
             "~S came back as something other than a bare ~S" said (first event))))
-    (multiple-value-bind (back) (a-key-again term '(:tab :shift))
+    (multiple-value-bind (back) (key-round-trip term '(:tab :shift))
       (is (same-key-p '(:tab :shift) back)
           "shift-tab has its own sequence and should keep its shift"))))
 

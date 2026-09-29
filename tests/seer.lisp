@@ -6,7 +6,7 @@
 
 (defvar *paths* 0)
 
-(defun a-socket-path ()
+(defun socket-path ()
   (format nil "~Aatty-~D-~D" (uiop:temporary-directory)
           (sb-posix:getpid) (incf *paths*)))
 
@@ -36,7 +36,7 @@
 
 (defmacro with-server ((path &key (command "cat") (rows 10) (cols 40)) &body body)
   (let ((thread (gensym "THREAD")) (broke (gensym "BROKE")))
-    `(let ((,path (a-socket-path))
+    `(let ((,path (socket-path))
            ;; a fault in the loop is stepped over rather than fatal, so a test
            ;; would go on passing over one. This is where the server says what
            ;; broke, and a test that leaves anything here has found something
@@ -76,13 +76,13 @@
     (prog1 (reverse (seer-heard seer))
       (setf (seer-heard seer) nil))))
 
-(defun a-seer (path &key (rows 10) (cols 40))
+(defun seer (path &key (rows 10) (cols 40))
   (multiple-value-bind (master slave-path) (pty:open-pty)
                        (let ((slave (sb-posix:open slave-path sb-posix:o-rdwr)))
                          (pty:pty-set-size master rows cols)
                          (tty:host-raw slave)
                          (let ((seer (make-seer :client (mux:make-client path :fd slave :to slave)
-                                                :host (a-term :width cols :height rows)
+                                                :host (term:make-term :width cols :height rows)
                                                 :master master
                                                 :slave slave)))
                            (setf (seer-reader seer)
@@ -130,7 +130,7 @@ already failing."
     (subseq all (min (length all) (1+ (or (position #\Newline all) (length all)))))))
 
 (defmacro with-seer ((seer path &rest args) &body body)
-  `(let ((,seer (a-seer ,path ,@args)))
+  `(let ((,seer (seer ,path ,@args)))
      (unwind-protect (progn ,@body) (seer-close ,seer))))
 
 (defun step-until (server test &optional (seconds 5))
@@ -141,9 +141,9 @@ already failing."
           (when (> (get-internal-real-time) deadline) (return nil))
           :finally (return t))))
 
-(defmacro with-a-server-here ((server path) &body body)
+(defmacro with-stepped-server ((server path) &body body)
   "A server stepped by hand, so a test can look at what it holds between steps."
-  `(let ((,path (a-socket-path)))
+  `(let ((,path (socket-path)))
      (unwind-protect
          (let ((,server (mux:make-server ,path)))
            (unwind-protect (progn ,@body)
@@ -160,7 +160,7 @@ already failing."
         :for found := (search said (term:term-dump-row-string (seer-host seer) y))
         :when found :do (return found)))
 
-(defun a-wire-to (path)
+(defun wire-to (path)
   (let ((socket (make-instance 'sb-bsd-sockets:local-socket :type :stream)))
     (sb-bsd-sockets:socket-connect socket path)
     (mux:make-wire (sb-bsd-sockets:socket-file-descriptor socket) socket)))
@@ -176,6 +176,13 @@ already failing."
                          (setf heard (append heard (heard-back wire)))
                          (find tag heard :key #'first)))
     (find tag heard :key #'first)))
+
+(defun run-by-name (server wire name arguments &key here)
+  "Run the command called NAME with ARGUMENTS on SERVER, the way a command line
+in the pane HERE does: (values what it said and its status)."
+  (say-to wire (list :run name arguments here))
+  (let ((ran (heard-from server wire :ran)))
+    (values (second ran) (third ran))))
 
 (defun heard-tags (server wire)
   "A function of one tag, each call like HEARD-FROM, but sharing one
@@ -202,7 +209,7 @@ for is kept rather than thrown away with it, for the next call to find."
   (agent:agent-hear (mux:pane-agent pane) :blocked)
   (step-until server (lambda () (eq :blocked (agent:agent-state (mux:pane-agent pane))))))
 
-(defun a-dialog-script ()
+(defun dialog-script ()
   "A script that sets the title a coding agent sets, draws a permission dialog
 under a rule, and then echoes whatever it is answered."
   (let ((path (format nil "~Aatty-dialog-~D.sh" (uiop:temporary-directory) (sb-posix:getpid))))
@@ -231,40 +238,7 @@ from row FROM down."
   (type-at seer (format nil "~C[<0;~D;~DM~C[<0;~D;~Dm" #\Escape (1+ x) (1+ y)
                         #\Escape (1+ x) (1+ y))))
 
-(defun a-told-client (&rest rows)
-  "A client that has been told about ROWS, without a server behind it."
-  (let ((client (mux::%make-client)))
-    (dolist (row rows client)
-      (setf (gethash (cons (getf row :session) (getf row :id)) (mux::client-panes client))
-            (list* :heard-at (mux::client-ms)
-                   ;; a row made up here is a known agent unless it says not
-                   (if (member :known row) row (list* :known t row)))))))
-
-(defun board-client ()
-  (let ((client (a-told-client
-                 (list :session "todo" :order 0 :at 0 :id 1 :says "arch" :kind "claude-code"
-                       :state :working :for 41000 :doing "Recording clarification 9…"
-                       :driven-by "todo:4")
-                 (list :session "todo" :order 0 :at 1 :id 2 :says "impl" :kind "claude-code"
-                       :state :blocked :for 42000
-                       :asks '(:subject "Bash command" :detail ("python3 -m pytest -q")
-                               :options ((1 "Yes") (2 "No"))))
-                 (list :session "todo" :order 0 :at 2 :id 4 :says "ctl" :kind "atty"
-                       :state :working :for 2000 :drives (list "todo:1"))
-                 (list :session "lib" :order 1 :at 0 :id 7 :says "tests" :kind "make"
-                       :state :idle :for 3000
-                       :history '((3000 :idle) (60000 :working))))))
-    (setf (mux::client-session client) "todo")
-    client))
-
-(defun board-screen (client b &key (cols 150) (rows 30))
-  "B drawn for CLIENT on a screen COLS by ROWS, as one string."
-  (let ((screen (tty:make-screen :width cols :height rows)))
-    (setf (mux::client-rows client) rows (mux::client-cols client) cols)
-    (let ((mux::*overlay-client* client)) (mux:draw-overlay b screen))
-    (values (format nil "~{~A~%~}" (loop :for y :below rows :collect (shown screen y))) screen)))
-
-(defun a-buffer-wire ()
+(defun buffer-wire ()
   "A wire that keeps what is sent to it: the write end of a pipe nobody reads."
   (multiple-value-bind (r w) (sb-posix:pipe)
     (declare (ignore r))
@@ -274,25 +248,138 @@ from row FROM down."
   (sb-ext:octets-to-string (subseq (mux::wire-out wire) 0 (mux::wire-end wire))
                            :external-format :utf-8))
 
-(defun five-windows (client)
-  "The todo session laid out as five windows, the first split."
-  (setf (mux::client-id client) 7
-        (mux::client-clients client) '((7 "/dev/ttys042" 40 150 "todo" 1 1000 nil)
-                                       (9 "/dev/ttys051" 30 100 "lib" 1 5000 200))
-        (gethash "todo" (mux::client-layouts client))
-        '((1 "agents" (:across 1 (:down 2 4)) 2 t) (2 "notes" 1 1 nil) (3 "ctl" 4 4 nil)
-          (4 "more" 2 2 nil) (5 "last" 1 1 nil)))
-  client)
+(defun said-rows (rows)
+  "ROWS as the overlays read them: each told just now, and a known agent
+unless it says not."
+  (let* ((now (mux::now-ms))
+         (rows (mapcar (lambda (r) (list* :heard-at now (if (member :known r) r (list* :known t r))))
+                       rows))
+         (table (make-hash-table :test 'equal)))
+    (dolist (r rows) (setf (gethash (mux::row-key r) table) r))
+    (list (cons rows table))))
+
+(defun world-session (server name rows layouts panes)
+  (let* ((mine (remove name rows :key (lambda (r) (getf r :session)) :test-not #'equal))
+         (said (cdr (assoc name layouts :test #'equal)))
+         (windows
+           (if said
+               (loop :for (nil label tree) :in said
+                     :collect (let ((layout (labels ((build (it)
+                                                       (if (consp it)
+                                                           (mux:make-split (first it) (mapcar #'build (rest it)))
+                                                           (gethash it panes))))
+                                              (build tree))))
+                                (mux::%make-window :label label :layout layout
+                                                   :focus (first (mux:layout-panes layout)))))
+               (loop :for n :in (sort (remove-duplicates (mapcar (lambda (r) (or (getf r :window) 1)) mine)) #'<)
+                     :collect (let* ((in (sort (remove n mine :key (lambda (r) (or (getf r :window) 1)) :test-not #'eql)
+                                               #'< :key (lambda (r) (or (getf r :at) 0))))
+                                     (ps (mapcar (lambda (r) (gethash (getf r :id) panes)) in))
+                                     (layout (if (rest ps) (mux:make-split :across ps) (first ps))))
+                                (mux::%make-window :label (getf (first in) :window-name) :layout layout
+                                                   :focus (first ps))))))
+         (session (mux::%make-session :name name :rows 30 :cols 150 :windows windows
+                                      :window (first windows) :server server
+                                      :bar-p t :screen (tty:make-screen :width 150 :height 30))))
+    (setf (mux::server-sessions server) (append (mux::server-sessions server) (list session)))
+    session))
+
+(defun make-world (server rows &key layouts clients)
+  "SERVER holding a session for every session ROWS name, in the order they
+say, its windows as LAYOUTS says or as the rows do, and a pane for every row,
+nothing started in any of them. CLIENTS are attached terminals the way
+ENCODE-CLIENT says one: the first is the one the tests act as. Answers it."
+  (let ((panes (make-hash-table))
+        (now (mux::now-ms)))
+    (dolist (r rows)
+      (let ((pane (mux:make-pane (or (getf r :command) "true") :id (getf r :id) :rows 8 :cols 30)))
+        (setf (mux::pane-label pane) (getf r :label)
+              (gethash (getf r :id) panes) pane)))
+    (let ((names (mapcar #'car (sort (remove-duplicates
+                                      (mapcar (lambda (r) (cons (getf r :session) (or (getf r :order) 0))) rows)
+                                      :test #'equal :key #'car)
+                                     #'< :key #'cdr))))
+      (dolist (name (union names (mapcar #'car layouts) :test #'equal))
+        (world-session server name rows layouts panes)))
+    (first
+     (loop :for (id tty wrows wcols session window since typed)
+             :in (or clients '((7 "/dev/ttys042" 30 150 "todo" 1 1000 nil)))
+           :collect (let ((w (mux::%make-watcher :id id :tty tty :rows wrows :cols wcols
+                                                 :interactive t :wire (buffer-wire)
+                                                 :since (- now since)
+                                                 :typed-at (if typed (- now typed) 0)))
+                          (it (mux:session-named server session)))
+                      (when it
+                        (setf (mux::watcher-session w) it)
+                        (setf (mux::session-watchers it) (append (mux::session-watchers it) (list w)))
+                        (when window (mux::session-select-window it window)))
+                      w)))))
+
+(defmacro with-world ((watcher server rows &key layouts clients) &body body)
+  "WATCHER, the first of CLIENTS, on a server stepped by hand that MAKE-WORLD
+built from ROWS, with ROWS what the overlays are told of its panes."
+  (let ((path (gensym "PATH")))
+    `(with-stepped-server (,server ,path)
+       (let* ((,watcher (make-world ,server ,rows :layouts ,layouts :clients ,clients))
+              (mux::*rows* (said-rows ,rows)))
+         ,@body))))
+
+(defun world-pane (server id)
+  (loop :for s :in (mux::server-sessions server)
+        :thereis (find id (mux::session-panes s) :key #'mux:pane-id)))
+
+(defparameter +board-rows+
+  (list (list :session "todo" :order 0 :window 1 :at 0 :id 1 :says "arch" :kind "claude-code"
+              :state :working :for 41000 :doing "Recording clarification 9…"
+              :driven-by "todo:4")
+        (list :session "todo" :order 0 :window 1 :at 1 :id 2 :says "impl" :kind "claude-code"
+              :state :blocked :for 42000
+              :asks '(:subject "Bash command" :detail ("python3 -m pytest -q")
+                      :options ((1 "Yes") (2 "No"))))
+        (list :session "todo" :order 0 :window 1 :at 2 :id 4 :says "ctl" :kind "atty"
+              :state :working :for 2000 :drives (list "todo:1"))
+        (list :session "todo" :order 0 :window 2 :at 0 :id 11 :says "arch" :kind "claude-code"
+              :state :working :for 41000)
+        (list :session "todo" :order 0 :window 3 :at 0 :id 12 :says "ctl" :kind "atty"
+              :state :working :for 2000)
+        (list :session "todo" :order 0 :window 4 :at 0 :id 13 :says "impl" :kind "claude-code"
+              :state :working :for 42000)
+        (list :session "todo" :order 0 :window 5 :at 0 :id 14 :says "arch" :kind "claude-code"
+              :state :working :for 41000)
+        (list :session "lib" :order 1 :window 1 :at 0 :id 7 :says "tests" :kind "make"
+              :state :idle :for 3000
+              :history '((3000 :idle) (60000 :working)))))
+
+(defparameter +board-layouts+
+  '(("todo" (1 "agents" (:across 1 (:down 2 4))) (2 "notes" 11) (3 "ctl" 12)
+            (4 "more" 13) (5 "last" 14))
+    ("lib" (1 nil 7))))
+
+(defparameter +board-clients+
+  '((7 "/dev/ttys042" 30 150 "todo" 1 1000 nil)
+    (9 "/dev/ttys051" 30 100 "lib" 1 5000 200)))
+
+(defmacro with-board ((watcher server &key (clients '+board-clients+)) &body body)
+  `(with-world (,watcher ,server +board-rows+ :layouts +board-layouts+ :clients ,clients)
+     ,@body))
+
+(defun board-screen (watcher b &key (cols 150) (rows 30))
+  "B drawn for WATCHER on a screen COLS by ROWS, as one string."
+  (let ((screen (tty:make-screen :width cols :height rows))
+        (session (mux::watcher-session watcher)))
+    (setf (mux::session-rows session) rows (mux::session-cols session) cols)
+    (let ((mux:*client* watcher)) (mux:draw-overlay b screen))
+    (values (format nil "~{~A~%~}" (loop :for y :below rows :collect (shown screen y))) screen)))
 
 (defun dumped (pane)
   (term:term-dump-to-string (mux:pane-term pane)))
 
-(defmacro with-a-session ((session pane server command &key (rows 12) (cols 30)) &body body)
+(defmacro with-session ((session pane server command &key (rows 12) (cols 30)) &body body)
   "One session of one pane running COMMAND on a server stepped by hand, laid
 out: the bar on the first row, the pane under it, its scrollbar down the last
 column."
   (let ((path (gensym "PATH")))
-    `(with-a-server-here (,server ,path)
+    `(with-stepped-server (,server ,path)
        (let* ((,session (mux:add-session ,server ,command :name "work" :rows ,rows :cols ,cols))
               (,pane (mux:session-focus ,session)))
          ,@body))))

@@ -11,7 +11,7 @@ than this waits. A tick would add half its length to every keystroke, which is
 more than the terminal it is sitting inside costs in the first place.")
 
 (declaim (ftype function session-bar session-compose send-hello send-message load-user-init init-load-note
-                        send-config run-init-command encode-settings))
+                        encode-settings show-note found-in-pane push-overlay overlay-session-renamed))
 
 (defparameter +max-pane-size+ 1000)
 
@@ -26,6 +26,9 @@ command line."
   (cond ((and (stringp caller-pane) (plusp (length caller-pane))) (list :pane caller-pane))
         ((watcher-interactive watcher) (list :client (watcher-id watcher) (watcher-tty watcher)))
         (t (list :cli))))
+
+(defvar *server* nil
+  "The server a message is being handled by.")
 
 (defstruct (watcher (:constructor %make-watcher))
   (wire nil)
@@ -45,12 +48,16 @@ command line."
   (since 0 :type integer)
   (typed-at 0 :type integer)
   (following nil)                       ; the id of the watcher this one goes where
-  (watch-panes nil)
-  (rows-sent (make-hash-table :test 'equal))
-  (screen-rows nil)
-  (screens-sent (make-hash-table :test 'equal))
-  (config-sent nil)
-  (bracketed-sent nil))
+  (bracketed-sent nil)
+  (mode 'pane-mode)
+  (partial-chord nil :type list)
+  (pending-since nil)
+  (menu nil)
+  (partial "" :type string)
+  (overlays nil :type list)
+  (screen nil)
+  (found nil)
+  (find-text nil))
 
 ;;; A window is what a session shows at one time: a layout of panes, which of
 ;;; them has the focus, and whether one of them is zoomed. A session holds its

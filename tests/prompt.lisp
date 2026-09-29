@@ -22,14 +22,14 @@
       "a shorter answer that matched as well did not win"))
 
 (defun pressing (p &rest chords)
-  "Put P up on a client and press the chords at it, as the loop would."
-  (let ((client (mux::%make-client)))
-    (mux:client-push-overlay client p)
+  "Put P up on a watcher and press the chords at it, as the loop would."
+  (let ((watcher (mux::%make-watcher)))
+    (mux:push-overlay watcher p)
     (dolist (chord chords p)
-      (let ((mux:*client* client)
+      (let ((mux:*client* watcher)
             (atty/mode:*pending* nil)
-            (atty/mode:*unbound* (lambda (c) (mux:overlay-unbound-key p c client))))
-        (atty/mode:press chord (atty/mode:mode-named (mux:client-mode client)))))))
+            (atty/mode:*unbound* (lambda (c) (mux:overlay-unbound-key p c watcher))))
+        (atty/mode:press chord (atty/mode:mode-named (mux:watcher-mode watcher)))))))
 
 (test moving-through-what-is-offered-stops-at-the-ends
   (let ((p (mux:make-prompt "run" '("one" "two" "three"))))
@@ -81,7 +81,7 @@
 
 (test a-command-can-be-named-and-run
   (let ((ran nil))
-    (mux:defcommand a-test-command (setf ran t))
+    (mux:defcommand a-test-command () (setf ran t))
     (unwind-protect
          (progn
            (is (member "a test command" (mux:command-names) :test #'equal)
@@ -91,19 +91,19 @@
       (remhash "a test command" mux:*commands*))))
 
 (test what-is-on-top-says-which-mode-the-client-is-in
-  (let ((client (mux::%make-client))
+  (let ((watcher (mux::%make-watcher))
         (p (mux:make-prompt "run" '("one" "two"))))
-    (is (eq 'mux:pane-mode (mux:client-mode client)))
-    (mux:client-push-overlay client p)
-    (is (eq 'mux::prompt-mode (mux:client-mode client))
-        "the prompt did not put the client in its own mode")
-    (mux:client-push-overlay client (mux:make-note "hm" '("a line")))
-    (is (eq 'mux::note-mode (mux:client-mode client)))
-    (mux:client-pop-overlay client (first (mux:client-overlays client)))
-    (is (eq 'mux::prompt-mode (mux:client-mode client))
+    (is (eq 'mux:pane-mode (mux:watcher-mode watcher)))
+    (mux:push-overlay watcher p)
+    (is (eq 'mux::prompt-mode (mux:watcher-mode watcher))
+        "the prompt did not put the watcher in its own mode")
+    (mux:push-overlay watcher (mux:make-note "hm" '("a line")))
+    (is (eq 'mux::note-mode (mux:watcher-mode watcher)))
+    (mux:pop-overlay watcher (first (mux:watcher-overlays watcher)))
+    (is (eq 'mux::prompt-mode (mux:watcher-mode watcher))
         "dropping the note did not go back to the prompt underneath")
-    (mux:client-pop-overlay client p)
-    (is (eq 'mux:pane-mode (mux:client-mode client)))))
+    (mux:pop-overlay watcher p)
+    (is (eq 'mux:pane-mode (mux:watcher-mode watcher)))))
 
 (test a-pane-chord-does-not-fire-while-a-prompt-is-up
   (let ((pane (atty/mode:mode-named 'mux:pane-mode))
@@ -127,36 +127,36 @@
         "a key with a modifier inserted itself")))
 
 (test a-sequence-that-is-no-key-is-passed-over
-  (let ((client (mux::%make-client))
+  (let ((watcher (mux::%make-watcher))
         (p (mux:make-prompt "run" '("one" "two" "three"))))
-    (mux:client-push-overlay client p)
-    (mux::client-handle-key client (csi "<0;12;34M"))
+    (mux:push-overlay watcher p)
+    (mux::handle-key watcher (csi "<0;12;34M"))
     (is (equal "" (mux:prompt-query p))
         "a mouse report was read as something typed")
     (is (eql 0 (mux:prompt-index p)))
-    (mux::client-handle-key client (csi "B"))
+    (mux::handle-key watcher (csi "B"))
     (is (eql 1 (mux:prompt-index p))
         "the Down after it did not arrive")))
 
 (test a-sequence-split-across-two-reads-is-still-one-key
-  (let ((client (mux::%make-client))
+  (let ((watcher (mux::%make-watcher))
         (p (mux:make-prompt "run" '("one" "two" "three"))))
-    (mux:client-push-overlay client p)
-    (mux::client-handle-key client (esc "["))
+    (mux:push-overlay watcher p)
+    (mux::handle-key watcher (esc "["))
     (is (equal "" (mux:prompt-query p)) "half a sequence was read as text")
     (is (eql 0 (mux:prompt-index p)))
-    (mux::client-handle-key client "B")
+    (mux::handle-key watcher "B")
     (is (eql 1 (mux:prompt-index p))
         "the two halves did not make one Down")))
 
 (test moving-in-the-prompt-asks-for-the-screen-again
-  (let ((client (mux::%make-client))
+  (let ((watcher (mux::%make-watcher))
         (p (mux:make-prompt "run" '("one" "two" "three"))))
-    (mux:client-push-overlay client p)
-    (setf (mux:client-dirty client) nil)
-    (mux::client-handle-key client (csi "B"))
+    (mux:push-overlay watcher p)
+    (setf (mux:watcher-behind watcher) nil)
+    (mux::handle-key watcher (csi "B"))
     (is (eql 1 (mux:prompt-index p)))
-    (is-true (mux:client-dirty client)
+    (is-true (mux:watcher-behind watcher)
              "the prompt moved and nothing was redrawn")))
 
 (test what-only-works-inside-a-prompt-is-not-offered-by-one
@@ -167,24 +167,3 @@
       "it is not a command at all any more")
   (is-true (gethash "prompt next" mux:*commands*)
            "it can no longer be bound to a key"))
-
-(test every-command-asks-the-server-for-something-it-knows
-  ;; a command naming a message the server has not got shows a note saying so.
-  ;; Against a server that knows everything, no command may show one: a name
-  ;; that drifted out of +understood+ is a key that quietly does nothing, which
-  ;; looks exactly like a key that is broken
-  (multiple-value-bind (in out) (sb-posix:pipe)
-    (unwind-protect
-         (dolist (name (mux:command-names nil))
-           (let* ((client (mux::%make-client :message-types (mux:message-types)
-                                             :to out
-                                             :wire (mux:make-wire out))))
-             (mux:run-command name client)
-             (let ((note (find "not here" (mux:client-overlays client)
-                               :key (lambda (it) (and (typep it 'mux:note)
-                                                      (mux::note-title it)))
-                               :test #'equal)))
-               (is (null note)
-                   "~S asks the server for something it does not know" name))))
-      (ignore-errors (sb-posix:close in))
-      (ignore-errors (sb-posix:close out)))))

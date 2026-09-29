@@ -104,7 +104,7 @@ The one shown is a pill on the ground of the panes. A click shows it."
                    ""))
          (width (if narrow 4 +chip-width+))
          (glyph (if (plusp asking) 4 2))
-         (runs (list :go-window (session-name session) n))
+         (runs (lambda () (session-select-window session n)))
          (chip (if narrow
                    (if (plusp asking)
                        (slot (format nil " ~D▲" n) width :face :state-blocked-strong)
@@ -124,7 +124,7 @@ The one shown is a pill on the ground of the panes. A click shows it."
 
 (defun plus-chip (session)
   "The way to another window, by mouse."
-  (bar-button (list :new-window (session-name session))
+  (bar-button (lambda () (session-add-window session))
               (atty/ui:label " + " :face :quiet)))
 
 (defun focus-slot (session now &key narrow)
@@ -211,9 +211,10 @@ NARROW keeps three letters of each name."
      (loop :for s :in shown
            :for worst := (worst-pane s)
            :collect (let ((state (and worst (pane-known-p worst) (agent:agent-state (pane-agent worst)))))
-                      (bar-button (if worst
-                                      (list :focus-pane (session-name s) (pane-id worst))
-                                      (list :go (session-name s)))
+                      (bar-button (let ((s s) (worst worst))
+                                    (if worst
+                                        (lambda () (focus-pane (session-server s) *client* (session-name s) (pane-id worst)))
+                                        (lambda () (go-to *client* (session-name s)))))
                                   (atty/ui:row :spacing 0
                                                (slot (format nil " ~A" (if narrow
                                                                            (subseq (session-name s) 0 (min 3 (length (session-name s))))

@@ -4,7 +4,7 @@
 (in-suite sgr)
 
 (defun face-said (said)
-  (let ((term (a-term :width 4 :height 1)))
+  (let ((term (term:make-term :width 4 :height 1)))
     (say term said "x")
     (face-at term 0 0)))
 
@@ -78,7 +78,7 @@
     (is (term:face-bold face))))
 
 (test one-face-is-shared-by-every-cell-that-wears-it
-  (let ((term (a-term :width 8 :height 1)))
+  (let ((term (term:make-term :width 8 :height 1)))
     (say term (csi "31m") "abc" (csi "32m") "d" (csi "31m") "e")
     (is (eq (face-at term 0 0) (face-at term 2 0)))
     (is (eq (face-at term 0 0) (face-at term 4 0)))

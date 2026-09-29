@@ -61,7 +61,7 @@
   (with-setting-kept (:scrollbars-by-default)
     (with-setting-kept (:bar-by-default)
       (mux:configure :scrollbars-by-default nil :bar-by-default nil)
-      (with-a-server-here (server path)
+      (with-stepped-server (server path)
         (let ((session (mux:add-session server "sleep 30" :name "work" :rows 6 :cols 30)))
           (is (null (mux::session-scrollbars-p session)))
           (is (null (mux::session-bar-p session))))))))
@@ -84,19 +84,19 @@
         (mux:remove-hook 'mux::session-made #'broken)
         (mux:remove-hook 'mux::session-made #'last-one)))))
 
-(test a-hook-runs-when-a-session-is-made-and-a-pane-started
+(test a-hook-runs-when-keep-session-is-made-and-a-pane-started
   (let ((made nil) (started nil))
-    (flet ((a-session (session) (push session made))
-           (a-pane (session pane) (push (cons session pane) started)))
+    (flet ((keep-session (session) (push session made))
+           (pane (session pane) (push (cons session pane) started)))
       (unwind-protect
            (progn
-             (mux:add-hook 'mux::session-made #'a-session)
-             (mux:add-hook 'mux::pane-started #'a-pane)
-             (with-a-server-here (server path)
+             (mux:add-hook 'mux::session-made #'keep-session)
+             (mux:add-hook 'mux::pane-started #'pane)
+             (with-stepped-server (server path)
                (let ((session (mux:add-session server "sleep 30" :name "work" :rows 6 :cols 30)))
                  (is (equal (list session) made))
                  (is (eq (mux:session-focus session) (cdr (first started))))
                  (mux::session-split session :across)
                  (is (eql 2 (length started))))))
-        (mux:remove-hook 'mux::session-made #'a-session)
-        (mux:remove-hook 'mux::pane-started #'a-pane)))))
+        (mux:remove-hook 'mux::session-made #'keep-session)
+        (mux:remove-hook 'mux::pane-started #'pane)))))

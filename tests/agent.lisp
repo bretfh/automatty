@@ -21,7 +21,7 @@
      ,@body))
 
 (defun screen-of (lines &key (width 60) (height 12))
-  (let ((term (a-term :width width :height height)))
+  (let ((term (term:make-term :width width :height height)))
     (dolist (line lines term)
       (say term (format nil "~A~C~C" line #\Return #\Newline)))))
 
@@ -40,7 +40,7 @@
 (test a-program-nobody-knows-is-working-while-it-prints-and-idle-once-quiet
   (with-probe
     (let ((a (agent:make-agent :command "cat"))
-          (term (a-term :width 40 :height 5)))
+          (term (term:make-term :width 40 :height 5)))
       (is (equal "agent" (agent:agent-kind a)))
       (is-true (agent:agent-look a term 0 t))
       (is (eq :working (agent:agent-state a)))
@@ -53,13 +53,13 @@
 (test a-program-that-was-never-working-is-idle-at-once
   (with-probe
     (let ((a (agent:make-agent :command "cat")))
-      (is-true (agent:agent-look a (a-term :width 40 :height 5) 0 nil))
+      (is-true (agent:agent-look a (term:make-term :width 40 :height 5) 0 nil))
       (is (eq :idle (agent:agent-state a))))))
 
 (test what-a-hook-says-is-published-at-once-and-stands-until-the-screen-moves
   (with-probe
     (let ((a (agent:make-agent :command "cat"))
-          (term (a-term :width 40 :height 5)))
+          (term (term:make-term :width 40 :height 5)))
       (agent:agent-hear a :blocked)
       (is-true (agent:agent-look a term 0 nil))
       (is (eq :blocked (agent:agent-state a)))
@@ -100,7 +100,7 @@
       (is (eq :idle (agent:agent-state a))))))
 
 (test the-last-lines-reach-back-into-what-scrolled-off
-  (let ((term (a-term :width 20 :height 3)))
+  (let ((term (term:make-term :width 20 :height 3)))
     (say term (format nil "a~C~Cb~C~Cc~C~Cd~C~Ce~C~C"
                       #\Return #\Newline #\Return #\Newline #\Return #\Newline
                       #\Return #\Newline #\Return #\Newline))
@@ -282,7 +282,7 @@
   (is (equal "x" (agent:press-keys "x"))))
 
 (test a-snapshot-gives-back-the-screen-it-was-taken-of
-  (let ((term (a-term :width 30 :height 4)))
+  (let ((term (term:make-term :width 30 :height 4)))
     (say term (osc "0;a title") (csi "7m") "chosen" (csi "0m") " plain"
          (format nil "~C~C" #\Return #\Newline) (csi "38;2;10;20;30m") "coloured")
     (let* ((text (with-output-to-string (s) (agent:write-snapshot (agent:snapshot term) s)))
@@ -326,7 +326,7 @@
 (test an-agent-knows-since-when-it-has-been-what-it-is
   (with-probe
     (let ((a (agent:make-agent :command "cat"))
-          (term (a-term :width 40 :height 5)))
+          (term (term:make-term :width 40 :height 5)))
       (is (null (agent:agent-since a)) "it knew a time before it had been anything")
       (agent:agent-look a term 100 t)
       (is (eql 100 (agent:agent-since a)))
@@ -343,7 +343,7 @@
 (test an-agents-history-is-kept-to-a-length
   (with-probe
     (let ((a (agent:make-agent :command "cat"))
-          (term (a-term :width 40 :height 5)))
+          (term (term:make-term :width 40 :height 5)))
       (dotimes (i (* 3 agent:+history-length+))
         (agent:agent-hear a (if (evenp i) :blocked :working))
         (agent:agent-look a term (* 10 i) nil))
@@ -423,7 +423,7 @@
       (agent:load-corpus (asdf:system-relative-pathname :atty "readers/claude-code/2.1.278/"))
     (let* ((said (nthcdr 2 expect))
            (step (find :permission (getf said :steps) :key (lambda (s) (getf s :screen))))
-           (term (a-term :width (getf said :width) :height (getf said :height)))
+           (term (term:make-term :width (getf said :width) :height (getf said :height)))
            (a (agent:make-agent :programs '("claude")
                                 :paths '("/x/claude/versions/2.1.278"))))
       (say term (term:decode-utf-8 (term:make-decoder)

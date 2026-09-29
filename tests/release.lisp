@@ -3,20 +3,9 @@
 (def-suite release :in all)
 (in-suite release)
 
-(test the-server-says-which-build-it-is-when-greeting-and-when-knocked
-  (with-a-server-here (server path)
-    (mux:add-session server "sleep 30" :name "work" :rows 6 :cols 30)
-    (let ((wire (a-wire-to path))
-          (heard nil))
-      (say-to wire (list :open "work" nil nil 6 30 t))
-      ;; the greeting and the version come in one batch: gather, then look
-      (step-until server (lambda ()
-                           (setf heard (append heard (heard-back wire)))
-                           (find :version heard :key #'first)))
-      (is (equal (list :version mux:*version*) (find :version heard :key #'first))
-          "heard ~S" heard)
-      (mux:wire-close wire))
-    (let ((wire (a-wire-to path)))
+(test the-server-says-which-build-it-is-when-knocked
+  (with-stepped-server (server path)
+    (let ((wire (wire-to path)))
       (say-to wire (list :knock))
       (let ((heard (heard-from server wire :here)))
         (is (equal mux:*version* (fourth heard)) "~S" heard))
@@ -53,7 +42,7 @@
            (is (equal "atty update" how)))
       (delete-file mine))))
 
-(defun a-fake-release (dir tag text)
+(defun fake-release (dir tag text)
   "A release at DIR, as ATTY_RELEASES_URL=file://DIR serves it: latest says
 TAG, and the tarball for this platform holds an atty that is TEXT."
   (let* ((asset (mux::release-asset tag))
@@ -74,7 +63,7 @@ TAG, and the tarball for this platform holds an atty that is TEXT."
 (test a-release-is-fetched-checked-and-put-in-place-in-one-move
   (let* ((dir (format nil "~Aatty-release-~D/" (uiop:temporary-directory) (sb-posix:getpid)))
          (me (format nil "~Ame" dir))
-         (down (a-fake-release dir "v9.9.9" "the new one")))
+         (down (fake-release dir "v9.9.9" "the new one")))
     (with-open-file (s me :direction :output :if-exists :supersede) (write-string "the old one" s))
     (sb-posix:setenv "ATTY_RELEASES_URL" (format nil "file://~A" (string-right-trim "/" dir)) 1)
     (unwind-protect

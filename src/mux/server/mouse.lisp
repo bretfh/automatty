@@ -17,11 +17,9 @@ landed on a rule, does nothing."
        (dolist (w (session-watchers session)) (setf (watcher-behind w) t)))
       ((typep hit 'bar-button)
        (let ((runs (bar-button-runs hit)))
-         ;; a form is the server's to do, as though the one who clicked had
-         ;; said it; a name is a command for them to run
-         (if (consp runs)
-             (handle-message (session-server session) watcher runs)
-             (send-message watcher (list :do runs)))))
+         (if (functionp runs)
+             (let ((*client* watcher)) (funcall runs))
+             (run-command runs watcher))))
       ((and (typep hit 'pane-view) (not (eq (view-pane hit) (session-focus session))))
        (session-focus-pane session (view-pane hit))))))
 

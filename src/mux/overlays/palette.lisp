@@ -2,30 +2,27 @@
 
 (in-package #:atty)
 
-(defun prompt-pane-name (client session id label title &key address)
+(defun prompt-pane-name (watcher session id label title &key address)
   "Ask what to call pane ID of SESSION, on the line at the foot, starting
 from what it is called now. TAB goes over to naming the window it is in."
-  (entry client "name"
+  (entry watcher "name"
          (format nil "pane ~A~@[ · ~A~]" (or address (format nil "~A:~D" session id))
                  (and (null label) title (plusp (length title)) title))
          (or label "")
-         :keep (lambda (typed c)
-                 (let ((*client* c))
-                   (send-to-server (list :name-pane session id typed))))
-         :swap (lambda (c)
-                 (let ((*client* c)) (send-to-server (list :naming-window))))
+         :keep (lambda (typed w) (name-pane (watcher-server w) session id typed))
+         :swap (lambda (w) (run-command "rename window" w))
          :swap-says "window instead"))
 
-(defun prompt-window-name (client session n label)
+(defun prompt-window-name (watcher session n label)
   "Ask what to call window N of SESSION. TAB goes over to naming the pane."
-  (entry client "name"
+  (entry watcher "name"
          (format nil "window ~A › ~D" session n)
          (or label "")
-         :keep (lambda (typed c)
-                 (let ((*client* c))
-                   (send-to-server (list :name-window session n typed))))
-         :swap (lambda (c)
-                 (let ((*client* c)) (send-to-server (list :naming))))
+         :keep (lambda (typed w)
+                 (let* ((it (session-named (watcher-server w) session))
+                        (window (and it (session-nth-window it n))))
+                   (when window (session-rename-window it window typed))))
+         :swap (lambda (w) (run-command "rename pane" w))
          :swap-says "pane instead"))
 
 (defun command-item-line (name)
@@ -37,16 +34,16 @@ on what it does, dim, cut where the row ends."
                            (atty/ui:label (format nil "~10A " (or key "")) :face :key-hint)
                            (atty/ui:label (or (command-doc name) "") :face :quiet)))))
 
-(defun prompt-command (client)
-  (open-prompt client "commands" (command-names) :kind #\:
+(defun prompt-command (watcher)
+  (open-prompt watcher "commands" (command-names) :kind #\:
        :text #'command-item-line
        :foot (hints 'prompt-mode 'prompt-accept "run" 'prompt-descend "next kind")
-       :chose (lambda (name client) (run-command name client))))
+       :chose (lambda (name watcher) (run-command name watcher))))
 
 (defun window-choices (rows here)
   "Every session › window the server said, the ones asking first, from what
 :these says: (name rows cols panes watching blocked windows). HERE is the
-session this client is on: the window it shows is marked."
+session this watcher is on: the window it shows is marked."
   (let ((out nil))
     (dolist (row rows)
       (destructuring-bind (name rows cols panes watching &optional (blocked 0) windows) row
@@ -62,7 +59,7 @@ session this client is on: the window it shows is marked."
     (stable-sort (nreverse out) #'> :key (lambda (c) (getf c :asking)))))
 
 (defun window-choice-line (c)
-  "One line: the mark for where this client is, the session and window, what
+  "One line: the mark for where this watcher is, the session and window, what
 is asking, how many panes."
   (let ((here (if (getf c :here) "◆ here" "      "))
         (session (getf c :session))
@@ -74,12 +71,12 @@ is asking, how many panes."
     (format nil "~A ~8A ~10A ~@[~A ~]~A" here session window
             (and (plusp (length asking)) asking) panes)))
 
-(defun window-preview (c client)
+(defun window-preview (c watcher)
   "The panes of the window C names, each a line: its state, name, kind, and
 what it is doing."
   (let ((panes (sort (remove-if-not (lambda (r) (and (equal (getf c :session) (getf r :session))
                                                      (eql (getf c :window) (getf r :window))))
-                                    (client-pane-rows client))
+                                    (pane-rows-of watcher))
                      #'< :key (lambda (r) (or (getf r :at) 0)))))
     (apply #'atty/ui:column :align :stretch
            (band (list (atty/ui:label (format nil " ~A › ~D~@[ ~A~]" (getf c :session) (getf c :window) (getf c :label))
@@ -98,84 +95,68 @@ what it is doing."
                                                             :face (if (eq state :blocked) :state-blocked-strong :quiet)))))
                (list (atty/ui:label "  asking what is there…" :face :quiet))))))
 
-(defun prompt-window (client rows)
-  (subscribe-panes client)
-  (open-prompt client "windows" (window-choices rows (client-session client)) :kind #\@
+(defun prompt-window (watcher rows)
+  (open-prompt watcher "windows" (window-choices rows (watcher-session-name watcher)) :kind #\@
        :text #'window-choice-line
        :preview #'window-preview
        :foot (hints 'prompt-mode 'prompt-accept "go there" 'prompt-accept-alternate "new window there"
                     'prompt-descend "its panes")
-       :chose (lambda (c client)
-                (unsubscribe-panes client)
-                (wire-send (client-wire client) (list :go (getf c :session)))
-                (when (getf c :window)
-                  (wire-send (client-wire client) (list :go-window (getf c :session) (getf c :window)))))
-       :alt (lambda (c client)
-              (unsubscribe-panes client)
-              (wire-send (client-wire client) (list :go (getf c :session)))
-              (wire-send (client-wire client) (list :new-window (getf c :session))))
-       :into (lambda (c client)
-               (unsubscribe-panes client)
-               (let ((*client* client))
-                 (prompt-panes client (getf c :session) (getf c :window))))
-       :dropped (lambda (client) (unsubscribe-panes client))))
+       :chose (lambda (c watcher) (go-to watcher (getf c :session) (getf c :window)))
+       :alt (lambda (c watcher)
+              (let ((session (go-to watcher (getf c :session))))
+                (when session (session-add-window session))))
+       :into (lambda (c watcher) (prompt-panes watcher (getf c :session) (getf c :window)))))
 
-(defun prompt-panes (client session window)
+(defun prompt-panes (watcher session window)
   "The panes of one window, to go to one."
   (let ((panes (sort (remove-if-not (lambda (r) (and (equal session (getf r :session))
                                                      (eql window (getf r :window))))
-                                    (client-pane-rows client))
+                                    (pane-rows-of watcher))
                      #'< :key (lambda (r) (or (getf r :at) 0)))))
-    (subscribe-panes client)
-    (open-prompt client (format nil "panes of ~A › ~D" session window) panes
+    (open-prompt watcher (format nil "panes of ~A › ~D" session window) panes
          :text (lambda (r) (format nil "~D  ~12A ~10A ~@[~(~A~)~]"
                                    (1+ (or (getf r :at) 0)) (or (getf r :says) "")
                                    (or (getf r :kind) "") (and (getf r :known) (getf r :state))))
-         :chose (lambda (r client)
-                  (unsubscribe-panes client)
-                  (wire-send (client-wire client) (list :focus-pane (getf r :session) (getf r :id))))
-         :dropped (lambda (client) (unsubscribe-panes client)))))
+         :chose (lambda (r watcher)
+                  (focus-pane (watcher-server watcher) watcher (getf r :session) (getf r :id))))))
 
-(defun client-line (c client)
+(defun client-line (c watcher)
   "One attached terminal as a row: who, how big, what it looks at, how long."
   (if (null c)
       (atty/ui:label "nobody is attached yet; asking…" :face :quiet)
       (atty/ui:row :spacing 0
-                   (client-label c client :pad 12)
+                   (client-label c watcher :pad 12)
                    (atty/ui:label (format nil " ~Dx~D  " (fourth c) (third c)) :face :quiet)
                    (path '(:quiet "default") (or (fifth c) "nothing") (and (sixth c) (format nil "~D" (sixth c))))
                    (atty/ui:label (format nil "   attached ~A~@[   typed ~A ago~]"
                                           (format-duration (seventh c)) (and (eighth c) (format-duration (eighth c))))
                                   :face :quiet)
-                   (atty/ui:label (cond ((this-client-p c client) "   this terminal")
-                                        ((and (ninth c) (eql (ninth c) (client-id client))) "   following this terminal")
-                                        ((ninth c) (format nil "   following ~A" (let ((led (find (ninth c) (client-clients client) :key #'first)))
+                   (atty/ui:label (cond ((this-client-p c watcher) "   this terminal")
+                                        ((and (ninth c) (eql (ninth c) (watcher-id watcher))) "   following this terminal")
+                                        ((ninth c) (format nil "   following ~A" (let ((led (find (ninth c) (clients-of watcher) :key #'first)))
                                                                                    (if led (format-tty (second led) (first led)) (ninth c)))))
                                         (t ""))
                                   :face :client))))
 
-(defun prompt-clients (client)
-  (subscribe-panes client)
-  (open-prompt client "clients" nil :kind #\#
-       :items-fn (lambda (client) (or (client-clients client) (list nil)))
+(defun prompt-clients (watcher)
+  (open-prompt watcher "clients" nil :kind #\#
+       :items-fn (lambda (watcher) (or (clients-of watcher) (list nil)))
        :narrow nil
-       :text (lambda (c) (client-line c client))
+       :text (lambda (c) (client-line c watcher))
        :foot (hints 'prompt-mode 'prompt-accept "go to what it sees" 'prompt-accept-third "follow it"
                     'prompt-accept-alternate "detach it")
-       :chose (lambda (c client)
-                (unsubscribe-panes client)
+       :chose (lambda (c watcher)
                 (when (and c (fifth c))
-                  (wire-send (client-wire client) (list :go (fifth c)))
-                  (when (sixth c)
-                    (wire-send (client-wire client) (list :go-window (fifth c) (sixth c))))))
-       :third (lambda (c client)
-                (unsubscribe-panes client)
-                (when (and c (not (this-client-p c client)))
-                  (let ((*client* client)) (send-if-supported (list :follow (first c))))))
-       :alt (lambda (c client)
-              (unsubscribe-panes client)
-              (when c (wire-send (client-wire client) (list :detach-client (first c)))))
-       :dropped (lambda (client) (unsubscribe-panes client))))
+                  (go-to watcher (fifth c) (sixth c))))
+       :third (lambda (c watcher)
+                (when (and c (not (this-client-p c watcher)))
+                  (follow (watcher-server watcher) watcher (first c))))
+       :alt (lambda (c watcher)
+              (let* ((server (watcher-server watcher))
+                     (it (and c (find (first c) (all-watchers server) :key #'watcher-id))))
+                (when (and it (watcher-interactive it))
+                  (drop-watcher server it :detached)
+                  (send-client-list server))))))
 
 (defun hit-line (hit)
   "A hit as a row: its line number dim, the row's text with the find lit."
@@ -188,46 +169,51 @@ what it is doing."
                                   :face (if current :find-hit-current :find-hit))
                    (atty/ui:label (subseq text (min end (length text))))))))
 
-(defun found-hits (client)
-  "The hits the server said, the current one marked."
-  (let* ((found (client-found client))
+(defun found-in-pane (watcher n hits current)
+  "WATCHER's find found N, HITS near the one gone to, CURRENT among them."
+  (setf (watcher-found watcher) (list :n n :hits hits :current current)
+        (watcher-behind watcher) t)
+  (let ((top (first (watcher-overlays watcher))))
+    (if (and (typep top 'prompt) (eql #\/ (prompt-kind top)))
+        (setf (prompt-index top) (or current 0))
+        (when (zerop n) (show-note watcher "find" "nothing has that in it" :face :warning)))))
+
+(defun found-hits (watcher)
+  "The hits found, the current one marked."
+  (let* ((found (watcher-found watcher))
          (hits (getf found :hits))
          (current (getf found :current)))
     (loop :for hit :in hits
           :for i :from 0
           :collect (append hit (list (eql i current))))))
 
-(defun prompt-search (client)
+(defun prompt-search (watcher)
   "Find in the pane with the focus: the pane is read back, and what is typed
 is found as it is typed."
-  (let ((*client* client)) (scroll-mode))
-  (open-prompt client "find" nil :kind #\/
+  (let ((*client* watcher)) (scroll-mode))
+  (open-prompt watcher "find" nil :kind #\/
        :items-fn #'found-hits
        :narrow nil
-       :query (or (client-find-text client) "")
+       :query (or (watcher-find-text watcher) "")
        :text #'hit-line
        :foot (hints 'prompt-mode "↑↓" "hit, the pane follows" 'prompt-accept "keep it and leave"
                     'prompt-accept-alternate "copy its line")
-       :live (lambda (typed client)
-               (let ((*client* client))
-                 (setf (client-find-text client) typed)
-                 (send-if-supported (list :find nil nil typed :here))))
-       :moved (lambda (hit client)
-                (let ((*client* client))
-                  (send-if-supported (list :find nil nil nil (list :row (first hit))))))
-       :chose (lambda (it client) (declare (ignore it client)))
-       :alt (lambda (hit client)
-              (let ((*client* client))
-                (when (consp hit)
-                  (send-if-supported (list :select (list :line (first hit)))))))
-       :dropped (lambda (client)
-                  (let ((*client* client))
-                    (send-if-supported (list :find nil nil nil :clear))))))
+       :live (lambda (typed watcher)
+               (setf (watcher-find-text watcher) typed)
+               (search-pane (watcher-server watcher) watcher nil nil typed :here))
+       :moved (lambda (hit watcher)
+                (search-pane (watcher-server watcher) watcher nil nil nil (list :row (first hit))))
+       :chose (lambda (it watcher) (declare (ignore it watcher)))
+       :alt (lambda (hit watcher)
+              (when (consp hit)
+                (select-pane-rows watcher (list :line (first hit)))))
+       :dropped (lambda (watcher)
+                  (search-pane (watcher-server watcher) watcher nil nil nil :clear))))
 
-(defun open-palette (client kind)
+(defun open-palette (watcher kind)
   "Open the palette on KIND: :commands, :windows, :clients or :find."
   (ecase kind
-    (:commands (prompt-command client))
-    (:windows (let ((*client* client)) (send-to-server (list :sessions))))
-    (:clients (prompt-clients client))
-    (:find (prompt-search client))))
+    (:commands (prompt-command watcher))
+    (:windows (prompt-window watcher (session-list (watcher-server watcher))))
+    (:clients (prompt-clients watcher))
+    (:find (prompt-search watcher))))

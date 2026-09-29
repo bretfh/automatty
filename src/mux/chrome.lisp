@@ -10,7 +10,7 @@
 ;;; of these and nothing else, so what a thing looks like says what it does
 ;;; wherever it is.
 
-(declaim (ftype function state-face state-glyph command-key send-to-server close-overlay))
+(declaim (ftype function state-face state-glyph command-key close-overlay))
 
 (defun bar-face (role)
   "The hex of the theme's colour called ROLE, as a widget's background wants it."

@@ -4,7 +4,7 @@
 (in-suite render)
 
 (test a-rendered-line-is-the-characters-and-where-the-face-turns
-  (let ((term (a-term :width 8 :height 1)))
+  (let ((term (term:make-term :width 8 :height 1)))
     (say term (csi "31m") "ab" (csi "0m") "cd")
     (multiple-value-bind (chars changes) (term:term-render-line term 0)
       (is (equal "abcd    " chars))
@@ -13,7 +13,7 @@
       (is (eql 1 (getf (second (first changes)) :fg))))))
 
 (test a-line-of-one-face-turns-once
-  (let ((term (a-term :width 4 :height 1)))
+  (let ((term (term:make-term :width 4 :height 1)))
     (say term (csi "1m") "abcd")
     (multiple-value-bind (chars changes) (term:term-render-line term 0)
       (is (equal "abcd" chars))
@@ -21,14 +21,14 @@
       (is (eq t (getf (second (first changes)) :bold))))))
 
 (test an-untouched-line-turns-nowhere
-  (let ((term (a-term :width 4 :height 2)))
+  (let ((term (term:make-term :width 4 :height 2)))
     (multiple-value-bind (chars changes) (term:term-render-line term 1)
       (is (equal "    " chars))
       (is (null changes)))))
 
 (test inverse-is-the-two-colours-the-other-way-round
   (let ((plist (term:face-plist
-                (let ((term (a-term :width 2 :height 1)))
+                (let ((term (term:make-term :width 2 :height 1)))
                   (say term (csi "31;44;7m") "x")
                   (face-at term 0 0)))))
     (is (eql 4 (getf plist :fg)))
@@ -37,15 +37,15 @@
 
 (test a-concealed-cell-is-its-own-background
   (let ((plist (term:face-plist
-                (let ((term (a-term :width 2 :height 1)))
+                (let ((term (term:make-term :width 2 :height 1)))
                   (say term (csi "31;44;8m") "x")
                   (face-at term 0 0)))))
     (is (eql 4 (getf plist :fg)))
     (is (eql 4 (getf plist :bg)))))
 
 (test what-was-rendered-back-to-ansi-is-read-back-the-same
-  (let ((term (a-term :width 20 :height 1))
-        (again (a-term :width 20 :height 1)))
+  (let ((term (term:make-term :width 20 :height 1))
+        (again (term:make-term :width 20 :height 1)))
     (say term (csi "31;44;1m") "red" (csi "0m") " plain "
          (csi "38;5;208m") "amber" (csi "0m"))
     (say again (term:term-render-ansi-line term 0))
@@ -56,15 +56,15 @@
           "column ~D came back differently" x))))
 
 (test a-true-colour-line-is-read-back-the-same
-  (let ((term (a-term :width 8 :height 1))
-        (again (a-term :width 8 :height 1)))
+  (let ((term (term:make-term :width 8 :height 1))
+        (again (term:make-term :width 8 :height 1)))
     (say term (csi "38;2;10;20;30;48;2;200;100;50m") "hi")
     (say again (term:term-render-ansi-line term 0))
     (is (equal '(10 20 30) (term:face-fg (face-at again 0 0))))
     (is (equal '(200 100 50) (term:face-bg (face-at again 0 0))))))
 
 (test the-whole-screen-dumps-as-one-line-per-row
-  (let ((term (a-term :width 3 :height 3)))
+  (let ((term (term:make-term :width 3 :height 3)))
     (say term "abc" "def")
     (is (equal (format nil "abc~%def~%   ") (term:term-dump-to-string term)))))
 
@@ -104,8 +104,8 @@
 (defun round-trips (said)
   "Say SAID to a terminal, write that line back out, and read it into another.
 Answers the two faces at column 0, which a complete encoder makes equal."
-  (let ((term (a-term :width 8 :height 1))
-        (again (a-term :width 8 :height 1)))
+  (let ((term (term:make-term :width 8 :height 1))
+        (again (term:make-term :width 8 :height 1)))
     (say term said "x")
     (say again (with-output-to-string (s)
                  (term:write-sgr (face-at term 0 0) s)
@@ -148,8 +148,8 @@ Answers the two faces at column 0, which a complete encoder makes equal."
   (is (eql 196 (term:rgb-to-color-index 255 0 0)) "red lands on the cube"))
 
 (test a-face-that-drops-an-attribute-drops-it
-  (let ((term (a-term :width 4 :height 1))
-        (again (a-term :width 4 :height 1)))
+  (let ((term (term:make-term :width 4 :height 1))
+        (again (term:make-term :width 4 :height 1)))
     (say term (csi "1;31m") "a" (csi "22m") "b")
     (say again (term:term-render-ansi-line term 0))
     (is (term:face-bold (face-at again 0 0)) "the first cell kept its bold")
@@ -158,8 +158,8 @@ Answers the two faces at column 0, which a complete encoder makes equal."
     (is (eql 1 (term:face-fg (face-at again 1 0))))))
 
 (test a-wide-character-does-not-move-the-columns-after-it
-  (let ((term (a-term :width 8 :height 1))
-        (again (a-term :width 8 :height 1)))
+  (let ((term (term:make-term :width 8 :height 1))
+        (again (term:make-term :width 8 :height 1)))
     (say term (format nil "a~Cb" (code-char #x6F22)))
     (say again (term:term-render-ansi-line term 0))
     (is (equal (term:term-dump-row-string term 0)

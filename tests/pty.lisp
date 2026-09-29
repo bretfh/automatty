@@ -37,14 +37,14 @@ until the first quiet moment: a program that is asleep has not finished."
 (defun screen (term) (term:term-dump-to-string term))
 
 (test a-program-on-a-pty-says-what-it-printed
-  (let ((term (a-term :width 40 :height 10)))
+  (let ((term (term:make-term :width 40 :height 10)))
     (with-pty (fd pid "printf 'from-the-pty\\n'" :rows 10 :cols 40)
       (is (plusp fd))
       (is (plusp pid))
       (is-true (until-said term fd "from-the-pty")))))
 
 (test what-a-program-coloured-is-a-face-on-the-grid
-  (let ((term (a-term :width 40 :height 10)))
+  (let ((term (term:make-term :width 40 :height 10)))
     (with-pty (fd pid "printf '\\033[31mred\\033[0m\\n'" :rows 10 :cols 40)
       (until-said term fd "red")
       (let ((x (search "red" (term:term-dump-row-string term 0))))
@@ -53,12 +53,12 @@ until the first quiet moment: a program that is asleep has not finished."
           (is (eql 1 (term:face-fg (face-at term x 0)))))))))
 
 (test a-program-is-told-how-big-its-terminal-is
-  (let ((term (a-term :width 77 :height 11)))
+  (let ((term (term:make-term :width 77 :height 11)))
     (with-pty (fd pid "stty size" :rows 11 :cols 77)
       (is-true (until-said term fd "11 77")))))
 
 (test a-program-starts-in-the-directory-it-was-given
-  (let ((term (a-term :width 60 :height 10))
+  (let ((term (term:make-term :width 60 :height 10))
         (dir (namestring (truename (uiop:temporary-directory)))))
     (with-pty (fd pid "pwd -P" :rows 10 :cols 60 :directory dir)
       (is-true (until-said term fd (string-right-trim "/" dir))
@@ -68,7 +68,7 @@ until the first quiet moment: a program that is asleep has not finished."
   (is (equal "'it'\\''s'" (pty::sh-quoted "it's"))))
 
 (test what-is-written-to-a-pty-the-program-reads
-  (let ((term (a-term :width 40 :height 10)))
+  (let ((term (term:make-term :width 40 :height 10)))
     (with-pty (fd pid "read line; printf 'heard %s\\n' \"$line\"")
       (pty:pty-write-string fd (format nil "spoken~C" #\Newline))
       (is-true (until-said term fd "heard spoken")))))
@@ -85,7 +85,7 @@ until the first quiet moment: a program that is asleep has not finished."
 ;;; ones: get POSIX_SPAWN_SETSID wrong and every one of them fails at once.
 
 (test the-child-is-a-session-of-its-own-on-this-terminal
-  (let ((term (a-term :width 80 :height 10)))
+  (let ((term (term:make-term :width 80 :height 10)))
     (with-pty (fd pid "ps -o pid=,pgid=,tpgid= -p $$" :rows 10 :cols 80)
       (soak term fd :seconds 3)
       (let* ((line (string-trim " " (term:term-dump-row-string term 0)))
@@ -97,14 +97,14 @@ until the first quiet moment: a program that is asleep has not finished."
             line)))))
 
 (test the-child-can-open-its-controlling-terminal
-  (let ((term (a-term :width 40 :height 10)))
+  (let ((term (term:make-term :width 40 :height 10)))
     (with-pty (fd pid "echo opened > /dev/tty 2>/dev/null || echo no-dev-tty")
       (soak term fd :seconds 3)
       (is (search "opened" (screen term)))
       (is (not (search "no-dev-tty" (screen term)))))))
 
 (test a-resize-reaches-the-program-as-a-signal
-  (let ((term (a-term :width 80 :height 24)))
+  (let ((term (term:make-term :width 80 :height 24)))
     (with-pty (fd pid "trap 'echo GOT-WINCH; stty size' WINCH; sleep 1; echo done"
                    :rows 24 :cols 80)
       (sleep 0.3)
@@ -115,7 +115,7 @@ until the first quiet moment: a program that is asleep has not finished."
       (is (search "40 100" (screen term))))))
 
 (test an-interrupt-character-becomes-a-signal
-  (let ((term (a-term :width 80 :height 24)))
+  (let ((term (term:make-term :width 80 :height 24)))
     (with-pty (fd pid "trap 'echo GOT-SIGINT' INT; sleep 1; echo done")
       (sleep 0.3)
       (pty:pty-write-string fd (string (code-char 3)))
@@ -124,7 +124,7 @@ until the first quiet moment: a program that is asleep has not finished."
 
 (test a-write-is-finished-however-many-goes-it-takes
   ;; -echo, or the line discipline says it back as well and every z is two
-  (let ((term (a-term :width 80 :height 24))
+  (let ((term (term:make-term :width 80 :height 24))
         (said (make-string 1000 :initial-element #\z)))
     (with-pty (fd pid "stty -echo; cat")
       (sleep 0.3)
@@ -141,14 +141,14 @@ until the first quiet moment: a program that is asleep has not finished."
     (is (= 3 (pty:pty-write-string fd (string (code-char #x3042)) :utf-8)))))
 
 (test what-was-read-from-one-terminal-written-to-another-is-the-same-bytes
-  (let ((term (a-term :width 40 :height 4)))
+  (let ((term (term:make-term :width 40 :height 4)))
     (with-pty (fd pid "printf '\342\224\234\342\224\200\342\224\200 tree\n'")
       (until-said term fd "tree")
       (with-pty (again other "cat")
         (let ((said (term:term-dump-row-string term 0)))
           (pty:pty-write-string again (string-right-trim " " said))
           (pty:pty-write-string again (string #\Return))
-          (let ((back (a-term :width 40 :height 4)))
+          (let ((back (term:make-term :width 40 :height 4)))
             (until-said back again "tree")
             (is (equal (string-right-trim " " said)
                        (row back 0))
@@ -204,7 +204,7 @@ until the first quiet moment: a program that is asleep has not finished."
 
 (test a-program-holds-no-other-panes-terminal
   (with-pty (first-fd first-pid "sleep 5")
-    (let ((term (a-term :width 80 :height 5)))
+    (let ((term (term:make-term :width 80 :height 5)))
       (with-pty (fd pid (format nil "if (true >&~D) 2>/dev/null; then echo held-it; else echo not-held; fi" first-fd))
         (is-true (until-said term fd "-held"))
         (is (search "not-held" (screen term))

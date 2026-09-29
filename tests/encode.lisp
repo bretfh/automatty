@@ -3,8 +3,8 @@
 (def-suite encode :in all)
 (in-suite encode)
 
-(defun a-host (screen)
-  (let ((term (a-term :width (tty:screen-width screen)
+(defun host (screen)
+  (let ((term (term:make-term :width (tty:screen-width screen)
                       :height (tty:screen-height screen))))
     (say term (csi "?7l"))
     term))
@@ -27,10 +27,10 @@
     (tty:encode-frame screen runs s :takes takes)))
 
 (test what-was-encoded-and-read-back-is-the-same-screen
-  (let* ((pane (a-term :width 20 :height 3))
-         (screen (a-screen :width 20 :height 3))
-         (was (a-screen :width 20 :height 3))
-         (host (a-host screen)))
+  (let* ((pane (term:make-term :width 20 :height 3))
+         (screen (tty:make-screen :width 20 :height 3))
+         (was (tty:make-screen :width 20 :height 3))
+         (host (host screen)))
     (say pane (csi "1;31m") "red" (csi "0m") " plain "
          (csi "38;5;208m") "amber" (csi "0m")
          (esc "[2;1H") (csi "4:3;58;5;9m") "curly" (csi "0m")
@@ -41,10 +41,10 @@
 
 (test a-screen-changed-and-encoded-again-is-still-the-same-screen
   (let* ((w 40) (h 8)
-         (pane (a-term :width w :height h))
-         (screen (a-screen :width w :height h))
-         (was (a-screen :width w :height h))
-         (host (a-host screen))
+         (pane (term:make-term :width w :height h))
+         (screen (tty:make-screen :width w :height h))
+         (was (tty:make-screen :width w :height h))
+         (host (host screen))
          (state (sb-ext:seed-random-state 20260917))
          (wrong nil))
     (dotimes (round 200)
@@ -68,10 +68,10 @@
     (is (null wrong) "~A" wrong)))
 
 (test a-run-of-blanks-to-the-end-of-a-row-is-an-erase-not-spaces
-  (let* ((pane (a-term :width 40 :height 1))
-         (screen (a-screen :width 40 :height 1))
-         (was (a-screen :width 40 :height 1))
-         (host (a-host screen)))
+  (let* ((pane (term:make-term :width 40 :height 1))
+         (screen (tty:make-screen :width 40 :height 1))
+         (was (tty:make-screen :width 40 :height 1))
+         (host (host screen)))
     (say pane (csi "?7l") (make-string 40 :initial-element #\x))
     (blit screen pane)
     (tty:screen-diff was screen)
@@ -85,20 +85,20 @@
     (is (null (difference screen host)) "~A" (difference screen host))))
 
 (test a-wide-character-does-not-move-the-columns-after-it
-  (let* ((pane (a-term :width 12 :height 1))
-         (screen (a-screen :width 12 :height 1))
-         (was (a-screen :width 12 :height 1))
-         (host (a-host screen)))
+  (let* ((pane (term:make-term :width 12 :height 1))
+         (screen (tty:make-screen :width 12 :height 1))
+         (was (tty:make-screen :width 12 :height 1))
+         (host (host screen)))
     (say pane (format nil "a~C~Cb" (code-char #x6F22) (code-char #x5B57)))
     (blit screen pane)
     (say host (sent screen (tty:screen-diff was screen)))
     (is (null (difference screen host)) "~A" (difference screen host))))
 
 (test nothing-is-written-past-the-last-column-of-the-last-row
-  (let* ((pane (a-term :width 8 :height 2))
-         (screen (a-screen :width 8 :height 2))
-         (was (a-screen :width 8 :height 2))
-         (host (a-host screen)))
+  (let* ((pane (term:make-term :width 8 :height 2))
+         (screen (tty:make-screen :width 8 :height 2))
+         (was (tty:make-screen :width 8 :height 2))
+         (host (host screen)))
     (say pane "top" (esc "[2;1H") "abcdefgh")
     (blit screen pane)
     (say host (sent screen (tty:screen-diff was screen)))
@@ -106,9 +106,9 @@
     (is (null (difference screen host)) "~A" (difference screen host))))
 
 (test the-cursor-ends-where-the-screen-says-it-is
-  (let* ((screen (a-screen :width 20 :height 4))
-         (was (a-screen :width 20 :height 4))
-         (host (a-host screen)))
+  (let* ((screen (tty:make-screen :width 20 :height 4))
+         (was (tty:make-screen :width 20 :height 4))
+         (host (host screen)))
     (setf (tty:screen-cursor-x screen) 7
           (tty:screen-cursor-y screen) 2
           (tty:screen-cursor-visible screen) nil)
@@ -118,10 +118,10 @@
     (is (null (term:term-cursor-visible host)))))
 
 (test a-terminal-that-cannot-do-true-colour-is-given-the-nearest-index
-  (let* ((pane (a-term :width 8 :height 1))
-         (screen (a-screen :width 8 :height 1))
-         (was (a-screen :width 8 :height 1))
-         (host (a-host screen)))
+  (let* ((pane (term:make-term :width 8 :height 1))
+         (screen (tty:make-screen :width 8 :height 1))
+         (was (tty:make-screen :width 8 :height 1))
+         (host (host screen)))
     (say pane (csi "38;2;255;255;255m") "x")
     (blit screen pane)
     (say host (sent screen (tty:screen-diff was screen) :takes '(:blink)))
@@ -134,8 +134,8 @@
   (is (not (member :underline-color (tty:takes-of "xterm-256color" nil)))))
 
 (test the-shape-a-program-asked-its-cursor-to-be-reaches-the-terminal
-  (let* ((screen (a-screen :width 8 :height 1))
-         (host (a-host screen)))
+  (let* ((screen (tty:make-screen :width 8 :height 1))
+         (host (host screen)))
     (setf (tty:screen-cursor-style screen) :bar)
     (term:term-process-output host (sent screen nil))
     (is (eq :bar (term:term-cursor-style host))
@@ -147,8 +147,8 @@
 (defun worn (said takes)
   "Say SAID to a terminal, bring the face it made down to what TAKES allows,
 write it back out and read it into another. Answers the face that arrived."
-  (let ((term (a-term :width 8 :height 1))
-        (again (a-term :width 8 :height 1)))
+  (let ((term (term:make-term :width 8 :height 1))
+        (again (term:make-term :width 8 :height 1)))
     (term:term-process-output term said)
     (term:term-process-output term "x")
     (term:term-process-output
@@ -170,7 +170,7 @@ write it back out and read it into another. Answers the face that arrived."
       "black is the bottom of it"))
 
 (test a-terminal-that-takes-everything-is-told-everything
-  (let* ((term (a-term :width 8 :height 1))
+  (let* ((term (term:make-term :width 8 :height 1))
          (face (progn (term:term-process-output term (csi "5;4:3;58;5;9m"))
                       (term:term-process-output term "x")
                       (face-at term 0 0))))

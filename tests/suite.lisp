@@ -16,9 +16,6 @@ everything built on it."
     (unless (results-status results)
       (uiop:quit 1))))
 
-(defun a-screen (&rest args)
-  (apply #'tty:make-screen args))
-
 (defun blit (screen term &key (top 0) (left 0))
   (cells:blit (cells:make-cells (tty:screen-grid screen)
                                 (tty:screen-width screen)

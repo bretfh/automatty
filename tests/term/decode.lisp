@@ -45,7 +45,7 @@
           "an overlong slash was taken as a slash"))
 
 (test a-box-drawing-character-is-one-cell-not-three
-      (let ((term (a-term :width 10 :height 1))
+      (let ((term (term:make-term :width 10 :height 1))
             (d (term:make-decoder)))
         (say term (term:decode-utf-8 d (bytes-of "├── a")))
         (is (equal "├── a" (row term 0)))

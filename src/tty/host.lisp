@@ -23,7 +23,7 @@
 (defconstant +stdin+ 0)
 (defconstant +stdout+ 1)
 
-(defun a-terminal-p (fd)
+(defun terminal-p (fd)
   (plusp (sb-unix:unix-isatty fd)))
 
 (defun host-size (fd)

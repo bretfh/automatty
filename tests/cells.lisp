@@ -3,12 +3,12 @@
 (def-suite cells :in all)
 (in-suite cells)
 
-(defun a-canvas (&key (cols 40) (rows 4))
+(defun canvas (&key (cols 40) (rows 4))
   (let ((screen (tty:make-screen :width cols :height rows)))
     (values screen (tty:screen-grid screen) cols rows)))
 
 (defun drawn (tree &key (cols 40) (rows 4))
-  (multiple-value-bind (screen grid c r) (a-canvas :cols cols :rows rows)
+  (multiple-value-bind (screen grid c r) (canvas :cols cols :rows rows)
     (cells:draw tree grid c r)
     screen))
 
@@ -93,7 +93,7 @@
                          (atty/ui:label "below"))
                         :cols 24 :rows 4))
          (was (tty:make-screen :width 24 :height 4))
-         (host (a-host screen)))
+         (host (host screen)))
     (say host (with-output-to-string (s)
                 (tty:encode-frame screen (tty:screen-diff was screen) s)))
     (is (null (difference screen host)) "~A" (difference screen host))))

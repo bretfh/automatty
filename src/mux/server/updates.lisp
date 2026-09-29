@@ -2,15 +2,8 @@
 
 (in-package #:atty)
 
-;;; What the server tells a client about every pane in every session, beyond
-;;; the one screen that client is looking at. A client that asks is kept told:
-;;; each pane as a plist whenever something about it changes, and, when it has
-;;; asked for them, the last rows of each pane's screen as they move.
-
-(defparameter +screen-interval+ 250
-  "The least milliseconds between two screens of one pane to one client. A
-pane writing without pause would otherwise be sent to everybody watching the
-switchboard as fast as it writes.")
+;;; What the server says about every pane in every session, beyond the one
+;;; screen a terminal is looking at.
 
 (defun encode-log-entry (entry now)
   "A log ENTRY as it goes out: how long ago by the millisecond clock, which the
@@ -73,14 +66,6 @@ thing that acted on it was one."
           :drives drives
           :last-input (encode-log-entry (first (pane-log pane)) now))))
 
-(defun row-without-times (row)
-  "ROW without what moves every moment by itself, the times, so two rows can be
-told apart by what actually changed. A history changes when the state does, and
-goes out with it."
-  (loop :for (key value) :on row :by #'cddr
-        :unless (member key '(:for :history))
-          :append (list key (if (eq key :last-input) (rest value) value))))
-
 (defun all-panes (server)
   (loop :for s :in (server-sessions server)
         :append (mapcar (lambda (p) (cons s p)) (session-panes s))))
@@ -104,31 +89,11 @@ goes out with it."
   (append (server-pending-watchers server)
           (loop :for s :in (server-sessions server) :append (session-watchers s))))
 
-(defun send-pane-rows (server watcher now)
-  "Tell WATCHER about every pane that changed since it was last told, and about
-every pane that is gone."
-  (let ((told (watcher-rows-sent watcher))
-        (seen nil))
-    (dolist (row (pane-rows server now))
-      (let ((key (cons (getf row :session) (getf row :id)))
-            (standing (row-without-times row)))
-        (push key seen)
-        (unless (equal standing (gethash key told))
-          (setf (gethash key told) standing)
-          (send-message watcher (cons :pane row)))))
-    (loop :for key :being :the :hash-keys :of told
-          :unless (member key seen :test #'equal)
-            :collect key :into gone
-          :finally (dolist (key gone)
-                     (remhash key told)
-                     (send-message watcher (list :pane-gone (car key) (cdr key)))))))
-
 (defun blank-row-p (term y)
   (zerop (length (string-right-trim " " (term:term-dump-row-string term y)))))
 
-(defun encode-pane-screen (pane n)
-  "The last N rows of PANE's screen that have anything on them, as cells the way
-a frame goes out: (width said faces)."
+(defun pane-last-rows (pane n)
+  "The last N rows of PANE's screen that have anything on them, as a screen."
   (let* ((term (pane-term pane))
          (w (term:term-width term))
          (h (term:term-height term))
@@ -138,37 +103,11 @@ a frame goes out: (width said faces)."
          (top (max 0 (- bottom (1- (max 1 n)))))
          (count (1+ (- bottom top)))
          (screen (tty:make-screen :width w :height count)))
-    (dotimes (i count)
+    (dotimes (i count screen)
       (let ((from (term:term-grid-row term (+ top i)))
             (into (tty:screen-row screen i)))
         (replace (term:row-chars into) (term:row-chars from))
-        (replace (term:row-faces into) (term:row-faces from))))
-    (multiple-value-bind (said faces)
-        (encode-runs screen (loop :for y :below count :collect (tty:make-run y 0 w)))
-      (list w said faces))))
-
-(defun send-pane-screens (server watcher now)
-  "Send WATCHER the screen of every pane that moved since it last had it, no
-more often than +SCREENS-EVERY+."
-  (let ((sent (watcher-screens-sent watcher))
-        (n (watcher-screen-rows watcher)))
-    (dolist (it (all-panes server))
-      (destructuring-bind (session . pane) it
-        (let* ((key (cons (session-name session) (pane-id pane)))
-               (last (gethash key sent)))
-          (when (or (null last)
-                    (and (> (pane-moved-at pane) last)
-                         (>= (- now last) +screen-interval+)))
-            (setf (gethash key sent) now)
-            (send-message watcher (list* :pane-screen (session-name session) (pane-id pane)
-                                 (encode-pane-screen pane n)))))))))
-
-(defun send-updates (server now)
-  "Everybody who asked to be kept told about the panes, told."
-  (dolist (w (all-watchers server))
-    (when (wire-open (watcher-wire w))
-      (when (watcher-watch-panes w) (send-pane-rows server w now))
-      (when (watcher-screen-rows w) (send-pane-screens server w now)))))
+        (replace (term:row-faces into) (term:row-faces from))))))
 
 ;;; Finding in a pane's history, and copying lines out of it. Rows are numbered
 ;;; from the oldest kept, so a hit has one address however far the pane is

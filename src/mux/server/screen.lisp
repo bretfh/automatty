@@ -109,10 +109,10 @@ is drawn is what they have just been told they are."
     (place-cursor session tree)
     screen))
 
-(declaim (ftype function send-message))
+(declaim (ftype function send-message watcher-view))
 
 (defun watcher-frame (session watcher)
-  (let* ((screen (session-screen session))
+  (let* ((screen (watcher-view session watcher))
          (runs (tty:screen-diff (watcher-shadow watcher) screen)))
     (when runs
       (multiple-value-bind (said faces) (encode-runs screen runs)

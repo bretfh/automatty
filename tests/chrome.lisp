@@ -90,7 +90,7 @@
         "the other row has no ground")))
 
 (test who-is-said-by-glyph
-  (let ((client (mux::%make-client :id 7)))
+  (let ((client (mux::%make-watcher :id 7)))
     (is (equal "◆ here" (mux::format-actor '(:client 7 "/dev/ttys042") client)))
     (is (equal "⌨ ttys051" (mux::format-actor '(:client 9 "/dev/ttys051") client)))
     (is (equal "⌨ client 9" (mux::format-actor '(:client 9 nil) client)))

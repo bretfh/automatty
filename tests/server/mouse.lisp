@@ -28,7 +28,7 @@
         "the mode for reading back lost what the pane's mode does with the wheel")))
 
 (test the-wheel-over-a-shell-reads-its-pane-back-and-typing-is-back-to-live
-  (with-a-session (session pane server "seq 1 60; sleep 30")
+  (with-session (session pane server "seq 1 60; sleep 30")
     (is-true (step-until server (lambda () (search "60" (dumped pane)))))
     (mux::session-compose session)
     (mux::handle-wheel session :up 4 4 nil)
@@ -44,7 +44,7 @@
     (is (eql 0 (mux::pane-scrolled pane)) "typing did not bring it back to live")))
 
 (test the-wheel-over-a-program-that-asked-for-the-mouse-is-that-programs
-  (with-a-session (session pane server
+  (with-session (session pane server
                            "printf '\\033[?1000h\\033[?1006h'; seq 1 60; cat -v")
     (is-true (step-until server (lambda () (and (search "60" (dumped pane))
                                                 (term:term-mouse-mode (mux:pane-term pane))))))
@@ -59,7 +59,7 @@
     (is (eql 6 (mux::pane-scrolled pane)) "the scrollbar is nobody's but the multiplexer's")))
 
 (test the-wheel-over-a-program-with-the-whole-screen-is-the-arrow-keys
-  (with-a-session (session pane server "printf '\\033[?1049h'; cat -v")
+  (with-session (session pane server "printf '\\033[?1049h'; cat -v")
     (is-true (step-until server (lambda () (term:term-in-alt-screen (mux:pane-term pane)))))
     (mux::session-compose session)
     (mux::handle-wheel session :down 4 3 nil)
@@ -67,7 +67,7 @@
              "~S" (dumped pane))))
 
 (test a-click-is-passed-on-to-a-program-that-asked-and-so-is-letting-go
-  (with-a-session (session pane server "printf '\\033[?1002h\\033[?1006h'; cat -v" :cols 60)
+  (with-session (session pane server "printf '\\033[?1002h\\033[?1006h'; cat -v" :cols 60)
     (is-true (step-until server (lambda () (term:term-mouse-mode (mux:pane-term pane)))))
     (mux::session-compose session)
     (let ((watcher (mux::%make-watcher)))
@@ -79,7 +79,7 @@
     (is (search "[<32;7;4M" (dumped pane)))))
 
 (test an-arrow-of-the-scrollbar-held-goes-on-until-it-is-let-go
-  (with-a-session (session pane server "seq 1 200; sleep 30")
+  (with-session (session pane server "seq 1 200; sleep 30")
     (is-true (step-until server (lambda () (search "200" (dumped pane)))))
     (mux::session-compose session)
     (let ((watcher (mux::%make-watcher)))
@@ -93,7 +93,7 @@
         (is (eql stopped (mux::pane-scrolled pane)) "let go, it did not stop")))))
 
 (test the-track-pages-and-the-thumb-drags
-  (with-a-session (session pane server "seq 1 200; sleep 30")
+  (with-session (session pane server "seq 1 200; sleep 30")
     (is-true (step-until server (lambda () (search "200" (dumped pane)))))
     (mux::session-compose session)
     (let ((watcher (mux::%make-watcher))
@@ -114,7 +114,7 @@
         (mux::handle-pointer session watcher :release :left 29 thumb nil)))))
 
 (test the-chip-is-back-to-live
-  (with-a-session (session pane server "seq 1 200; sleep 30")
+  (with-session (session pane server "seq 1 200; sleep 30")
     (is-true (step-until server (lambda () (search "200" (dumped pane)))))
     (mux::pane-scroll-to pane 40)
     (let* ((screen (mux::session-compose session))
@@ -124,10 +124,10 @@
       (is (eql 0 (mux::pane-scrolled pane))))))
 
 (test a-session-can-give-the-column-back
-  (with-a-session (session pane server "sleep 30")
+  (with-session (session pane server "sleep 30")
     (mux::session-compose session)
     (is (eql 29 (term:term-width (mux:pane-term pane))))
-    (mux::handle-message (mux::session-server session) (mux::%make-watcher :session session) (list :scrollbars :toggle))
+    (mux:run-command "toggle scrollbars" (mux::%make-watcher :session session))
     (mux::session-compose session)
     (is (eql 30 (term:term-width (mux:pane-term pane))))))
 

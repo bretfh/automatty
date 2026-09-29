@@ -6,7 +6,7 @@
 ;;; Every test here keeps its state under a directory of its own, so nothing
 ;;; touches anybody's real ~/.local/state.
 
-(defmacro with-a-state-home ((dir) &body body)
+(defmacro with-state-home ((dir) &body body)
   `(let* ((mux:*state-home* (format nil "~Aatty-state-~D-~D/" (uiop:temporary-directory)
                                     (sb-posix:getpid) (random 1000000)))
           (,dir (uiop:ensure-directory-pathname mux:*state-home*)))
@@ -54,7 +54,7 @@ so most of them are behind the screen."
   (string-right-trim " " (term:term-dump-row-string (mux:pane-term pane) y)))
 
 (test a-pane-comes-back-showing-what-it-showed-with-the-rule-under-it
-  (with-a-state-home (dir)
+  (with-state-home (dir)
     (let* ((pane (coloured-pane 12 :rows 3 :cols 8))
            (now 5000)
            (form (mux:encode-pane pane now)))
@@ -133,7 +133,7 @@ so most of them are behind the screen."
       (mux:configure :restore-command (lambda (form) (declare (ignore form)) "sh -c true"))
       (is (equal "sh -c true" (mux:pane-command (mux:decode-pane form 200)))))))
 
-(defun a-server-with-windows (server)
+(defun server-with-windows (server)
   "Two sessions; the first with three windows, the second one shown, splits in
 it, a zoom in the third. Answers the first session."
   (let* ((one (mux:add-session server "sleep 30" :name "work" :rows 12 :cols 40))
@@ -149,9 +149,9 @@ it, a zoom in the third. Answers the first session."
     one))
 
 (test the-tree-round-trips-window-for-window
-  (with-a-state-home (dir)
-    (with-a-server-here (server path)
-      (let* ((one (a-server-with-windows server))
+  (with-state-home (dir)
+    (with-stepped-server (server path)
+      (let* ((one (server-with-windows server))
              (addresses (loop :for s :in (mux::server-sessions server)
                               :append (mapcar (lambda (p) (mux:pane-address-of s p))
                                               (mux:session-panes s))))
@@ -179,7 +179,7 @@ it, a zoom in the third. Answers the first session."
                                              (mux:session-panes s)))))))))))
 
 (test a-file-is-whole-or-not-there-and-a-strange-version-is-moved-aside
-  (with-a-state-home (dir)
+  (with-state-home (dir)
     (let ((path (merge-pathnames "one.sexp" dir)))
       (ensure-directories-exist path)
       (is-true (mux:write-form-atomically path '(:atty-state 1 :sessions nil)))
@@ -201,11 +201,11 @@ it, a zoom in the third. Answers the first session."
       (is (eq :missing (nth-value 1 (mux:read-state-file path :atty-state)))))))
 
 (test what-a-server-held-comes-back-on-another-and-its-panes-run-again
-  (with-a-state-home (dir)
-    (let ((path (a-socket-path)) ids)
+  (with-state-home (dir)
+    (let ((path (socket-path)) ids)
       (let ((server (mux:make-server path)))
         (unwind-protect
-             (let ((one (a-server-with-windows server)))
+             (let ((one (server-with-windows server)))
                (term:term-process-output (mux:pane-term (mux:session-focus one))
                                          (format nil "typed here~C~%and more" #\Return))
                (setf ids (mapcar #'mux:pane-id (mux:session-panes one)))
@@ -235,11 +235,11 @@ it, a zoom in the third. Answers the first session."
           (ignore-errors (delete-file path)))))))
 
 (test a-pane-whose-file-is-broken-comes-back-empty-and-the-rest-whole
-  (with-a-state-home (dir)
-    (let ((path (a-socket-path)) broken)
+  (with-state-home (dir)
+    (let ((path (socket-path)) broken)
       (let ((server (mux:make-server path)))
         (unwind-protect
-             (let ((one (a-server-with-windows server)))
+             (let ((one (server-with-windows server)))
                (setf broken (mux:pane-id (first (mux:session-panes one))))
                (mux:save-all server))
           (mux:server-close server)))
@@ -272,9 +272,9 @@ it, a zoom in the third. Answers the first session."
         (is (null (mux::save-due-p pane 70000)) "nothing changed since")))))
 
 (test the-tree-is-written-when-it-changes-and-closed-panes-files-go-with-it
-  (with-a-state-home (dir)
-    (with-a-server-here (server path)
-      (let* ((one (a-server-with-windows server))
+  (with-state-home (dir)
+    (with-stepped-server (server path)
+      (let* ((one (server-with-windows server))
              (state (mux::state-dir (file-namestring path))))
         (is-true (mux:save-tree server))
         (is (null (mux:save-tree server)) "written again with nothing changed")
@@ -287,9 +287,9 @@ it, a zoom in the third. Answers the first session."
               "the closed pane's file is still there"))))))
 
 (test what-was-saved-is-listed-when-nothing-is-running-and-can-be-moved-aside
-  (with-a-state-home (dir)
-    (with-a-server-here (server path)
-      (a-server-with-windows server)
+  (with-state-home (dir)
+    (with-stepped-server (server path)
+      (server-with-windows server)
       (mux:save-all server)
       (let ((name (file-namestring path)))
         (let ((rows (mux:saved-sessions name)))
@@ -302,10 +302,10 @@ it, a zoom in the third. Answers the first session."
 ;;; A server that persists: threaded, like WITH-SERVER, but keeping its state
 ;;; under a temporary home.
 
-(defmacro with-a-persisting-server ((path dir &key (command "sleep 30")) &body body)
+(defmacro with-persisting-server ((path dir &key (command "sleep 30")) &body body)
   (let ((thread (gensym "THREAD")) (broke (gensym "BROKE")))
-    `(with-a-state-home (,dir)
-       (let* ((,path (a-socket-path))
+    `(with-state-home (,dir)
+       (let* ((,path (socket-path))
               (,broke (make-string-output-stream))
               ;; the binding is this thread's; the server's thread is given
               ;; the value, or it would write to the real state home
@@ -327,15 +327,15 @@ it, a zoom in the third. Answers the first session."
              (is (equal "" said) "the server said something broke:~%~A" said)))))))
 
 (test a-serving-server-writes-its-tree-soon-and-everything-when-it-stops
-  (with-a-persisting-server (path dir)
+  (with-persisting-server (path dir)
     (let ((state (mux::state-dir (file-namestring path))))
       (is-true (until 5 (lambda () (probe-file (mux::tree-file state))))
                "the tree was not written while the server ran")
-      (let ((wire (a-wire-to path)))
+      (let ((wire (wire-to path)))
         (say-to wire (list :open "0" nil nil 10 40 t))
         (until 5 (lambda () (find :hello (heard-back wire) :key #'first)))
-        (say-to wire (list :save))
-        (is-true (until 5 (lambda () (find :saved (heard-back wire) :key #'first))))
+        (say-to wire (list :run "save" nil))
+        (is-true (until 5 (lambda () (find :ran (heard-back wire) :key #'first))))
         (is (eql 1 (length (mux::pane-files state))))
         (mux:wire-close wire))
       (stop-server path)
@@ -344,8 +344,8 @@ it, a zoom in the third. Answers the first session."
       (is (eql 1 (length (mux::pane-files state)))))))
 
 (test a-restart-tells-whoever-is-attached-and-leaves-the-state-whole
-  (with-a-persisting-server (path dir)
-    (let ((wire (a-wire-to path))
+  (with-persisting-server (path dir)
+    (let ((wire (wire-to path))
           (state (mux::state-dir (file-namestring path))))
       (say-to wire (list :open "0" nil nil 10 40 t))
       (until 5 (lambda () (find :hello (heard-back wire) :key #'first)))
@@ -366,7 +366,7 @@ it, a zoom in the third. Answers the first session."
       (mux:wire-close wire))))
 
 (test a-server-asked-to-stop-by-a-signal-saves-on-its-way-out
-  (with-a-persisting-server (path dir)
+  (with-persisting-server (path dir)
     (let ((state (mux::state-dir (file-namestring path))))
       (until 5 (lambda () (probe-file (mux::tree-file state))))
       ;; what the handler for a term does, without sending one to the whole
@@ -378,13 +378,13 @@ it, a zoom in the third. Answers the first session."
                "the pane was not saved on the way out"))))
 
 (test what-a-server-saved-a-new-server-brings-back-on-the-same-name
-  (with-a-persisting-server (path dir)
-    (let ((wire (a-wire-to path)))
+  (with-persisting-server (path dir)
+    (let ((wire (wire-to path)))
       (say-to wire (list :open "0" nil nil 10 40 t))
       (until 5 (lambda () (find :hello (heard-back wire) :key #'first)))
-      (say-to wire (list :new-window "0"))
-      (say-to wire (list :save))
-      (until 5 (lambda () (find :saved (heard-back wire) :key #'first)))
+      (say-to wire (list :keys (format nil "~Cc" mux:+prefix+)))
+      (say-to wire (list :run "save" nil))
+      (until 5 (lambda () (find :ran (heard-back wire) :key #'first)))
       (mux:wire-close wire))
     (stop-server path)
     (until 5 (lambda () (not (probe-file path))))
@@ -399,22 +399,21 @@ it, a zoom in the third. Answers the first session."
       (unwind-protect
            (progn
              (is-true (until 10 (lambda () (probe-file path))))
-             (let ((wire (a-wire-to path)))
+             (let ((wire (wire-to path)))
                (say-to wire (list :sessions))
-               (is-true (until 5 (lambda () (find :these (heard-back wire) :key #'first))))
-               (say-to wire (list :layouts "0"))
                (let (heard)
-                 (is-true (until 5 (lambda () (setf heard (find :layouts (heard-back wire) :key #'first)))))
-                 (is (eql 2 (length (third heard))) "the two windows did not come back: ~S" heard))
+                 (is-true (until 5 (lambda () (setf heard (find :these (heard-back wire) :key #'first)))))
+                 (is (eql 2 (length (seventh (first (second heard)))))
+                     "the two windows did not come back: ~S" heard))
                (mux:wire-close wire)))
         (stop-server path)
         (sb-thread:join-thread thread :timeout 15 :default :gave-up)
         (ignore-errors (delete-file path))))))
 
 (test a-saved-session-that-is-not-running-can-be-forgotten-and-a-full-save-says-when
-  (with-a-state-home (dir)
-    (with-a-server-here (server path)
-      (a-server-with-windows server)
+  (with-state-home (dir)
+    (with-stepped-server (server path)
+      (server-with-windows server)
       (let ((name (file-namestring path))
             (state (mux::state-dir (file-namestring path))))
         (mux:save-all server)

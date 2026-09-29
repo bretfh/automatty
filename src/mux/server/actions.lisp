@@ -62,7 +62,8 @@
 (defun answer-pane (server watcher name id n &optional caller-pane)
   "Type the digit N into a blocked pane, which is how a numbered dialog is
 answered. A pane that is not blocked is not typed into: an answer to a question
-that has since gone would land in whatever is there now."
+that has since gone would land in whatever is there now. Answers t, or
+:gone, :not-blocked or :no-such-option."
   (let* ((pane (find-pane server name id))
          (agent (and pane (pane-agent pane)))
          (asks (and pane (agent:agent-asks agent (pane-term pane))))
@@ -86,7 +87,16 @@ that has since gone would land in whatever is there now."
                     (if (zerop at)
                         (pane-write pane chunk)
                       (schedule-task server at (lambda () (pane-write pane chunk))))))))
-    (send-message watcher (list :answered name id n outcome))))
+    (unless (eq outcome t)
+      (show-note watcher "not answered"
+                 (format nil "~A:~D was not answered ~D: ~(~A~)." name id n
+                         (case outcome
+                           (:not-blocked "it is not asking anything now")
+                           (:no-such-option "it has no such answer")
+                           (:gone "it is gone")
+                           (t outcome)))))
+    (send-message watcher (list :answered name id n outcome))
+    outcome))
 
 (defun focus-pane (server watcher name id)
   "Put WATCHER on the session called NAME, when it is not there already, with
@@ -114,7 +124,7 @@ nil when nothing is."
   (multiple-value-bind (pane session) (oldest-blocked-pane server)
                        (if pane
                            (focus-pane server watcher (session-name session) (pane-id pane))
-                         (send-message watcher (list :say "nothing needs you")))))
+                         (show-note watcher "atty" "nothing needs you" :face :accent))))
 
 (defun session-zoom-pane (server watcher &optional name id)
   "Give the pane NAME:ID, or the focused one, the whole of its session; or give
@@ -203,14 +213,12 @@ watcher is told how many there are and which this is."
                    (said (loop :for h :in (subseq hits from to)
                                :collect (list (first h) (second h) (third h)
                                               (string-right-trim " " (pane-row-text pane (first h)))))))
-              (send-message watcher (list :found (session-name (pane-session server pane)) (pane-id pane)
-                                          n (and at (- n at)) (and hit (first hit))
-                                          said (and at (- at from)))))))))))
+              (found-in-pane watcher n said (and at (- at from))))))))))
 
 (defun pane-session (server pane)
   (find-if (lambda (s) (member pane (session-panes s))) (server-sessions server)))
 
-(defun select-pane-rows (server watcher what)
+(defun select-pane-rows (watcher what)
   "Lines out of the pane with WATCHER's focus. :START marks the top row shown
 as one end of a selection; :COPY sends the lines from that mark to the other
 end of what is shown now, or the screen when nothing was marked."
@@ -222,25 +230,32 @@ end of what is shown now, or the screen when nothing was marked."
         (ecase (if (consp what) (first what) what)
                (:line
                 ;; (:line row): that one row, as it is
-                (send-message watcher (list :copied (string-right-trim " " (pane-row-text pane (second what))))))
+                (copied watcher (string-right-trim " " (pane-row-text pane (second what)))))
                (:start (setf (pane-selecting pane) top (pane-dirty pane) t))
                (:copy
                 (let* ((mark (or (pane-selecting pane) top))
                        (from (min mark top))
                        (to (+ (max mark top) height)))
-                  (send-message watcher
-                                (list :copied
-                                      (format nil "~{~A~^~%~}"
-                                              (loop :for a :from from :below (min to (pane-row-count pane))
-                                                    :collect (string-right-trim " " (pane-row-text pane a))))))
+                  (copied watcher
+                          (format nil "~{~A~^~%~}"
+                                  (loop :for a :from from :below (min to (pane-row-count pane))
+                                        :collect (string-right-trim " " (pane-row-text pane a)))))
                   (setf (pane-selecting pane) nil (pane-dirty pane) t))))
         (dolist (w (session-watchers session)) (setf (watcher-behind w) t))))))
 
+(defun copied (watcher text)
+  "TEXT to the clipboard of WATCHER's terminal, and a note saying so."
+  (send-message watcher (list :copied text))
+  (show-note watcher "copied" (format nil "~D line~:P" (1+ (count #\Newline text))) :face :accent))
+
 (defun read-pane (server watcher name id)
-  "What a pane holds, scrollback and all, for somebody to read in a note."
+  "What a pane holds, the end of it, for somebody to read in a note."
   (let ((pane (find-pane server name id)))
-    (send-message watcher (list :read-it name id
-                                (and pane (agent:last-lines (pane-term pane) 500))))))
+    (show-note watcher (format nil "~A:~D" name id)
+               (format nil "~{~A~%~}"
+                       (last (and pane (agent:last-lines (pane-term pane) 500))
+                             (max 1 (- (watcher-rows watcher) 3))))
+               :face :accent)))
 
 (defun prompt-pane (server pane text actor)
   "Give PANE's program TEXT as new work: pasted, when it takes pastes, and
@@ -324,3 +339,55 @@ new window when it is :new. Answers the pane."
     (when label (setf (pane-label pane) label))
     (dolist (w (session-watchers (session-named server name))) (setf (watcher-behind w) t))
     pane))
+
+(defun go-to (watcher name &optional n)
+  "WATCHER onto the session called NAME, showing its window N when there is one."
+  (let* ((server (watcher-server watcher))
+         (session (and server (session-named server name))))
+    (when session
+      (unless (eq session (watcher-session watcher))
+        (join-session server watcher session))
+      (when n (session-select-window session n)))
+    session))
+
+(defun name-pane (server name id label)
+  (let ((pane (find-pane server name id)))
+    (when pane
+      (setf (pane-label pane) (and (stringp label)
+                                   (plusp (length (string-trim " " label)))
+                                   (string-trim " " label))
+            (pane-touched pane) (now-ms))
+      (dolist (w (session-watchers (session-named server name)))
+        (setf (watcher-behind w) t)))
+    pane))
+
+(defun prompt-named (watcher name id text &key when-idle)
+  "TEXT as new work for the pane NAME:ID, now or once it is idle; a note to
+WATCHER when it could not be."
+  (let* ((server (watcher-server watcher))
+         (pane (find-pane server name id))
+         (said (cond ((null pane) :gone)
+                     (when-idle (prompt-when-idle server pane text (actor-of watcher)))
+                     (t (prompt-pane server pane text (actor-of watcher))))))
+    (unless (member said '(t :queued))
+      (show-note watcher "not prompted"
+                 (format nil "~A:~D ~A" name id
+                         (if (eq said :blocked)
+                             "is asking something; answer it, not a prompt."
+                             "is gone."))))
+    said))
+
+(defun close-pane-named (server name id)
+  (let* ((session (session-named server name))
+         (pane (and session (find id (session-panes session) :key #'pane-id))))
+    (when pane (session-close-pane session pane))))
+
+(defun set-reading (watcher readingp)
+  "Whether WATCHER is reading its pane back, which the bar says for everybody."
+  (let ((session (watcher-session watcher)))
+    (when session
+      (setf (session-readers session)
+            (if readingp
+                (adjoin watcher (session-readers session))
+                (remove watcher (session-readers session))))
+      (dolist (w (session-watchers session)) (setf (watcher-behind w) t)))))

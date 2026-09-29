@@ -21,7 +21,7 @@
           "a frame said what a program nobody knows is doing: ~S" (seen seer)))))
 
 (test a-blocked-pane-is-answered-by-clicking-an-answer-in-its-border
-  (let ((script (a-dialog-script)))
+  (let ((script (dialog-script)))
     (unwind-protect
          (with-server (path :command "/bin/sh" :rows 16 :cols 90)
            (with-seer (seer path :rows 16 :cols 90)
@@ -57,20 +57,19 @@
                (seen seer)))))
 
 (test going-to-the-blocked-pane-goes-to-it-in-whatever-session-it-is
-  (with-a-server-here (server path)
+  (with-stepped-server (server path)
     (let* ((here (mux:add-session server "cat" :name "here" :rows 6 :cols 30))
            (there (mux:add-session server "cat" :name "there" :rows 6 :cols 30))
-           (wire (a-wire-to path)))
+           (wire (wire-to path)))
       (blocked server (mux:session-focus there))
       (say-to wire (list :want "here") (list :attach 6 30 t))
       (is-true (step-until server (lambda () (mux:session-watchers here))))
-      (say-to wire '(:go-to-blocked))
-      (is (equal (list :focused "there" (mux:pane-id (mux:session-focus there)) t)
-                 (heard-from server wire :focused)))
-      (is (mux:session-watchers there) "the client was not taken to the blocked pane")
-      (agent:agent-hear (mux:pane-agent (mux:session-focus there)) :idle)
-      (step-until server (lambda () (eq :idle (agent:agent-state
-                                               (mux:pane-agent (mux:session-focus there))))))
-      (say-to wire '(:go-to-blocked))
-      (is (equal '(:say "nothing needs you") (heard-from server wire :say)))
+      (let ((w (first (mux:session-watchers here))))
+        (mux:run-command "goto blocked pane" w)
+        (is (mux:session-watchers there) "the client was not taken to the blocked pane")
+        (agent:agent-hear (mux:pane-agent (mux:session-focus there)) :idle)
+        (step-until server (lambda () (eq :idle (agent:agent-state
+                                                 (mux:pane-agent (mux:session-focus there))))))
+        (mux:run-command "goto blocked pane" w)
+        (is (equal '("nothing needs you") (mux::note-lines (first (mux:watcher-overlays w))))))
       (mux:wire-close wire))))

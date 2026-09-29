@@ -6,37 +6,18 @@
 (defparameter +drawer-max-width+ 60
               "The most columns the drawer takes; a third of the terminal when that is less.")
 
-(defparameter +drawer-poll-interval+ 1000
-              "How often, in milliseconds, the drawer asks again about the pane it shows.")
-
 (defstruct (drawer (:constructor %make-drawer))
            (target nil)                          ; (session . id) to open on, else the focus
-           (key nil)
-           (requested-at 0 :type integer)
            (folded nil :type list)
            (laid nil))
 
 (defun drawer-width (cols)
   (min +drawer-max-width+ (floor cols 3)))
 
-(defun focused-row (client)
-  "What the client has been told of the pane with the focus in its session."
-  (find-if (lambda (r) (and (getf r :focus) (equal (getf r :session) (client-session client))))
-           (client-pane-rows client)))
-
-(defun drawer-request (client key)
-  (let ((session (car key)) (id (cdr key)))
-    (dolist (form (list (list :agent-explain session id)
-                        (list :pane-history session id)
-                        (list :pane-log session id 8)
-                        (list :pane-about session id)
-                        (list :pulses)))
-      (send-if-supported form))))
-
-(defun drawer-data (client key what)
-  "What the server last said about KEY's pane as WHAT, and when it came."
-  (let ((it (getf (gethash key (client-pane-info client)) what)))
-    (values (rest it) (first it))))
+(defun focused-row (watcher)
+  "The row of the pane with the focus in WATCHER's session."
+  (find-if (lambda (r) (and (getf r :focus) (equal (getf r :session) (watcher-session-name watcher))))
+           (pane-rows-of watcher)))
 
 (defun seen-lines (seen)
   (remove nil
@@ -66,12 +47,12 @@
                                     :collect (atty/ui:label (format nil "        │ ~A"
                                                                     (string-trim " " line)))))))))
 
-(defun log-lines (client log)
+(defun log-lines (watcher log)
   (loop :for (nil actor verb summary outcome clock) :in log
         :collect (atty/ui:row :spacing 0
                               (atty/ui:label (format nil "~A " (format-clock-hms clock))
                                              :face :quiet)
-                              (atty/ui:label (format nil "~14A " (log-actor-text client actor))
+                              (atty/ui:label (format nil "~14A " (log-actor-text watcher actor))
                                              :face (case (first actor)
                                                          (:pane :driven)
                                                          (:client :here)
@@ -90,12 +71,17 @@
               (atty/ui:label (format nil " ~A ~A" (if (member what (drawer-folded d)) "▸" "▾") (string-upcase name))
                              :face :quiet)))
 
-(defun drawer-context (client key)
-  "What the server last said about KEY's pane: what explained its state, what
-it is, and its log."
-  (values (drawer-data client key :agent-explained)
-          (first (drawer-data client key :pane-about))
-          (first (drawer-data client key :pane-log))))
+(defun drawer-context (watcher key)
+  "What explained the state of KEY's pane, what it is, and its log."
+  (let ((pane (and key (find-pane (watcher-server watcher) (car key) (cdr key))))
+        (now (now-ms)))
+    (if (null pane)
+        (values nil nil nil)
+        (multiple-value-bind (seen rows) (agent:agent-explain (pane-agent pane) (pane-term pane))
+          (values (list (agent:agent-state (pane-agent pane)) seen rows)
+                  (pane-info pane)
+                  (mapcar (lambda (e) (encode-log-entry e now))
+                          (subseq (pane-log pane) 0 (min 8 (length (pane-log pane))))))))))
 
 (defun identity-section (info row)
   "What the pane is: its kind and version and who reads it, its pid, size and
@@ -125,7 +111,7 @@ directory, and the program in front."
         (when (<= 0 at (1- +pulse-cells+))
           (setf (nth at typed) t))))))
 
-(defun state-section (client key row state now log)
+(defun state-section (watcher key row state now log)
   "What state the pane is in and for how long, and when it is read, its last
 twenty minutes: what it was in the top half of each cell, and whether anything
 typed into it in the bottom half."
@@ -147,7 +133,7 @@ typed into it in the bottom half."
                                        :face :quiet))))
    (when state
      (list (atty/ui:row :spacing 0 (atty/ui:label "  ")
-                        (timeline (pane-cells client (car key) (cdr key)) (typed-cells log))
+                        (timeline (pane-cells watcher (car key) (cdr key)) (typed-cells log))
                         (atty/ui:label "  what it was, over what typed into it" :face :quiet))
            (atty/ui:row :spacing 0 (atty/ui:label "  ")
                         (atty/ui:label "20m ago      now" :face :quiet))))))
@@ -163,9 +149,12 @@ key that closes the drawer."
                 (atty/ui:label "")))
         (list (hint (key-hint 'pane-mode 'explain-pane) "closes" :runs :close))))
 
-(defun drawer-tree (d client key row width)
-  (multiple-value-bind (explained info log) (drawer-context client key)
-                       (let* ((now (client-ms))
+(defun drawer-tree (d watcher key row width
+                    &optional (context (multiple-value-list (drawer-context watcher key))))
+  "The drawer for KEY's pane: CONTEXT is what explained its state, what it is,
+and its log."
+  (destructuring-bind (explained info log) context
+                       (let* ((now (now-ms))
                               (state (and (getf row :known) (getf row :state)))
                               (rows (third explained))
                               (asks (and (eq state :blocked) (getf row :asks)))
@@ -188,13 +177,13 @@ key that closes the drawer."
                                                                 (format nil "~@[~D ~]~A" (and (getf row :at) (1+ (getf row :at))) name)
                                                                 (list :quiet (format nil "› ~A" (truncate-string (or (getf info :command) "") 24)))))
                                              (toolbar (keycap "z" "zoom" :runs "zoom pane")
-                                                      (keycap "r" "read" :runs (list :pane-read session id))
+                                                      (keycap "r" "read" :runs (lambda () (read-pane (here-server) *client* session id)))
                                                       (keycap "n" "name" :runs "rename pane")
                                                       (keycap "x" "close" :runs (list :confirm-close session id)))
                                              (section-head d "what it is" :what))
                                        (when (open-p :what) (identity-section info row))
                                        (list (section-head d "state" :state))
-                                       (when (open-p :state) (state-section client key row state now log))
+                                       (when (open-p :state) (state-section watcher key row state now log))
                                        ;; the reading only for an agent that is read; for
                                        ;; anything else it would be about nothing
                                        (when state
@@ -204,29 +193,24 @@ key that closes the drawer."
                                                      (list (atty/ui:label "  nothing read yet" :face :quiet))))))
                                        (list (section-head d "who typed here" :who))
                                        (when (open-p :who)
-                                         (or (log-lines client log)
+                                         (or (log-lines watcher log)
                                              (list (atty/ui:label "  nobody yet" :face :quiet))))
                                        (list (atty/ui:gap :expand 1))
                                        (list (answer-bar row asks))))))))
 
 (defmethod draw-overlay ((d drawer) screen)
-           (let* ((client *overlay-client*)
+           (let* ((watcher *client*)
                   (cols (tty:screen-width screen))
                   (rows (tty:screen-height screen))
                   (width (drawer-width cols))
                   (row (or (and (drawer-target d)
-                                (find (drawer-target d) (client-pane-rows client) :key #'row-key :test #'equal))
-                           (focused-row client)))
+                                (find (drawer-target d) (pane-rows-of watcher) :key #'row-key :test #'equal))
+                           (focused-row watcher)))
                   (key (and row (row-key row))))
              (when key
-               (when (or (not (equal key (drawer-key d)))
-                         (>= (- (client-ms) (drawer-requested-at d)) +drawer-poll-interval+))
-                 (setf (drawer-key d) key
-                       (drawer-requested-at d) (client-ms))
-                 (let ((*client* client)) (drawer-request client key)))
-               (let* ((tree (drawer-tree d client key row width))
+               (let* ((tree (drawer-tree d watcher key row width))
                       (left (- cols width))
-                      (top (if (client-barp client) (min 1 (max 0 (1- rows))) 0))
+                      (top (if (bar-shown-p watcher) (min 1 (max 0 (1- rows))) 0))
                       (m (atty/cells:make-cells (tty:screen-grid screen) cols rows)))
                  (atty/cells:fill-rect m left top width (- rows top) (term:make-face :bg (bar-face :bg-dim)))
                  (atty/cells:draw tree (tty:screen-grid screen) cols rows :left left :top top)
@@ -236,24 +220,25 @@ key that closes the drawer."
 
 (defmethod overlay-laid-tree ((d drawer)) (drawer-laid d))
 
-(defmethod overlay-clicked ((d drawer) line col client)
+(defmethod overlay-clicked ((d drawer) line col watcher)
            "A button on the drawer: an answer at its foot, a section's fold, one of
 its actions."
            (let* ((hit (and (drawer-laid d) (button-at (drawer-laid d) line col)))
                   (runs (and hit (bar-button-runs hit))))
              (when hit
-               (let ((*client* client))
+               (let ((*client* watcher))
                  (case (and (consp runs) (first runs))
-                       (:answer (send-to-server runs))
+                       (:answer (destructuring-bind (session id n) (rest runs)
+                                  (answer-pane (watcher-server watcher) watcher session id n)))
                        (:fold (setf (drawer-folded d) (if (member (second runs) (drawer-folded d))
                                                           (remove (second runs) (drawer-folded d))
                                                         (cons (second runs) (drawer-folded d)))
-                                    (client-dirty client) t))
+                                    (watcher-behind watcher) t))
                        (:confirm-close
                         (destructuring-bind (session id) (rest runs)
-                                            (confirm client (format nil "close ~A and what runs in it?" (row-path (focused-row client)))
-                                                     :yes (lambda (c) (let ((*client* c)) (send-to-server (list :close-pane session id)))))))
-                       (t (handle-button d runs client))))
+                                            (confirm watcher (format nil "close ~A and what runs in it?" (row-path (focused-row watcher)))
+                                                     :yes (lambda (w) (close-pane-named (watcher-server w) session id)))))
+                       (t (handle-button d runs watcher))))
                t)))
 
 (defmethod overlay-ticks-p ((d drawer)) t)
@@ -263,27 +248,25 @@ its actions."
 (atty/mode:define-mode drawer-mode (pane-mode))
 (defmethod mode-of ((d drawer)) 'drawer-mode)
 
-(defun drawer-close (client)
-  (let ((open (find-if (lambda (it) (typep it 'drawer)) (client-overlays client))))
+(defun drawer-close (watcher)
+  (let ((open (find-if (lambda (it) (typep it 'drawer)) (watcher-overlays watcher))))
     (when open
-      (client-pop-overlay client open)
-      (unsubscribe-panes client))))
+      (pop-overlay watcher open))))
 
-(defmethod close-overlay ((d drawer) client) (drawer-close client))
+(defmethod close-overlay ((d drawer) watcher) (drawer-close watcher))
 
-(defcommand (close-drawer :unlisted)
+(defcommand (close-drawer :unlisted) ()
             (drawer-close *client*))
 
 (atty/mode:define-key 'drawer-mode "Escape" #'close-drawer)
 (atty/mode:define-key 'drawer-mode "C-g" #'close-drawer)
 
-(defun open-drawer (client &optional target)
-  "The drawer over CLIENT's screen, on the pane TARGET names or the focus."
-  (subscribe-panes client)
-  (client-push-overlay client (%make-drawer :target target)))
+(defun open-drawer (watcher &optional target)
+  "The drawer over WATCHER's screen, on the pane TARGET names or the focus."
+  (push-overlay watcher (%make-drawer :target target)))
 
-(defcommand (explain-pane :group agents)
+(defcommand (explain-pane :group agents) ()
             "why this pane is what it is, and who typed into it"
-            (if (find-if (lambda (it) (typep it 'drawer)) (client-overlays *client*))
+            (if (find-if (lambda (it) (typep it 'drawer)) (watcher-overlays *client*))
                 (drawer-close *client*)
               (open-drawer *client*)))

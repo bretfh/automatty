@@ -1,7 +1,7 @@
 (defpackage #:libatty/test
   (:use #:cl #:fiveam)
   (:export #:run-them #:emulator
-           #:a-term #:say #:csi #:esc #:osc #:row #:rows #:at #:face-at #:cursor))
+           #:say #:csi #:esc #:osc #:row #:rows #:at #:face-at #:cursor))
 (in-package #:libatty/test)
 
 (def-suite emulator)
@@ -11,9 +11,6 @@
     (explain! results)
     (unless (results-status results)
       (uiop:quit 1))))
-
-(defun a-term (&rest args)
-  (apply #'term:make-term args))
 
 (defun say (term &rest strings)
   (dolist (string strings term)

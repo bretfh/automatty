@@ -30,7 +30,7 @@
       (is-true (pump seer :want " 3 cat") "clicking + made no window: ~S" (seen seer)))))
 
 (test the-bar-is-where-what-else-who-and-the-one-key-to-learn
-  (with-a-session (session pane server "cat" :rows 8 :cols 160)
+  (with-session (session pane server "cat" :rows 8 :cols 160)
     (declare (ignore pane))
     (let* ((screen (tty:make-screen :width 160 :height 1))
            (tree (mux::default-bar session)))
@@ -47,7 +47,7 @@
           (is (equal "show menu" (and menu (mux::bar-button-runs menu)))))))))
 
 (test the-right-of-the-bar-is-pinned-to-the-edge-and-the-windows-are-cut-instead
-  (with-a-session (session pane server "cat" :rows 8 :cols 200)
+  (with-session (session pane server "cat" :rows 8 :cols 200)
     (declare (ignore pane))
     ;; nine windows: more chips than any of these widths has room for, and
     ;; another session, which is named at every width
@@ -85,7 +85,7 @@
       (is (search "    c another window" (seen seer)) "the new window key is not listed: ~S" (seen seer))
       ;; the second key does what it always did, and the menu goes with it
       (type-at seer "c")
-      (is-true (pump seer :want " 2 ") "no second window: ~S" (seen seer))
+      (is-true (pump seer :want " 2 cat") "no second window: ~S" (seen seer))
       (is-true (pump seer :until (lambda () (null (search "then one key" (seen seer)))))
                "the menu stayed up after the chord: ~S" (seen seer))
       ;; a click on an entry runs it too
@@ -93,7 +93,7 @@
       (is-true (pump seer :want "Esc cancels" :seconds 2))
       (multiple-value-bind (x y) (where-on seer "another window")
         (click-at seer x y))
-      (is-true (pump seer :want " 3 ") "the click on the entry made no window: ~S" (seen seer))
+      (is-true (pump seer :want " 3 cat") "the click on the entry made no window: ~S" (seen seer))
       (is (null (search "then one key" (seen seer))) "the menu stayed up after the click"))))
 
 (test the-bar-says-which-pane-is-zoomed-and-who-is-reading-back
@@ -113,7 +113,7 @@
                "leaving did not take the chip off the bar: ~S" (seen seer)))))
 
 (test a-window-with-a-pane-asking-is-a-yellow-chip-with-a-count
-  (with-a-session (session pane server "cat" :rows 8 :cols 100)
+  (with-session (session pane server "cat" :rows 8 :cols 100)
       (let ((agent (mux:pane-agent pane)))
         (step-until server (lambda () (member (agent:agent-state agent) '(:idle :working))))
         (agent:agent-hear agent :blocked)

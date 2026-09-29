@@ -18,7 +18,7 @@
    #:+tiocgwinsz+
    #:+stdin+
    #:+stdout+
-   #:a-terminal-p
+   #:terminal-p
    #:host-size
    #:host-raw
    #:host-put-back

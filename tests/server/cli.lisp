@@ -38,36 +38,33 @@
   (is (equal "\"a \\\"q\\\"\\nb\"" (with-output-to-string (s) (mux::to-json (format nil "a \"q\"~%b") s)))))
 
 (test reading-plainly-leaves-out-what-is-drawn-faint
-  (let ((term (a-term :width 60 :height 3)))
+  (let ((term (term:make-term :width 60 :height 3)))
     (say term (format nil "❯ ~C[2madd clarification 8~C[0m~C~Ctyped" #\Escape #\Escape #\Return #\Newline))
     (let ((lines (mux::plain-lines term 3)))
       (is (equal "❯" (first lines)) "the faint suggestion was read as typed: ~S" lines)
       (is (equal "typed" (second lines))))))
 
 (test a-pane-is-spawned-into-a-session-or-makes-the-session
-  (with-a-server-here (server path)
-    (let ((wire (a-wire-to path)))
-      (say-to wire (list :spawn "work" "cat" nil "impl"))
-      (let ((id (third (heard-from server wire :spawned))))
-        (is (integerp id))
+  (with-stepped-server (server path)
+    (let ((wire (wire-to path)))
+      (multiple-value-bind (said status) (run-by-name server wire "agent spawn" '("work" "--name" "impl" "--" "cat"))
+        (is (eq t status) "~S" said)
         (let ((session (mux:session-named server "work")))
           (is-true session "spawning into no session did not make one")
           (is (equal "impl" (mux::pane-label (mux:session-focus session))))))
-      (say-to wire (list :spawn "work" "cat" nil "test"))
-      (let* ((id (third (heard-from server wire :spawned)))
-             (session (mux:session-named server "work")))
+      (run-by-name server wire "agent spawn" '("work" "--name" "test" "--" "cat"))
+      (let ((session (mux:session-named server "work")))
         (is (eql 2 (length (mux:session-panes session))))
-        (is (equal "test" (mux::pane-label (find id (mux:session-panes session)
-                                                 :key #'mux:pane-id))))
+        (is (equal "test" (mux::pane-label (second (mux:session-panes session)))))
         (is (equal "impl" (mux::pane-label (mux:session-focus session)))
             "spawning moved the focus off the pane somebody was in"))
       (mux:wire-close wire))))
 
 (test since-a-prompt-says-when-it-was-and-what-came-after
-  (with-a-server-here (server path)
+  (with-stepped-server (server path)
     (let* ((session (mux:add-session server "cat" :name "work" :rows 6 :cols 30))
            (pane (mux:session-focus session))
-           (wire (a-wire-to path)))
+           (wire (wire-to path)))
       (settled server pane)
       (say-to wire (list :since-prompt "work" (mux:pane-id pane)))
       (destructuring-bind (state prompted history) (fourth (heard-from server wire :since-prompt))
@@ -83,12 +80,12 @@
 (test a-prompt-of-one-line-is-typed-not-pasted
   ;; the field test: Claude Code declined to act on a request that arrived as
   ;; a bracketed paste, taking it for text pasted in rather than asked for
-  (with-a-server-here (server path)
+  (with-stepped-server (server path)
     (let* ((session (mux:add-session server
                                      (format nil "printf '\\033[?2004h'; stty -echo; cat -v")
                                      :name "work" :rows 6 :cols 60))
            (pane (mux:session-focus session))
-           (wire (a-wire-to path)))
+           (wire (wire-to path)))
       (step-until server (lambda () (term:term-bracketed-paste (mux:pane-term pane))))
       (say-to wire (list :agent-prompt "work" (mux:pane-id pane) "hello there"))
       (heard-from server wire :agent-prompted)
@@ -103,12 +100,12 @@
   ;; reaches the real terminal, only while that pane has the focus. A turns
   ;; it on right away and off again once given a line, on its own output, so
   ;; nothing here depends on the pty's local echo of what is typed in.
-  (with-a-server-here (server path)
+  (with-stepped-server (server path)
     (let* ((session (mux:add-session
                      server "printf '\\033[?2004h'; read x; printf '\\033[?2004l'; cat"
                      :name "work" :rows 6 :cols 30))
            (a (mux:session-focus session))
-           (wire (a-wire-to path))
+           (wire (wire-to path))
            (heard (heard-tags server wire)))
       (mux:session-add-window session "cat" nil nil)
       (is-true (step-until server (lambda () (term:term-bracketed-paste (mux:pane-term a)))))
@@ -129,10 +126,10 @@
       (mux:wire-close wire))))
 
 (test a-pane-that-never-asks-for-bracketed-paste-leaves-the-host-alone
-  (with-a-server-here (server path)
+  (with-stepped-server (server path)
     (let* ((session (mux:add-session server "cat" :name "work" :rows 6 :cols 30))
            (pane (mux:session-focus session))
-           (wire (a-wire-to path)))
+           (wire (wire-to path)))
       (say-to wire (list :want "work") (list :attach 6 30 t))
       (heard-from server wire :hello)
       (say-to wire (list :keys (format nil "hello~%")))

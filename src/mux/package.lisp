@@ -91,7 +91,7 @@
    #:session-close-pane
    #:session-focus-next
    #:session-delete-other-panes
-   #:message-types #:define-message-handler #:message-handlers
+   #:define-message-handler
    #:session-screen
    #:session-rows
    #:session-cols
@@ -115,28 +115,25 @@
    #:*state-home* #:state-dir #:encode-pane #:decode-pane #:encode-tree #:restore-state
    #:save-tree #:save-pane #:save-all #:save-due #:move-state-aside #:saved-sessions #:delete-saved-session
    #:write-form-atomically #:read-state-file
-   #:+base-message-types+
-   #:client-message-types
-   #:send-to-server
    #:make-client
    #:client-close
    #:client-step
    #:client-running
    #:client-exit-reason
-   #:client-screen
    #:client-wire
-   #:client-overlays
-   #:client-push-overlay
-   #:client-pop-overlay
-   #:client-dirty
    #:client-draw
-   #:draw-overlay
-   #:mode-of
-   #:overlay-unbound-key
-   #:client-mode
    #:client-rows
    #:client-cols
    #:client-resized
+   #:draw-overlay
+   #:mode-of
+   #:overlay-unbound-key
+   #:push-overlay
+   #:pop-overlay
+   #:watcher-overlays
+   #:watcher-behind
+   #:watcher-mode
+   #:handle-input
    #:attach
 
    #:defcommand
@@ -176,7 +173,6 @@
    #:probe-socket
    #:other-servers
    #:request-sessions
-   #:request-stop-session
    #:list-sessions
    #:stop-server
    #:request

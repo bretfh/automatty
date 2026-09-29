@@ -71,21 +71,28 @@ one after. The last window stays, empty, which is a session that is over."
     (session-close-pane session pane)))
 
 (defun session-rename (server watcher session new)
-  "Call SESSION NEW, when NEW is a name and no other session has it: everybody
-attached is told the old and the new, and WATCHER whether it was done."
+  "Call SESSION NEW, when NEW is a name and no other session has it: whatever
+anybody has on top follows it, and WATCHER is told whether it was done.
+Answers t, or :empty or :taken."
   (let* ((old (session-name session))
          (new (string-trim " " (or new "")))
          (taken (and (plusp (length new)) (session-named server new))))
-    (cond
-      ((zerop (length new)) (send-message watcher (list :session-named old new :empty)))
-      ((and taken (not (eq taken session))) (send-message watcher (list :session-named old new :taken)))
-      (t
-       (setf (session-name session) new)
-       (dolist (w (all-watchers server))
-         (setf (watcher-behind w) t)
-         (when (wire-open (watcher-wire w))
-           (send-message w (list :session-renamed old new))))
-       (send-message watcher (list :session-named old new t))))))
+    (let ((outcome
+            (cond
+              ((zerop (length new))
+               (show-note watcher "name" "a session needs a name")
+               :empty)
+              ((and taken (not (eq taken session)))
+               (show-note watcher "name" (format nil "there is already a session called ~A" new))
+               :taken)
+              (t
+               (setf (session-name session) new)
+               (dolist (w (all-watchers server))
+                 (dolist (it (watcher-overlays w)) (overlay-session-renamed it old new))
+                 (setf (watcher-behind w) t))
+               t))))
+      (send-message watcher (list :session-named old new outcome))
+      outcome)))
 
 (defun session-rename-window (session window label)
   (setf (window-label window) (and label (plusp (length label)) label))

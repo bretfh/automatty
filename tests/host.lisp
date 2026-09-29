@@ -24,12 +24,12 @@
 
 (test a-pipe-is-not-a-terminal-and-a-pty-is
       (multiple-value-bind (in out) (sb-posix:pipe)
-                           (unwind-protect (is (null (tty:a-terminal-p in)))
+                           (unwind-protect (is (null (tty:terminal-p in)))
                              (sb-posix:close in)
                              (sb-posix:close out)))
       (with-slave (master slave)
-                  (is (tty:a-terminal-p master))
-                  (is (tty:a-terminal-p slave))))
+                  (is (tty:terminal-p master))
+                  (is (tty:terminal-p slave))))
 
 (test a-terminal-in-raw-mode-echoes-nothing-and-waits-for-no-line
       (with-slave (master slave)

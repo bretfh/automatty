@@ -67,111 +67,125 @@ modifiers that are down, so it is read with GETF rather than MEMBER."
   "How much of an unfinished sequence to keep for the next read. More than this
 is not somebody typing a key.")
 
-(defun client-pending-input (client said)
+(defun pending-input (watcher said)
   "SAID with whatever was left half-said at the end of the last read in front of
 it."
-  (if (plusp (length (client-partial client)))
-      (prog1 (concatenate 'string (client-partial client) said)
-        (setf (client-partial client) ""))
+  (if (plusp (length (watcher-partial watcher)))
+      (prog1 (concatenate 'string (watcher-partial watcher) said)
+        (setf (watcher-partial watcher) ""))
       said))
 
-(defun client-hold-input (client said at n)
-  (setf (client-partial client)
+(defun hold-input (watcher said at n)
+  (setf (watcher-partial watcher)
         (if (> (- n at) +max-partial-sequence+) "" (subseq said at n))))
 
-(defun client-chord-event (client event)
-  "EVENT, a key or a click as the terminal sent it, to the mode this client is
-in. A click is a key a mode can bind, and says where it landed as *MOUSE-AT*."
+(declaim (ftype function handle-menu-click))
+
+(defun chord-event (watcher event)
+  "EVENT, a key or a click as the terminal sent it, to the mode WATCHER is in.
+A click is a key a mode can bind, and says where it landed as *MOUSE-POSITION*."
   (if (and (consp event) (eq :mouse (first event)))
       (let ((key (mouse-event-key event)))
         (when key
           (let ((*mouse-position* (cons (getf (rest event) :x) (getf (rest event) :y)))
                 (*mouse-event* (rest event)))
-            (if (client-menu client)
-                ;; the menu is up over a half chord: a press is the menu's,
-                ;; not another key on the chord
+            (if (watcher-menu watcher)
                 (when (string= "mouse-1" (atty/mode:spelled key))
-                  (let ((*client* client)) (handle-menu-click client)))
-                (client-chord client key)))))
-      (client-chord client (event-key event))))
+                  (let ((*client* watcher)) (handle-menu-click watcher)))
+                (press-chord watcher key)))))
+      (press-chord watcher (event-key event))))
 
-(defun client-handle-key (client said)
-  "Bytes, as keys, to the mode whatever is on top put the client in.
-
-A sequence the terminal sent that is no key a mode knows, a mouse report say, is
-passed over rather than made into one, and one the rest of has not arrived yet is
-kept until it has."
-  (let* ((said (client-pending-input client said))
+(defun handle-key (watcher said)
+  "Bytes, as keys, to the mode whatever is on top put WATCHER in. A sequence
+that is no key a mode knows is passed over, and one the rest of has not
+arrived yet is kept until it has."
+  (let* ((said (pending-input watcher said))
          (at 0)
          (n (length said)))
     (loop :while (< at n)
           :do (multiple-value-bind (event took)
                   (tty:escape-sequence-to-key-event said at n nil)
-                (when (zerop took) (client-hold-input client said at n) (return))
+                (when (zerop took) (hold-input watcher said at n) (return))
                 (incf at took)
-                (when event (client-chord-event client event))))))
+                (when event (chord-event watcher event))))))
 
-(defun client-chord (client key)
-  "Give KEY to the mode this client is in. Answers whether the chord wants more
-keys.
+(defparameter +menu-delay+ 300
+  "How long a prefix has to hang, in milliseconds, before the menu is drawn.")
 
-Which mode, and half a chord, are both this client's rather than the image's:
-two of them attached in one process would otherwise be in each other's modes and
-finishing each other's chords."
-  (let* ((*client* client)
-         (over (first (client-overlays client)))
-         (atty/mode:*pending* (client-partial-chord client))
-         (atty/mode:*unbound* (lambda (chord) (overlay-unbound-key over chord client))))
+(defun menu-due-p (watcher)
+  (and (watcher-partial-chord watcher)
+       (watcher-pending-since watcher)
+       (>= (- (now-ms) (watcher-pending-since watcher)) +menu-delay+)))
+
+(defun menu-later (watcher)
+  (let ((session (watcher-session watcher)))
+    (when (and session (session-server session))
+      (schedule-task (session-server session) +menu-delay+
+                     (lambda () (setf (watcher-behind watcher) t))))))
+
+(defun press-chord (watcher key)
+  "Give KEY to the mode WATCHER is in. Answers whether the chord wants more."
+  (let* ((*client* watcher)
+         (*rows* (list nil))
+         (over (first (watcher-overlays watcher)))
+         (atty/mode:*pending* (watcher-partial-chord watcher))
+         (atty/mode:*unbound* (lambda (chord) (overlay-unbound-key over chord watcher))))
     (prog1 (let ((how (atty/mode:press (atty/mode:spelled key)
-                                       (atty/mode:mode-named (client-mode client)))))
+                                       (atty/mode:mode-named (watcher-mode watcher)))))
              (if (eq how :pending)
-                 (unless (client-pending-since client)
-                   (setf (client-pending-since client) (client-ms)))
+                 (unless (watcher-pending-since watcher)
+                   (setf (watcher-pending-since watcher) (now-ms))
+                   (menu-later watcher))
                  (progn
-                   (setf (client-pending-since client) nil)
-                   (when (client-menu client)
-                     (setf (client-menu client) nil (client-dirty client) t))))
+                   (setf (watcher-pending-since watcher) nil)
+                   (when (watcher-menu watcher)
+                     (setf (watcher-menu watcher) nil))))
              (eq how :pending))
-      (setf (client-partial-chord client) atty/mode:*pending*)
-      (when over (setf (client-dirty client) t)))))
+      (setf (watcher-partial-chord watcher) atty/mode:*pending*
+            (watcher-behind watcher) t))))
 
-(defun client-handle-input (client said)
-  "Pass what was typed through, byte for byte, until the one byte that says a
-chord is starting.
+(defun type-into-pane (watcher text)
+  "TEXT typed into the pane with the focus of WATCHER's session."
+  (let* ((session (watcher-session watcher))
+         (pane (and session (session-focus session))))
+    (when pane
+      (setf (watcher-typed-at watcher) (now-ms))
+      (when (watcher-following watcher) (stop-following (session-server session) watcher))
+      (pane-push-log pane (now-ms) (actor-of watcher) :keys (length text))
+      (pane-scroll-to pane 0)
+      (pane-write pane text))))
 
-The bytes are not decoded into keys and encoded again: a terminal sends more
-than any table of keys knows, such as mouse reports, pasted text and whatever
-encoding it was built with, and what the pane reads should be what the terminal
-sent. Once a chord has started they are read as keys, because that is what a
-mode is written in, and the pane does not see them at all.
-
-A mouse report this build has no name for is forwarded the same way. One it
-does have a name for goes to the mode instead and is not passed on."
-  (when (and (client-overlays client)
-             (not (overlay-passes-keys-p (first (client-overlays client)))))
-    (return-from client-handle-input (client-handle-key client said)))
-  (let* ((said (client-pending-input client said))
+(defun handle-input (watcher said)
+  "Pass what was typed to the pane, byte for byte, until the one byte that says
+a chord is starting. Once a chord has started, or while something on top takes
+the keys, bytes are read as keys and the pane does not see them. A mouse report
+this build has a name for goes to the mode; any other is passed on."
+  (when (and (watcher-overlays watcher)
+             (not (overlay-passes-keys-p (first (watcher-overlays watcher)))))
+    (return-from handle-input (handle-key watcher said)))
+  (let* ((said (pending-input watcher said))
          (out (make-array (length said) :element-type 'character :fill-pointer 0))
          (at 0)
          (n (length said)))
     (flet ((send ()
              (when (plusp (fill-pointer out))
-               (wire-send (client-wire client)
-                          (list :keys (coerce out 'simple-string)))
+               (type-into-pane watcher (coerce out 'simple-string))
                (setf (fill-pointer out) 0))))
       (loop :while (< at n)
-            :do (if (client-partial-chord client)
+            :do (if (watcher-partial-chord watcher)
                     (multiple-value-bind (event took)
                         (tty:escape-sequence-to-key-event said at n nil)
-                      (when (zerop took) (client-hold-input client said at n) (return))
+                      (when (zerop took) (hold-input watcher said at n) (return))
                       (incf at took)
-                      (when event (client-chord-event client event))
-                      (when (client-overlays client) (return)))
+                      (when event (chord-event watcher event))
+                      (when (watcher-overlays watcher)
+                        (send)
+                        (return (handle-key watcher (subseq said at n)))))
                     (let ((ch (char said at)))
                       (cond
                         ((char= ch +prefix+)
                          (incf at)
-                         (send) (client-chord client (event-key ch)))
+                         (send) (press-chord watcher (event-key ch)))
                         ((char= ch #\Escape)
                          (multiple-value-bind (event took)
                              (tty:escape-sequence-to-key-event said at n nil)
@@ -182,16 +196,13 @@ does have a name for goes to the mode instead and is not passed on."
                                (key
                                 (send)
                                 (let ((*mouse-position* (cons (getf (rest event) :x)
-                                                         (getf (rest event) :y)))
+                                                              (getf (rest event) :y)))
                                       (*mouse-event* (rest event)))
-                                  (client-chord client key))
+                                  (press-chord watcher key))
                                 (incf at took))
-                               ;; Escape on its own, with something on top that
-                               ;; lets keys through: the mode's, so it can close
-                               ;; what is on top; a sequence is still the pane's
-                               ((and (client-overlays client) (<= took 1))
+                               ((and (watcher-overlays watcher) (<= took 1))
                                 (send)
-                                (client-chord client (event-key ch))
+                                (press-chord watcher (event-key ch))
                                 (incf at))
                                (t (vector-push ch out) (incf at))))))
                         (t (incf at) (vector-push ch out))))))

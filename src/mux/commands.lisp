@@ -4,236 +4,225 @@
 
 ;;; What the keys do, and which keys do it.
 
-(defcommand (detach :group sessions)
+(defun here () (watcher-session *client*))
+
+(defun here-server () (or (watcher-server *client*) *server*))
+
+(defcommand (detach :group sessions) ()
   "leave the session running and give the terminal back"
-  (client-stop *client* :detached))
+  (drop-watcher (here-server) *client* :detached))
 
-(defcommand (redraw :group asking)
+(defcommand (redraw :group asking) ()
   "draw the whole screen again"
-  (client-redraw *client*))
+  (let ((session (here)))
+    (when session
+      (setf (watcher-shadow *client*) (tty:make-screen :width (session-cols session)
+                                                        :height (session-rows session))
+            (watcher-told *client*) nil
+            (watcher-behind *client*) t)
+      (send-hello *client* session))))
 
-(defgeneric message-for-command (client form))
+(defun set-bar (session state)
+  "The bar is the session's: whoever asks, everybody on it sees the change."
+  (setf (session-bar-p session) (if (eq state :toggle)
+                                    (not (session-bar-p session))
+                                    (and state t)))
+  (session-reset-shadows session))
 
-(defun send-to-server (form)
-  (message-for-command *client* form))
-
-(defmethod message-for-command ((client client) form)
-  "Say FORM to the server holding this session, or say why not.
-
-The server is usually older than the client that reached it: it has been running
-since whenever, and this was started a moment ago. A key it has never heard of
-that quietly does nothing looks exactly like a key that is broken, so it says so
-instead."
-  (if (member (first form) (client-message-types client))
-      (wire-send (client-wire client) form)
-      (show-note client "not here"
-                 (format nil "The server holding this session cannot ~(~A~).~%~%~
-                              It has been running since before that was added.~%~
-                              What is in it goes on running; a session started~%~
-                              now knows the whole of it."
-                         (first form))
-                 :face :warning)))
-
-(defcommand (bar-off :group asking)
+(defcommand (bar-off :group asking) ()
   "take the bar off, for everybody on the session"
-  (send-to-server (list :bar nil)))
+  (set-bar (here) nil))
 
-(defcommand (bar-on :group asking)
+(defcommand (bar-on :group asking) ()
   "put the bar back"
-  (send-to-server (list :bar t)))
+  (set-bar (here) t))
 
-(defcommand (toggle-bar :group asking)
+(defcommand (toggle-bar :group asking) ()
   "the bar off or on"
-  (send-to-server (list :bar :toggle)))
+  (set-bar (here) :toggle))
 
-(defcommand (commands :group asking)
+(defcommand (commands :group asking) ()
   "run any command by name; the palette's first tab"
   (open-palette *client* :commands))
 
-(defcommand (split-right :group panes)
+(defcommand (split-right :group panes) ()
   "another pane beside this one"
-  (send-to-server (list :split :across)))
+  (session-split (here) :across))
 
-(defcommand (split-below :group panes)
+(defcommand (split-below :group panes) ()
   "another pane under this one"
-  (send-to-server (list :split :down)))
+  (session-split (here) :down))
 
-(defcommand (next-pane :group panes)
+(defcommand (next-pane :group panes) ()
   "the focus to the next pane in this window"
-  (send-to-server (list :focus)))
+  (session-focus-next (here)))
 
-(defcommand (close-pane :group panes)
+(defcommand (close-pane :group panes) ()
   "close this pane and let its program go"
-  (send-to-server (list :close)))
+  (session-close-pane (here) (session-focus (here))))
 
-(defcommand (delete-other-panes :group panes)
+(defcommand (delete-other-panes :group panes) ()
   "close every other pane in this window"
-  (send-to-server (list :only)))
+  (session-delete-other-panes (here) (session-focus (here))))
 
-(defcommand (new-session :group sessions)
+(defun open-session (server watcher &optional name command directory)
+  "A new session, joined by WATCHER, started where its pane is."
+  (let ((session (watcher-session watcher)))
+    (join-session server watcher
+                  (add-session server (or command (server-command server))
+                               :name (or name (unused-session-name server))
+                               :rows (watcher-rows watcher)
+                               :cols (watcher-cols watcher)
+                               :directory (or directory
+                                              (and session
+                                                   (pane-directory (session-focus session))))))))
+
+(defcommand (new-session :group sessions) ()
   "another session, started where this pane is"
-  (send-to-server (list :new)))
+  (open-session (here-server) *client*))
 
-;;; Windows. Each names the session it is on, since the server takes the same
-;;; forms from a client on another session and from the command line.
-
-(defcommand (new-window :group windows)
+(defcommand (new-window :group windows) ()
   "another window in this session, after this one"
-  (send-to-server (list :new-window (client-session *client*))))
+  (session-add-window (here)))
 
-(defcommand (next-window :group windows)
+(defcommand (next-window :group windows) ()
   "show the next window"
-  (send-to-server (list :next-window (client-session *client*))))
+  (session-cycle-window (here) 1))
 
-(defcommand (previous-window :group windows)
+(defcommand (previous-window :group windows) ()
   "show the window before"
-  (send-to-server (list :previous-window (client-session *client*))))
+  (session-cycle-window (here) -1))
 
-(defcommand (close-window :group windows)
+(defcommand (close-window :group windows) ()
   "close this window and every program in it, after a yes"
   (confirm *client* "close this window and every program in it?"
-           :yes (lambda (c)
-                  (let ((*client* c))
-                    (send-to-server (list :close-window (client-session c)))))))
+           :yes (lambda (w)
+                  (let ((session (watcher-session w)))
+                    (session-close-window session (session-window session))))))
 
-(defcommand (switch-session :group sessions)
+(defun session-list (server)
+  "Every session as the window chooser lists them: (name rows cols panes
+watching blocked windows)."
+  (mapcar (lambda (s)
+            (list (session-name s) (session-rows s) (session-cols s)
+                  (length (session-panes s))
+                  (count-if #'watcher-interactive (session-watchers s))
+                  (count :blocked (session-panes s)
+                         :key (lambda (p) (agent:agent-state (pane-agent p))))
+                  (encode-windows s)))
+          (server-sessions server)))
+
+(defcommand (switch-session :group sessions) ()
   "every session and its windows, to go to one; the same list as @"
-  (send-to-server (list :sessions)))
+  (prompt-window *client* (session-list (here-server))))
 
-(defcommand (clients :group sessions)
+(defcommand (clients :group sessions) ()
   "who is attached to this server, and what each is looking at; RET goes there, C-RET detaches one"
   (open-palette *client* :clients))
 
-(defcommand (switch-window :group windows)
+(defcommand (switch-window :group windows) ()
   "every session › window, the ones asking first; RET goes, C-RET makes one, TAB its panes"
-  (send-to-server (list :sessions)))
+  (prompt-window *client* (session-list (here-server))))
 
-(defcommand (rename-window :group windows)
+(defcommand (rename-window :group windows) ()
   "what to call this window; TAB names the pane instead"
-  (send-to-server (list :naming-window)))
+  (let ((session (here)))
+    (prompt-window-name *client* (session-name session)
+                        (window-number session (session-window session))
+                        (window-label (session-window session)))))
 
-(defcommand (send-prefix :group asking)
+(defcommand (send-prefix :group asking) ()
   "send the prefix itself to the pane"
-  (send-to-server (list :keys (string +prefix+))))
+  (type-into-pane *client* (string +prefix+)))
 
-(defcommand (rename-pane :group panes)
+(defcommand (rename-pane :group panes) ()
   "what to call this pane; TAB names the window instead"
-  (send-to-server (list :naming)))
+  (let* ((session (here))
+         (pane (session-focus session)))
+    (prompt-pane-name *client* (session-name session) (pane-id pane)
+                      (pane-label pane) (pane-named pane)
+                      :address (pane-address-of session pane))))
 
-(defun prompt-session-name (client session)
+(defun prompt-session-name (watcher session)
   "What to call SESSION, on the line at the foot, starting from its name."
-  (entry client "name" (format nil "session ~A" session) session
-         :keep (lambda (typed c)
-                 (let ((*client* c)) (send-to-server (list :name-session session typed))))))
+  (entry watcher "name" (format nil "session ~A" session) session
+         :keep (lambda (typed w)
+                 (let* ((server (watcher-server w))
+                        (it (session-named server session)))
+                   (if it
+                       (session-rename server w it typed)
+                       (show-note w "name" (format nil "no session is called ~A any more" session)))))))
 
-(defcommand (rename-session :group sessions)
-  "what to call this session"
-  (when (client-session *client*)
-    (prompt-session-name *client* (client-session *client*))))
+(defcommand (rename-session :group sessions) (&optional name new)
+  "what to call this session; given a session and a name, that is what it is called"
+  (if new
+      (let* ((server (here-server))
+             (it (session-named server name)))
+        (unless it (error "nothing is called ~A" name))
+        (when (eq t (session-rename server *client* it new))
+          (format t "~&~A is now ~A~%" name (string-trim " " new))))
+      (when (watcher-session-name *client*)
+        (prompt-session-name *client* (watcher-session-name *client*)))))
 
-(defcommand (goto-blocked-pane :group agents)
+(defcommand (goto-blocked-pane :group agents) ()
   "go to whatever has been asking longest, in any session"
-  (send-to-server (list :go-to-blocked)))
+  (focus-oldest-blocked (here-server) *client*))
 
-(defcommand (zoom-pane :group panes)
+(defcommand (zoom-pane :group panes) ()
   "this pane has the whole window, or gives it back"
-  (send-to-server (list :zoom)))
-
-(defun server-supports-p (what)
-  (member what (client-message-types *client*)))
-
-(defun send-if-supported (form)
-  "Say FORM to the server if it has heard of it, and nothing at all if not. For
-what a mouse does: a wheel that does nothing on a server from before it did
-anything is what that server always did, and a note for every notch is worse."
-  (when (server-supports-p (first form))
-    (wire-send (client-wire *client*) form)))
-
-(defcommand (mouse-clicked :unlisted)
-  (send-to-server (list :mouse-at (car *mouse-position*) (cdr *mouse-position*))))
-
-;;; The mouse, passed on. Which button and where is the server's to make sense
-;;; of: it knows what was drawn there, and whether the program under it asked
-;;; to be told.
+  (session-zoom-pane (here-server) *client*))
 
 (defun mouse-modifiers ()
   "The modifiers held with what the mouse just did."
   (loop :for mod :in '(:shift :meta :ctrl)
         :when (getf *mouse-event* mod) :collect mod))
 
-(defun send-pointer-event (what)
+(defun pointer (what)
   (let ((button (or (getf *mouse-event* :button) :left)))
-    (cond ((and (eq what :press) (eq button :left)
-                (some (lambda (over) (overlay-clicked over (cdr *mouse-position*) (car *mouse-position*) *client*))
-                      (client-overlays *client*)))
-           ;; something drawn over the session took the click: the drawer's answers, say
-           nil)
-          ((server-supports-p :pointer)
-           (wire-send (client-wire *client*)
-                      (list :pointer what button (car *mouse-position*) (cdr *mouse-position*)
-                            (mouse-modifiers))))
-          ;; a server from before buttons were passed on still knows a click
-          ((and (eq what :press) (eq button :left)) (mouse-clicked)))))
+    (unless (and (eq what :press) (eq button :left)
+                 (some (lambda (over) (overlay-clicked over (cdr *mouse-position*) (car *mouse-position*) *client*))
+                       (watcher-overlays *client*)))
+      (handle-pointer (here) *client* what button (car *mouse-position*) (cdr *mouse-position*)
+                      (mouse-modifiers)))))
 
-(defcommand (mouse-pressed :unlisted) (send-pointer-event :press))
-(defcommand (mouse-dragged :unlisted) (send-pointer-event :drag))
-(defcommand (mouse-released :unlisted) (send-pointer-event :release))
-
-;;; Reading a pane back. Every one of these is about the pane under the pointer
-;;; when a mouse asked for it and the pane with the focus when a key did.
+(defcommand (mouse-pressed :unlisted) () (pointer :press))
+(defcommand (mouse-dragged :unlisted) () (pointer :drag))
+(defcommand (mouse-released :unlisted) () (pointer :release))
 
 (defun scroll-by (amount)
-  (send-if-supported
-   (list :scroll amount (car *mouse-position*) (cdr *mouse-position*))))
+  (let* ((session (here))
+         (x (car *mouse-position*))
+         (y (cdr *mouse-position*)))
+    (scroll-pane (or (and x y (pane-at session x y)) (session-focus session)) amount)))
 
-(defun send-wheel (way)
-  (send-if-supported
-   (list :wheel way (car *mouse-position*) (cdr *mouse-position*) (mouse-modifiers))))
+(defun wheel (way)
+  (handle-wheel (here) way (car *mouse-position*) (cdr *mouse-position*) (mouse-modifiers)))
 
-(defcommand natural-scroll-up (send-wheel :up))
-(defcommand natural-scroll-down (send-wheel :down))
-(defcommand natural-scroll-left (send-wheel :left))
-(defcommand natural-scroll-right (send-wheel :right))
+(defcommand natural-scroll-up () (wheel :up))
+(defcommand natural-scroll-down () (wheel :down))
+(defcommand natural-scroll-left () (wheel :left))
+(defcommand natural-scroll-right () (wheel :right))
 
-(defcommand scroll-up (scroll-by 1))
-(defcommand scroll-down (scroll-by -1))
-(defcommand scroll-up-line (scroll-by 3))
-(defcommand scroll-down-line (scroll-by -3))
-(defcommand scroll-page-up (scroll-by :page-up))
-(defcommand scroll-page-down (scroll-by :page-down))
-(defcommand scroll-half-page-up (scroll-by :half-up))
-(defcommand scroll-half-page-down (scroll-by :half-down))
-(defcommand scroll-to-top (scroll-by :top))
-(defcommand scroll-to-bottom (scroll-by :bottom))
+(defcommand scroll-up () (scroll-by 1))
+(defcommand scroll-down () (scroll-by -1))
+(defcommand scroll-up-line () (scroll-by 3))
+(defcommand scroll-down-line () (scroll-by -3))
+(defcommand scroll-page-up () (scroll-by :page-up))
+(defcommand scroll-page-down () (scroll-by :page-down))
+(defcommand scroll-half-page-up () (scroll-by :half-up))
+(defcommand scroll-half-page-down () (scroll-by :half-down))
+(defcommand scroll-to-top () (scroll-by :top))
+(defcommand scroll-to-bottom () (scroll-by :bottom))
 
-(defcommand (toggle-scrollbars :group scrolling)
+(defcommand (toggle-scrollbars :group scrolling) ()
   "the scrollbar column off or on, for the programs"
-  (send-to-server (list :scrollbars :toggle)))
+  (let ((session (here)))
+    (setf (session-scrollbars-p session) (not (session-scrollbars-p session)))
+    (dolist (w (session-watchers session)) (setf (watcher-behind w) t))))
 
-;;; Scroll mode: the keys that read back, with no prefix in front of them, for
-;;; as long as it is on. Nothing typed reaches the pane until it is left, and
-;;; leaving it is back to live.
-
-;;; The one key to learn. Press the prefix and wait, and a menu rises from
-;;; the foot with every key that can follow it, grouped by what it acts on.
-;;; It draws only after a moment, so a chord typed straight through never
-;;; sees it, and it waits as long as anyone needs.
-
-;;; A mode holds these, so another mode may be defined on top of this one and
-;;; change or add to what is here without touching any of it.
-
-(defcommand (reload-init :group asking)
-  "have the server read the init file again, and tell every client what it says"
-  (send-to-server (list :reload-init)))
-
-;;; Everything behind the prefix, as what follows it. They are bound from
-;;; whatever the prefix is, so setting it in an init file moves every one of
-;;; them; :prefix is the prefix itself, which sends one to the pane.
-
-;;; A click is looked up the same as any other key, unprefixed: a mouse's
-;;; buttons are always the multiplexer's, the way a keyboard's letters are
-;;; always the pane's until C-b says otherwise.
-
-;;; The wheel is whoever's is under it. With shift or meta held it reads the
-;;; pane back whatever is running there, both because which of them a terminal
-;;; keeps for itself depends on the terminal.
+(defcommand (reload-init :group asking) ()
+  "have the server read the init file again"
+  (load-user-init)
+  (destructuring-bind (text face) (init-load-note)
+    (show-note *client* "atty" text :face face))
+  (dolist (w (all-watchers (here-server))) (setf (watcher-behind w) t)))
