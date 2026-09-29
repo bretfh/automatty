@@ -51,7 +51,7 @@
       (is-true (pump seer :want "bar off"))
       ;; another kind's prefix, typed first, is that kind
       (type-at seer "#")
-      (is-true (pump seer :want "this terminal") "# did not open the clients: ~S" (seen seer))
+      (is-true (pump seer :want "◆ here") "# did not open the clients: ~S" (seen seer))
       ;; TAB is the next kind round
       (type-at seer (string #\Tab))
       (is-true (pump seer :want "hit, the pane follows") "TAB did not open find: ~S" (seen seer))
@@ -61,7 +61,7 @@
       (multiple-value-bind (x y) (where-on seer "clients")
         (is-true x)
         (when x (click-at seer x y)))
-      (is-true (pump seer :want "this terminal") "clicking the tab did not open the clients: ~S" (seen seer))
+      (is-true (pump seer :want "◆ here") "clicking the kind did not open the clients: ~S" (seen seer))
       (type-at seer (string (code-char 27)))
       (pump seer :seconds 1/4))))
 

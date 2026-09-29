@@ -51,6 +51,7 @@ command line."
   (partial-chord nil :type list)
   (pending-since nil)
   (menu nil)
+  (menu-full nil)
   (field nil)
   (partial "" :type string)
   (overlays nil :type list)

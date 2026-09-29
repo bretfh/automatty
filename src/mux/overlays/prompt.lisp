@@ -50,19 +50,6 @@ FOOT a line under the items saying what the keys do."
 (defun prompt-chosen (p)
   (nth (prompt-index p) (prompt-showing p)))
 
-(defun prompt-tabs (p)
-  "The palette's tabs, the current one lit; a click on another opens it."
-  (apply #'atty/ui:row :spacing 0
-         (loop :for (prefix name runs) :in +palette-kinds+
-               :for active := (eql prefix (prompt-kind p))
-               :collect (bar-button runs
-                                    (atty/ui:row :spacing 0
-                                                 (atty/ui:label (format nil " ~C " prefix)
-                                                                :face (if active :brand :quiet))
-                                                 (atty/ui:label (format nil " ~A " name)
-                                                                :face (if active :tab-active :quiet))
-                                                 (atty/ui:label " "))))))
-
 (defun prompt-row (p item i said)
   "One item as a row: a button that picks it, marked and lit where the choice is."
   (let ((chosen (= i (prompt-index p))))
@@ -72,10 +59,15 @@ FOOT a line under the items saying what the keys do."
                   (if (stringp said) (atty/ui:label said) said)
                   :selected chosen :runs (list :pick i)))))
 
-(defun prompt-tree (p watcher cols)
+(defun prompt-sheet-kind (p)
+  (case (prompt-kind p) (#\@ :windows) (#\# :clients) (#\/ :find) (t :commands)))
+
+(defparameter +prompt-width+ 66 "The most a prompt's sheet is wide.")
+
+(defun prompt-tree (p watcher &key (width 0) (height 0) (most (prompt-most p)))
   (let* ((showing (prompt-showing p))
          (all (prompt-all p))
-         (room (min (prompt-most p) (length showing)))
+         (room (min most (length showing)))
          (from (max 0 (min (- (length showing) room)
                            (- (prompt-index p) (floor room 2)))))
          (rows (loop :for item :in (subseq showing from (+ from room))
@@ -83,47 +75,46 @@ FOOT a line under the items saying what the keys do."
                      :collect (prompt-row p item i (funcall (prompt-text p) item))))
          (chosen (prompt-chosen p))
          (preview (and (prompt-preview p) chosen (funcall (prompt-preview p) chosen watcher)))
-         (count (if (prompt-free p) "" (format nil "~D of ~D" (length showing) (length all)))))
-    (apply #'atty/ui:column
-           :align :stretch
-           :background-color (bar-face :bg-dim)
-           :min-width cols
-           (append
-            (list (if (prompt-kind p)
-                      (band (list (prompt-tabs p))
-                            (list (atty/ui:label (format nil " ~A " count) :face :quiet)
-                                  (close-button) (atty/ui:label " ")))
-                    (header-band (prompt-title p)
-                                 :right (atty/ui:label (format nil " ~A " count) :face :quiet)))
-                  (and (prompt-controls p)
-                       (apply #'toolbar :right (funcall (prompt-controls p) p)))
-                  (atty/ui:row
-                   :align :stretch :spacing 0
-                   (apply #'atty/ui:column :align :stretch :expand 2
-                          (or rows (list (atty/ui:label "   nothing matches that" :face :quiet))))
-                   (rail from (max 1 room) (max 1 (length showing)))
-                   (if preview
-                       (atty/ui:row :align :stretch :spacing 0 :expand 1
-                                    (atty/ui:rule :upright t :face :card)
-                                    (atty/ui:column :align :stretch :expand 1 preview))
-                     (atty/ui:label ""))))
-            (and (prompt-foot p)
-                 (list (footer-band (prompt-foot p)
-                                    :right (list (hint "Esc" "close" :runs :close)))))))))
+         (count (if (prompt-free p) "" (format nil "~D of ~D" (length showing) (length all))))
+         (kind (find (prompt-kind p) +palette-kinds+ :key #'first)))
+    (sheet (prompt-sheet-kind p)
+           (if kind
+               (atty/ui:row :spacing 0
+                            (atty/ui:label (format nil " ~C " (first kind)) :face :brand)
+                            (atty/ui:label (format nil " ~A" (second kind)) :face :strong))
+               (atty/ui:label (format nil " ~A" (prompt-title p)) :face :strong))
+           (remove nil
+                   (list (and (prompt-controls p)
+                              (apply #'toolbar :right (funcall (prompt-controls p) p)))
+                         (atty/ui:row
+                          :align :stretch :spacing 0 :expand 1
+                          (apply #'atty/ui:column :align :stretch :expand 2
+                                 (or rows (list (atty/ui:label "   nothing matches that" :face :quiet))))
+                          (rail from (max 1 room) (max 1 (length showing)))
+                          (if preview
+                              (atty/ui:row :align :stretch :spacing 0 :expand 1
+                                           (atty/ui:rule :upright t :face :card)
+                                           (atty/ui:column :align :stretch :expand 1 preview))
+                              (atty/ui:label "")))))
+           :right (atty/ui:label (format nil " ~A " count) :face :quiet)
+           :hints (or (prompt-foot p) (hints 'prompt-mode 'prompt-accept "run" 'prompt-cancel "close"))
+           :width width :height height)))
 
 (defmethod draw-overlay ((p prompt) screen)
            (let* ((watcher *client*)
                   (cols (tty:screen-width screen))
                   (rows (tty:screen-height screen))
+                  (width (max 1 (min +prompt-width+ (- cols (chrome-left watcher)))))
+                  (room (max 1 (sheet-room watcher (prompt-sheet-kind p) rows)))
+                  (most (max 1 (min (prompt-most p) (- room 4 (if (prompt-controls p) 1 0)))))
                   (m (atty/cells:make-cells (tty:screen-grid screen) cols rows))
-                  (tree (prompt-tree p watcher cols))
-                  (high (nth-value 1 (atty/ui:with-pass
-                                      (atty/ui:restyle tree)
-                                      (atty/ui:measure tree m cols rows))))
-                  (top (chrome-top watcher rows))
-                  (bottom (min rows (+ top high))))
-             (atty/cells:draw tree (tty:screen-grid screen) cols bottom :top top)
-             (cast-shadow m 0 top cols (- bottom top))
+                  (high (let ((tree (prompt-tree p watcher :most most)))
+                          (nth-value 1 (atty/ui:with-pass
+                                         (atty/ui:restyle tree)
+                                         (atty/ui:measure tree m width rows)))))
+                  (height (max 1 (min high room)))
+                  (tree (prompt-tree p watcher :width width :height height :most most)))
+             (draw-sheet tree watcher (prompt-sheet-kind p) screen width height)
              (setf (prompt-laid p) tree
                    (tty:screen-cursor-visible screen) nil)))
 

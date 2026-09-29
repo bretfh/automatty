@@ -16,30 +16,32 @@
       (is-true (pump seer :until (lambda () (null (search "what is cat?" (seen seer)))))
                "Escape did not close the drawer: ~S" (seen seer)))))
 
-(test a-note-is-one-band-at-the-foot-and-a-click-on-it-closes-it
+(test a-note-is-a-sheet-and-a-click-on-it-closes-it
   (let* ((client (mux::%make-watcher :id 7 :rows 10 :cols 60))
          (n (mux:make-note "init" (list "did not load" "line 4") :face :warning))
          (screen (tty:make-screen :width 60 :height 10)))
     (setf (mux:watcher-overlays client) (list n))
     (let ((mux:*client* client)) (mux:draw-overlay n screen))
-    (is (equal "" (string-trim "▄" (shown screen 7))) "the note took more rows than its lines")
-    (is (search " init ▌ did not load" (shown screen 8)) "~S" (shown screen 8))
-    (is (search "any key" (shown screen 8)))
-    (is (search "   line 4" (shown screen 9)))
-    (let ((col (search "any key" (shown screen 8))))
-      (is-true (mux::overlay-clicked n 8 col client) "the way out is not a button")
-      (is (null (mux:watcher-overlays client)) "the click did not close it"))))
+    (let ((y (loop :for y :below 10 :when (search " init " (shown screen y)) :return y)))
+      (is-true y "no title: ~S" (loop :for y :below 10 :collect (shown screen y)))
+      (when y
+        (is (search " did not load" (shown screen (+ y 1))) "~S" (shown screen (+ y 1)))
+        (is (search " line 4" (shown screen (+ y 2))) "~S" (shown screen (+ y 2)))
+        (let ((col (search "✕" (shown screen y))))
+          (is-true (mux::overlay-clicked n y col client) "the way out is not a button")
+          (is (null (mux:watcher-overlays client)) "the click did not close it"))))))
 
-(test a-yes-or-no-is-a-band-answered-by-key-or-by-click
+(test a-yes-or-no-is-a-sheet-answered-by-key-or-by-click
   (let* ((client (mux::%make-watcher :id 7 :rows 10 :cols 60))
          (said nil)
          (screen (tty:make-screen :width 60 :height 10)))
+    (flet ((row-with (text) (loop :for y :below 10 :when (search text (shown screen y)) :return y)))
     (mux::confirm client "close it?" :yes (lambda (c) (declare (ignore c)) (setf said :yes)))
     (is (eq 'mux::confirm-mode (mux:watcher-mode client)))
     (let ((mux:*client* client)) (mux:draw-overlay (first (mux:watcher-overlays client)) screen))
-    (is (search " ? ▌ close it?" (shown screen 9)) "~S" (shown screen 9))
-    (is (search " y yes " (shown screen 9)))
-    (is (search " n no" (shown screen 9)))
+    (is-true (row-with " close it?"))
+    (is-true (row-with " y yes "))
+    (is-true (row-with " n no"))
     ;; n by key
     (let ((mux::*client* client)) (mux::confirm-no))
     (is (null (mux:watcher-overlays client)))
@@ -47,11 +49,12 @@
     ;; yes by click
     (mux::confirm client "close it?" :yes (lambda (c) (declare (ignore c)) (setf said :yes)))
     (let ((mux:*client* client)) (mux:draw-overlay (first (mux:watcher-overlays client)) screen))
-    (let ((mux::*client* client)
-          (mux::*mouse-position* (cons (1+ (search "y yes" (shown screen 9))) 9)))
+    (let* ((y (row-with " y yes "))
+           (mux::*client* client)
+           (mux::*mouse-position* (cons (1+ (search "y yes" (shown screen y))) y)))
       (mux::confirm-click))
     (is (eq :yes said) "the click on yes did not say yes")
-    (is (null (mux:watcher-overlays client)))))
+    (is (null (mux:watcher-overlays client))))))
 
 (test a-name-is-typed-and-kept-or-undone
   (let* ((client (mux::%make-watcher :id 7 :rows 10 :cols 80))
@@ -97,8 +100,8 @@
                "yes did not close the window: ~S" (seen seer)))))
 
 (test a-question-mark-on-the-queue-lists-its-keys
-  (with-server (path :command "cat" :rows 14 :cols 100)
-    (with-seer (seer path :rows 14 :cols 100)
+  (with-server (path :command "cat" :rows 18 :cols 100)
+    (with-seer (seer path :rows 18 :cols 100)
       (pump seer :seconds 1/2)
       (type-at seer (format nil "~CN" mux:+prefix+))
       (is-true (pump seer :want "needs you") "~S" (seen seer))

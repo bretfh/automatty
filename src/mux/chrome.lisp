@@ -468,6 +468,89 @@ stands at the right of the rows."
                       (apply #'atty/ui:column :align :stretch rows))
                   (atty/ui:rule :glyph #\▁ :face :well-edge-light)))
 
+;;; A sheet: what is on top of the panes, a header band, its body, a footer
+;;; of keys and a shadow, in a place, a border and a colour of its kind's.
+
+(defparameter +sheet-places+ '(:corner :centre :window :top-right :foot :side))
+
+(defun check-sheets (value)
+  (loop :for (kind style) :on value :by #'cddr
+        :do (unless (and (keywordp kind) (listp style) (= 3 (length style))
+                         (member (first style) +sheet-places+)
+                         (member (second style) '(:single :double :none))
+                         (or (null (third style)) (keywordp (third style))))
+              (error "~S ~S is not a kind of sheet and (place border colour), place one of ~{~(~S~)~^, ~} and border :single, :double or :none"
+                     kind style +sheet-places+)))
+  value)
+
+(defsetting +sheets+
+  '(:menu (:corner :single :fg-dim)
+    :commands (:centre :single :fg-dim) :windows (:centre :single :fg-dim)
+    :clients (:centre :single :fg-dim) :keys-list (:centre :single :fg-dim)
+    :keys (:window :single :fg-dim) :find (:window :single :fg-dim)
+    :asks (:window :double :yellow) :confirm (:window :single :red)
+    :note (:window :none nil))
+  "Where each kind of sheet opens, its border and the colour of its line: a
+plist from the kind to (place border colour). A place is :corner, down from the
+corner; :centre, under the bar over the panes; :window, the bottom right of the
+panes; :top-right; :foot, above the field; or :side, docked at the right. A
+border is :single, :double or :none."
+  :check #'check-sheets)
+
+(defun sheet-style (kind)
+  (or (getf +sheets+ kind) (list :window :single :fg-dim)))
+
+(defun sheet (kind title body &key right hints (width 0) (height 0))
+  "BODY under a header band of TITLE and RIGHT and over a footer of HINTS, in
+the border and colour of KIND's."
+  (destructuring-bind (place border colour) (sheet-style kind)
+    (declare (ignore place))
+    (let* ((inside (apply #'atty/ui:column :align :stretch :expand 1 :background-color (bar-face :bg-dim)
+                          (remove nil
+                                  (list (band (ensure-list title)
+                                              (append (ensure-list right)
+                                                      (list (atty/ui:label " ") (close-button) (atty/ui:label " ")))
+                                              :ground :bg-alt)
+                                        (apply #'atty/ui:column :align :stretch :expand 1 (ensure-list body))
+                                        (and hints (footer-band hints))))))
+           (it (if (eq border :none)
+                   inside
+                   (atty/ui:framed inside :line border :background-color (bar-face :bg-dim)
+                                          :face (if colour (list (atty/ui:color colour) nil) :card)))))
+      (if (and (plusp width) (plusp height)) (fixed it width height) it))))
+
+(declaim (ftype (function (t keyword fixnum fixnum) (values fixnum fixnum)) place-sheet))
+(defun place-sheet (watcher kind width height)
+  "Where a sheet of KIND WIDTH by HEIGHT goes: its left and its top."
+  (let* ((cols (view-cols watcher))
+         (rows (view-rows watcher))
+         (top (chrome-top watcher rows))
+         (left (chrome-left watcher))
+         (foot (- rows (chrome-bottom watcher))))
+    (multiple-value-bind (x y)
+        (ecase (first (sheet-style kind))
+          (:corner (values 0 top))
+          (:centre (values (+ left (floor (- cols left width) 2)) top))
+          (:window (values (- cols width 3) (- foot height 3)))
+          (:top-right (values (- cols width 3) (+ top 2)))
+          (:foot (values left (- foot height)))
+          (:side (values (- cols width) top)))
+      (values (max 0 x) (max top y)))))
+
+(defun sheet-room (watcher kind rows)
+  "How many rows a sheet of KIND has, where it goes."
+  (- rows (chrome-top watcher rows) (chrome-bottom watcher)
+     (if (member (first (sheet-style kind)) '(:window :top-right)) 3 0)))
+
+(defun draw-sheet (tree watcher kind screen width height)
+  "TREE, a sheet WIDTH by HEIGHT, where KIND's go on SCREEN, with its shadow."
+  (let ((cols (tty:screen-width screen))
+        (rows (tty:screen-height screen)))
+    (multiple-value-bind (left top) (place-sheet watcher kind width height)
+      (atty/cells:draw tree (tty:screen-grid screen) cols rows :left left :top top)
+      (cast-shadow (atty/cells:make-cells (tty:screen-grid screen) cols rows) left top width height)
+      (values left top))))
+
 ;;; An event, as the activity log and the command line say it: a glyph for
 ;;; what kind of thing it was, and a few words.
 

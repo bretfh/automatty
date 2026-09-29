@@ -87,7 +87,8 @@ for it, so they are worked out once.")
       (draw-field watcher work)
       (if (menu-due-p watcher)
           (draw-menu watcher work)
-          (setf (watcher-menu watcher) nil))
+          (setf (watcher-menu watcher) nil
+                (watcher-menu-full watcher) nil))
       (draw-mode-chip watcher work))
     work))
 

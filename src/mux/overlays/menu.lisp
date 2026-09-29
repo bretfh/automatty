@@ -26,13 +26,12 @@
          :when name :collect (list name chord (or (command-group name) 'other)))
    #'string< :key #'second))
 
-(defparameter +menu-column+ 60 "The least a column of the menu is: room for what most keys do.")
-
 (defun close-menu (watcher)
   "Put the menu away, and the half chord it was for."
   (setf (watcher-partial-chord watcher) nil
         (watcher-pending-since watcher) nil
         (watcher-menu watcher) nil
+        (watcher-menu-full watcher) nil
         (watcher-behind watcher) t))
 
 (declaim (ftype (function (watcher) t) handle-menu-click))
@@ -41,7 +40,8 @@
 menu goes away with the half chord it was for."
   (let ((hit (button-at (watcher-menu watcher) (cdr *mouse-position*) (car *mouse-position*))))
     (close-menu watcher)
-    (when hit (run-command (bar-button-runs hit) watcher))))
+    (when (and hit (stringp (bar-button-runs hit)))
+      (run-command (bar-button-runs hit) watcher))))
 
 (defun group-title (group)
   (case group
@@ -67,63 +67,72 @@ in the order the groups are listed."
 (defun menu-entry (key name width)
   (bar-button name
               (atty/ui:row :spacing 0
-                           (atty/ui:label (format nil "  ~5@A " key) :face :state-blocked-strong)
-                           (atty/ui:label (truncate-string (or (command-doc name) name) (max 1 (- width 10)))))))
+                           (atty/ui:label (format nil " ~3A" key) :face :state-blocked-strong)
+                           (atty/ui:label (truncate-string name (max 1 (- width 4)))))))
 
-(defun menu-tree (watcher cols)
-  "The menu: columns of groups, each its title and the keys under it, in a
-box that says what it is for and how to put it away."
-  (let* ((groups (menu-groups watcher))
-         (across (max 1 (min 4 (floor (- cols 4) +menu-column+))))
-         (width (max 20 (floor (- cols 4) across)))
-         (columns (make-array across :initial-element nil))
-         (heights (make-array across :initial-element 0)))
-    ;; each group goes into the column with the least in it so far
-    (dolist (group groups)
-      (let ((at (position (reduce #'min heights) heights)))
-        (setf (aref columns at)
-              (append (aref columns at)
-                      (list (atty/ui:label (format nil "  ~:@(~A~)" (group-title (first group))) :face :quiet))
-                      (loop :for (key name) :in (rest group) :collect (menu-entry key name width))
-                      (list (atty/ui:label ""))))
-        (incf (aref heights at) (+ 2 (length (rest group))))))
-    (atty/ui:framed
-     (apply #'atty/ui:row :spacing 0 :align :stretch
-            (loop :for column :across columns
-                  :collect (apply #'atty/ui:column :align :stretch :min-width width
-                                  (cons (atty/ui:label "") column))))
-     :line :single :face :card-cursor :background-color (bar-face :bg-dim)
-     :titles (list :tl (atty/ui:row :spacing 0
-                                    (atty/ui:label (format nil " ~A " (prefix-string)) :face :key)
-                                    (atty/ui:label " then one key" :face :strong))
-                   :tr (and (watcher-session-name watcher)
-                            (atty/ui:label (format nil " ~A " (watcher-session-name watcher)) :face :quiet))
-                   :br (atty/ui:row :spacing 0
-                                    (atty/ui:label "Esc" :face :key-hint)
-                                    (atty/ui:label " cancels · no timeout " :face :quiet))))))
+(defparameter +menu-width+ 36 "How wide the menu down from the corner is.")
+(defparameter +keys-width+ 44 "How wide the sheet of keys after the prefix is.")
+
+(defun menu-title ()
+  (atty/ui:row :spacing 0
+               (atty/ui:label (format nil " ~A " (prefix-string)) :face :key)
+               (atty/ui:label " then one key" :face :strong)))
+
+(defun menu-tree (watcher rows)
+  "The menu: every key after the prefix, in its groups, one column down from
+the corner."
+  (let* ((width +menu-width+)
+         (body (loop :for group :in (menu-groups watcher)
+                     :append (list* (section (group-title (first group)))
+                                    (loop :for (key name) :in (rest group)
+                                          :collect (menu-entry key name (- width 2))))))
+         (height (max 4 (min rows (+ 4 (length body))))))
+    (values (sheet :menu (menu-title) (subseq body 0 (min (length body) (- height 4)))
+                   :hints (hints 'pane-mode "Esc" "cancels, no timeout")
+                   :width width :height height)
+            width height)))
+
+(defun keys-tree (watcher rows)
+  "The keys after the prefix, two to a row, as many as there is room for; the
+way to every key in the foot when they do not all fit."
+  (let* ((width +keys-width+)
+         (half (floor (- width 2) 2))
+         (entries (loop :for group :in (menu-groups watcher)
+                        :append (loop :for (key name) :in (rest group)
+                                      :collect (menu-entry key name half))))
+         (room (max 1 (- rows 4)))
+         (pairs (loop :for (a b) :on entries :by #'cddr
+                      :collect (atty/ui:row :spacing 0
+                                            (fixed a half 1)
+                                            (if b (fixed b half 1) (atty/ui:label "")))))
+         (all (<= (length pairs) room))
+         (shown (subseq pairs 0 (min room (length pairs))))
+         (height (+ 4 (length shown))))
+    (values (sheet :keys (menu-title) shown
+                   :hints (atty/ui:row :spacing 0
+                                       (if all (atty/ui:label "") (hint "λ" "every key" :runs "show menu"))
+                                       (hint "Esc" "cancel"))
+                   :width width :height height)
+            width height)))
 
 (declaim (ftype (function (watcher tty:screen) t) draw-menu))
 (defun draw-menu (watcher screen)
-  "Draw the menu over the foot of SCREEN and keep the tree for clicks."
-  (let* ((cols (tty:screen-width screen))
-         (rows (tty:screen-height screen))
-         (m (atty/cells:make-cells (tty:screen-grid screen) cols rows))
-         (tree (menu-tree watcher cols))
-         (high (nth-value 1 (atty/ui:with-pass
-                             (atty/ui:restyle tree)
-                             (atty/ui:measure tree m cols rows))))
-         (top (max 0 (- rows (chrome-bottom watcher) (min high rows)))))
-    (atty/cells:fill-rect m 0 top cols (min high rows) (term:make-face :bg (bar-face :bg-dim)))
-    (top-edge m 0 top cols :bg-dim)
-    (atty/cells:draw tree (tty:screen-grid screen) cols (+ top (min high rows)) :top top)
-    (setf (watcher-menu watcher) tree
-          (tty:screen-cursor-visible screen) nil)))
+  "Draw the menu down from the corner, or the keys after the prefix at the
+foot of the panes, and keep the tree for clicks."
+  (let* ((rows (tty:screen-height screen))
+         (room (sheet-room watcher (if (watcher-menu-full watcher) :menu :keys) rows)))
+    (multiple-value-bind (tree width height)
+        (if (watcher-menu-full watcher) (menu-tree watcher room) (keys-tree watcher room))
+      (draw-sheet tree watcher (if (watcher-menu-full watcher) :menu :keys) screen width height)
+      (setf (watcher-menu watcher) tree
+            (tty:screen-cursor-visible screen) nil))))
 
 (defcommand (show-menu :group asking) ()
             "the menu of every key that follows the prefix, as though it had been pressed"
             (press-chord *client* (event-key +prefix+))
             (when (watcher-partial-chord *client*)
               (setf (watcher-pending-since *client*) (- (now-ms) +menu-delay+)
+                    (watcher-menu-full *client*) t
                     (watcher-behind *client*) t)))
 
 (defcommand (describe-mode :unlisted) ()

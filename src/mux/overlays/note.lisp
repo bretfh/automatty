@@ -23,32 +23,30 @@
 (defun note-chip-ground (face)
   (case face (:warning :yellow) (:error :red) (t :blue)))
 
-(defun note-tree (n cols most)
-  "A note is a band at the foot: its title as a chip, its first line beside
-it, the way out at the right, and any more lines under it."
-  (let ((lines (or (subseq (note-lines n) 0 (min most (length (note-lines n)))) (list ""))))
-    (apply #'atty/ui:column :align :stretch :background-color (bar-face :bg-dim) :min-width cols
-           (band (list (pill (atty/ui:label (format nil " ~A " (note-title n)) :face (note-chip-face (note-face n)))
-                             :ground (note-chip-ground (note-face n)))
-                       (atty/ui:label (format nil " ~A" (truncate-string (first lines) (max 1 (- cols 24))))))
-                 (list (hint "any key" "closes" :runs :close)))
-           (loop :for line :in (rest lines)
-                 :collect (atty/ui:label (format nil "   ~A" (truncate-string line (max 1 (- cols 4)))))))))
+(defun note-tree (n width most)
+  "A note: its title as a chip, then its lines."
+  (let* ((lines (or (subseq (note-lines n) 0 (min most (length (note-lines n)))) (list "")))
+         (height (+ 1 (length lines))))
+    (values (sheet :note
+                   (list (pill (atty/ui:label (format nil " ~A " (note-title n)) :face (note-chip-face (note-face n)))
+                               :ground (note-chip-ground (note-face n))))
+                   (loop :for line :in lines
+                         :collect (atty/ui:label (format nil " ~A" (truncate-string line (max 1 (- width 2))))))
+                   :width width :height height)
+            height)))
 
 (defmethod draw-overlay ((n note) screen)
-           (let* ((cols (tty:screen-width screen))
+           (let* ((watcher *client*)
+                  (cols (tty:screen-width screen))
                   (rows (tty:screen-height screen))
-                  (m (atty/cells:make-cells (tty:screen-grid screen) cols rows))
-                  (foot (- rows (chrome-bottom *client*)))
-                  (tree (note-tree n cols (max 1 (- foot 3))))
-                  (high (nth-value 1 (atty/ui:with-pass
-                                      (atty/ui:restyle tree)
-                                      (atty/ui:measure tree m cols rows))))
-                  (top (max 0 (- foot high))))
-             (atty/cells:draw tree (tty:screen-grid screen) cols rows :top top)
-             (top-edge m 0 top cols :bg-dim)
-             (setf (note-laid n) tree
-                   (tty:screen-cursor-visible screen) nil)))
+                  (room (- rows (chrome-top watcher rows) (chrome-bottom watcher) 4))
+                  (width (max 1 (min (- cols (chrome-left watcher) 4)
+                                     (max 42 (+ 3 (reduce #'max (note-lines n) :key #'length
+                                                                               :initial-value (+ 6 (length (note-title n))))))))))
+             (multiple-value-bind (tree height) (note-tree n width (max 1 room))
+               (draw-sheet tree watcher :note screen width height)
+               (setf (note-laid n) tree
+                     (tty:screen-cursor-visible screen) nil))))
 
 (defmethod overlay-laid-tree ((n note)) (note-laid n))
 
@@ -103,21 +101,28 @@ what it says is written out with whatever else the command says."
   (push-overlay watcher (%make-confirm :question question :yes yes
                                              :yes-label yes-says :no-label no-says)))
 
-(defun confirm-tree (c cols)
-  (band (list (pill (atty/ui:label " ? " :face :brand) :ground :red)
-              (atty/ui:label (format nil " ~A" (truncate-string (confirm-of-question c) (max 1 (- cols 30))))))
-        (list (keycap "y" (confirm-of-yes-label c) :runs :yes :face :brand)
-              (atty/ui:label " ")
-              (keycap "n" (confirm-of-no-label c) :runs :close)
-              (atty/ui:label " "))))
+(defun confirm-tree (c width)
+  (sheet :confirm
+         (atty/ui:label (format nil " ~A" (truncate-string (confirm-of-question c) (max 1 (- width 8))))
+                        :face :strong)
+         (list (atty/ui:label "")
+               (atty/ui:row :spacing 0
+                            (atty/ui:label " ")
+                            (keycap "y" (confirm-of-yes-label c) :runs :yes)
+                            (atty/ui:label " ")
+                            (keycap "n" (confirm-of-no-label c) :runs :close)))
+         :hints (atty/ui:row :spacing 0
+                             (hint "y" (confirm-of-yes-label c) :runs :yes)
+                             (hint "n" (confirm-of-no-label c) :runs :close))
+         :width width :height 6))
 
 (defmethod draw-overlay ((c confirm) screen)
-           (let* ((cols (tty:screen-width screen))
-                  (rows (tty:screen-height screen))
-                  (tree (confirm-tree c cols))
-                  (top (max 0 (- rows (chrome-bottom *client*) 1))))
-             (atty/cells:draw tree (tty:screen-grid screen) cols rows :top top)
-             (top-edge (atty/cells:make-cells (tty:screen-grid screen) cols rows) 0 top cols :bg-dim)
+           (let* ((watcher *client*)
+                  (cols (tty:screen-width screen))
+                  (width (max 1 (min (- cols (chrome-left watcher) 4)
+                                     (max 44 (+ 10 (length (confirm-of-question c)))))))
+                  (tree (confirm-tree c width)))
+             (draw-sheet tree watcher :confirm screen width 6)
              (setf (confirm-of-laid c) tree
                    (tty:screen-cursor-visible screen) nil)))
 

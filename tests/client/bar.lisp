@@ -43,24 +43,24 @@
         (let ((menu (mux::button-at tree 0 1)))
           (is (equal "show menu" (and menu (mux::bar-button-runs menu)))))))))
 
-(test the-menu-rises-after-the-prefix-hangs-and-a-click-on-it-runs-the-key
+(test the-keys-rise-after-the-prefix-hangs-the-corner-opens-the-menu-and-a-click-runs-the-key
   (with-server (path :command "cat" :rows 24 :cols 100)
     (with-seer (seer path :rows 24 :cols 100)
       (pump seer :seconds 1/2)
       (type-at seer (string mux:+prefix+))
-      (is-true (pump seer :want "Esc cancels" :seconds 2) "no menu after the prefix hung: ~S" (seen seer))
+      (is-true (pump seer :want "Esc cancel" :seconds 2) "no keys after the prefix hung: ~S" (seen seer))
       (is (search "then one key" (seen seer)) "~S" (seen seer))
-      (is (search "WINDOWS" (seen seer)) "~S" (seen seer))
-      (is (search "    c another window" (seen seer)) "the new window key is not listed: ~S" (seen seer))
-      ;; the second key does what it always did, and the menu goes with it
+      (is (search " c  new window" (seen seer)) "the new window key is not listed: ~S" (seen seer))
+      ;; the second key does what it always did, and the keys go with it
       (type-at seer "c")
       (is-true (pump seer :want " 2  cat") "no second window: ~S" (seen seer))
       (is-true (pump seer :until (lambda () (null (search "then one key" (seen seer)))))
-               "the menu stayed up after the chord: ~S" (seen seer))
-      ;; a click on an entry runs it too
-      (type-at seer (string mux:+prefix+))
-      (is-true (pump seer :want "Esc cancels" :seconds 2))
-      (multiple-value-bind (x y) (where-on seer "another window")
+               "the keys stayed up after the chord: ~S" (seen seer))
+      ;; the corner opens the menu of every key, in its groups
+      (click-at seer 1 0)
+      (is-true (pump seer :want "WINDOWS" :seconds 2) "the corner did not open the menu: ~S" (seen seer))
+      ;; a click on an entry runs it
+      (multiple-value-bind (x y) (where-on seer "new window")
         (click-at seer x y))
       (is-true (pump seer :want " 3  cat") "the click on the entry made no window: ~S" (seen seer))
       (is (null (search "then one key" (seen seer))) "the menu stayed up after the click"))))
