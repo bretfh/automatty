@@ -30,22 +30,40 @@ one and told what it is, so what it asks for is the room left over."
 a step darker everywhere else."
   (atty/ui:unhex (atty/ui:color (if focusp 'atty/ui::bg 'atty/ui::bg-well))))
 
+(defvar *grounded* nil)
+
+(declaim (ftype (function (t) hash-table) grounded-faces))
+(defun grounded-faces (ground)
+  (let ((kept (assoc ground *grounded* :test #'equal)))
+    (if kept
+        (cdr kept)
+        (let ((table (make-hash-table :test 'eq :weakness :key)))
+          (push (cons ground table) *grounded*)
+          table))))
+
 (defun ground-blanks (m left top width height ground)
   "Every cell in the rectangle with no background of its own given GROUND, one
-new face for each face found there, never the one found changed."
+face for each face found there, kept for the next time it is found, never the
+one found changed."
   (let ((grid (atty/cells:cells-grid m))
-        (made (make-hash-table :test 'eq)))
-    (loop :for y :from (max 0 top) :below (min (+ top height) (atty/cells:cells-rows m))
-          :do (let ((row (svref grid y)))
-                (loop :for x :from (max 0 left) :below (min (+ left width) (atty/cells:cells-cols m))
-                      :do (let ((was (term:row-face row x)))
-                            (when (or (null was) (null (term:face-bg was)))
-                              (setf (term:row-face row x)
-                                    (or (gethash was made)
-                                        (setf (gethash was made)
-                                              (let ((it (if was (term:copy-face was) (term:make-face))))
-                                                (setf (term:face-bg it) ground)
-                                                it)))))))))))
+        (made (grounded-faces ground))
+        (last-was 0)
+        (last-made nil))
+    (flet ((grounded (was)
+             (unless (eq was last-was)
+               (setf last-was was
+                     last-made (or (gethash (or was made) made)
+                                   (setf (gethash (or was made) made)
+                                         (let ((it (if was (term:copy-face was) (term:make-face))))
+                                           (setf (term:face-bg it) ground)
+                                           it)))))
+             last-made))
+      (loop :for y :from (max 0 top) :below (min (+ top height) (atty/cells:cells-rows m))
+            :do (let ((row (svref grid y)))
+                  (loop :for x :from (max 0 left) :below (min (+ left width) (atty/cells:cells-cols m))
+                        :do (let ((was (term:row-face row x)))
+                              (when (or (null was) (null (term:face-bg was)))
+                                (setf (term:row-face row x) (grounded was))))))))))
 
 (defun selection-face ()
   (term:make-face :bg (atty/ui:unhex (atty/ui:color 'atty/ui::bg-active))))

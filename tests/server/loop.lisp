@@ -398,7 +398,9 @@ clear was done in whatever colour was last in force"
         (is (null (mux::session-tick session (1+ mux::+bar-refresh-interval+)))
             "the bar was drawn again the moment after")
         (is-false (mux::watcher-behind w))
-        (is-true (mux::session-tick session (* 2 mux::+bar-refresh-interval+)))
+        (is (<= (- (mux::session-clocked session) mux::+bar-refresh-interval+) (* 60 1000000000))
+            "the bar waits past the turn of the minute")
+        (is-true (mux::session-tick session (mux::session-clocked session)))
         (is-true (mux::watcher-behind w))))
 
 (test a-split-gives-the-new-pane-half-the-terminal-and-the-cursor
@@ -682,3 +684,16 @@ not the one clicked on: ~S" (seen seer))
                                        "whoever watches was not told"))
                             (is (= 1 (length (mux:session-panes session))))
                             (mux:wire-close wire))))
+
+(test what-a-program-is-not-reading-yet-waits-for-it-without-holding-the-server
+      (with-session (session pane server "stty raw -echo; echo ready; sleep 1; head -c 200000 | wc -c")
+        (is-true (step-until server (lambda () (search "ready" (term:term-dump-to-string (mux:pane-term pane))))))
+        (let ((start (get-internal-real-time)))
+          (mux::pane-write pane (make-string 200000 :initial-element #\x))
+          (is (< (- (get-internal-real-time) start) (floor internal-time-units-per-second 10))
+              "writing to a program that was not reading waited for it")
+          (is-true (mux::pane-owing-p pane) "the terminal took all of it at once"))
+        (is-true (step-until server (lambda () (search "200000" (term:term-dump-to-string (mux:pane-term pane))))
+                             10)
+                 "what was owed never all reached the program")
+        (is-false (mux::pane-owing-p pane))))

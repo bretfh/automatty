@@ -137,7 +137,7 @@ already failing."
   (let ((deadline (+ (get-internal-real-time)
                      (* seconds internal-time-units-per-second))))
     (loop :until (funcall test)
-          :do (mux:server-step server :interval 0)
+          :do (mux:server-step server :interval 0 :most 50)
           (when (> (get-internal-real-time) deadline) (return nil))
           :finally (return t))))
 
@@ -206,7 +206,7 @@ for is kept rather than thrown away with it, for the next call to find."
 
 (defun blocked (server pane)
   (settled server pane)
-  (agent:agent-hear (mux:pane-agent pane) :blocked)
+  (mux::pane-hear pane :blocked)
   (step-until server (lambda () (eq :blocked (agent:agent-state (mux:pane-agent pane))))))
 
 (defun dialog-script ()

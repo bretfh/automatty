@@ -11,6 +11,8 @@
    #:pty-wait
    #:pty-read-string #:pty-read-into #:close-on-exec #:keep-on-exec
    #:pty-write-string
+   #:pty-write-some
+   #:nonblocking
    #:pty-close
    #:pty-kill
    #:pty-reap

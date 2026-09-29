@@ -67,7 +67,7 @@
       (let ((w (first (mux:session-watchers here))))
         (mux:run-command "goto blocked pane" w)
         (is (mux:session-watchers there) "the client was not taken to the blocked pane")
-        (agent:agent-hear (mux:pane-agent (mux:session-focus there)) :idle)
+        (mux::pane-hear (mux:session-focus there) :idle)
         (step-until server (lambda () (eq :idle (agent:agent-state
                                                  (mux:pane-agent (mux:session-focus there))))))
         (mux:run-command "goto blocked pane" w)

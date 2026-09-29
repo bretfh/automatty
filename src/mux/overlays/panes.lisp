@@ -90,7 +90,7 @@ program. Not its title: a shell's title is a path nobody wants forty of."
   (let* ((server (watcher-server watcher))
          (pane (and server (find-pane server session id))))
     (if pane
-        (mapcar (lambda (cell) (cons (car cell) (cdr cell))) (last (pane-pulse pane) +spark-cells+))
+        (mapcar (lambda (cell) (cons (car cell) (cdr cell))) (last (pane-pulse-now pane (now-ms)) +spark-cells+))
         (loop :repeat +spark-cells+ :collect (cons 0 nil)))))
 
 (defun window-cells (watcher session window)

@@ -158,7 +158,7 @@
         (is (eq t (fifth entry))))
       (let ((agent (mux:pane-agent pane)))
         (step-until server (lambda () (eq :idle (agent:agent-state agent))))
-        (agent:agent-hear agent :blocked)
+        (mux::pane-hear pane :blocked)
         (step-until server (lambda () (eq :blocked (agent:agent-state agent)))))
       (say-to wire (list :agent-prompt "work" id "STATUS?"))
       (is (eq :blocked (fourth (heard-from server wire :agent-prompted))))

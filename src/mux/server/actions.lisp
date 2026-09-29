@@ -29,7 +29,8 @@
                                   (and seen (agent:offered reader seen)) (getf seen :screen))))
      (t
       (when (eq action :submit)
-        (agent:agent-prompted agent (floor (monotonic-ns) 1000000)))
+        (agent:agent-prompted agent (floor (monotonic-ns) 1000000))
+        (pane-look-soon pane))
       (loop :for chunk :in keys
             :for at :from 0 :by +enter-delay+
             :do (let ((chunk chunk))
@@ -269,6 +270,7 @@ something: a prompt then would be taken for the answer."
     :blocked)
    (t (pane-push-log pane (now-ms) actor :prompt (summarize-text text))
       (agent:agent-prompted (pane-agent pane) (now-ms))
+      (pane-look-soon pane)
       ;; one line is typed, the way a person would give it. A coding agent
       ;; can take what arrives as a paste for something pasted in rather than
       ;; asked for, and decline to act on it: the field test saw exactly that.

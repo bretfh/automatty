@@ -140,7 +140,7 @@ looks like, not why it happened."
                                  (client-cols client) cols)
                            (wire-send (client-wire client) (list :resize rows cols))))))
 
-(defun client-step (client &optional (patience 100))
+(defun client-step (client &optional (patience (if (client-greeted client) -1 100)))
   "One turn of the loop. What the server said is taken in before what was typed:
 a bye says why everything is stopping, and a terminal that fell over at the same
 moment would otherwise answer that question first, and answer it wrongly."
@@ -151,8 +151,11 @@ moment would otherwise answer that question first, and answer it wrongly."
                             (logior sb-unix:pollin
                                     (if (plusp (wire-pending wire))
                                         sb-unix:pollout
-                                      0)))))
+                                      0))))
+         (woken (tty:waiting-add w (or (tty:wake-fd) -1))))
     (tty:wait-on w patience)
+    (when (tty:readable-p (tty:waiting-back w woken))
+      (tty:drain-wake))
     (when tty:*resized* (client-resized client))
     (when (tty:writable-p (tty:waiting-back w sock))
       (wire-flush wire))

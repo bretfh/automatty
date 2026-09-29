@@ -1,6 +1,6 @@
 (asdf:defsystem #:atty/pty
                 :description "A pseudo terminal. SBCL only"
-                :depends-on ()
+                :depends-on ((:require #:sb-posix))
                 :serial t
                 :pathname "src/pty/"
                 :components ((:file "package")

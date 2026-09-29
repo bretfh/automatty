@@ -186,7 +186,7 @@
   (unless *caller* (error "atty agent signal <working|blocked|idle> is said from inside a pane"))
   (multiple-value-bind (pane session) (address-pane *caller*)
     (pane-push-log pane (now-ms) (actor-of *client* *caller*) :signal (parse-state state))
-    (agent:agent-hear (pane-agent pane) (parse-state state))
+    (pane-hear pane (parse-state state))
     (session-observe session (monotonic-ns))))
 
 (defcommand (agent-observe :unlisted) (address)

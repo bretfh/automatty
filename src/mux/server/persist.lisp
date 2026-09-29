@@ -126,18 +126,14 @@ so when it says it was saved is when everything was."
         (save-pane server pane now dir)))))
 
 (defparameter +save-tick+ 1000
-  "Milliseconds between looks at what is owed a save.")
+  "Milliseconds between looks at what is owed a save, while anything is.")
 
-(defun schedule-saves (server)
-  "Look at what is owed a save every +SAVE-TICK+ for as long as the server
-runs, stepping over a save that comes apart: a disk that is full is not a
-reason to lose the panes."
-  (labels ((tick ()
-             (when (and (server-saving server) (server-running server))
-               (handler-case (save-due server (now-ms))
-                 (error (e) (report-error e)))
-               (schedule-task server +save-tick+ #'tick))))
-    (schedule-task server +save-tick+ #'tick)))
+(declaim (ftype (function (server) boolean) saves-owed-p))
+(defun saves-owed-p (server)
+  (and (server-saving server)
+       (loop :for session :in (server-sessions server)
+             :thereis (loop :for pane :in (session-panes session)
+                            :thereis (> (pane-changed-at pane) (pane-saved-at pane))))))
 
 (defun pane-touch (pane)
   "PANE changed in something other than its screen: its name, its log."

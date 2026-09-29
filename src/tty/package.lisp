@@ -27,6 +27,8 @@
    #:stop-hearing-resizes
    #:*asked-to-stop*
    #:hear-the-end
+   #:wake-fd
+   #:drain-wake
    #:stop-hearing-the-end
    #:+blanked+
    #:with-host

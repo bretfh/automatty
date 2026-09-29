@@ -59,15 +59,17 @@ layout rather than a list, so the whole family follows from the one rule."
 (sb-alien:define-alien-routine ("posix_openpt" %openpt) sb-alien:int
   (flags sb-alien:int))
 
-(sb-alien:define-alien-routine ("fcntl" %fcntl) sb-alien:int
-  (fd sb-alien:int) (command sb-alien:int) (argument sb-alien:int))
-
 (defun close-on-exec (fd)
-  (%fcntl fd 2 1)
+  (sb-posix:fcntl fd sb-posix:f-setfd 1)
   fd)
 
 (defun keep-on-exec (fd)
-  (%fcntl fd 2 0)
+  (sb-posix:fcntl fd sb-posix:f-setfd 0)
+  fd)
+
+(declaim (ftype (function (fixnum) fixnum) nonblocking))
+(defun nonblocking (fd)
+  (sb-posix:fcntl fd sb-posix:f-setfl (logior (sb-posix:fcntl fd sb-posix:f-getfl) sb-posix:o-nonblock))
   fd)
 
 (sb-alien:define-alien-routine ("grantpt" %grantpt) sb-alien:int
@@ -412,6 +414,20 @@ for, and a caller holding real characters rather than bytes says so."
                         (t (error "writing to the terminal: ~A"
                                   (sb-int:strerror errno)))))))
     sent))
+
+(declaim (ftype (function (fixnum (simple-array (unsigned-byte 8) (*)) fixnum fixnum) fixnum)
+                pty-write-some))
+(defun pty-write-some (fd octets start end)
+  "Write as much of OCTETS from START to END as FD takes without waiting.
+Answers how many bytes that was."
+  (sb-sys:with-pinned-objects (octets)
+    (loop
+      (multiple-value-bind (n errno)
+          (sb-unix:unix-write fd (sb-sys:vector-sap octets) start (- end start))
+        (cond ((and n (>= n 0)) (return n))
+              ((eql errno sb-unix:eintr))
+              ((eql errno sb-unix:eagain) (return 0))
+              (t (error "writing to the terminal: ~A" (sb-int:strerror errno))))))))
 
 (defun pty-close (fd)
   (sb-unix:unix-close fd))

@@ -69,7 +69,7 @@
       ;; to be doing is taken back the moment it draws; so it is let settle first
       (let ((agent (mux:pane-agent (mux:session-focus session))))
         (step-until server (lambda () (eq :idle (agent:agent-state agent))))
-        (agent:agent-hear agent :blocked)
+        (mux::pane-hear (mux:session-focus session) :blocked)
         (is-true (step-until server (lambda () (eq :blocked (agent:agent-state agent))))))
       (say-to wire '(:sessions))
       (let ((row (first (second (heard-from server wire :these)))))

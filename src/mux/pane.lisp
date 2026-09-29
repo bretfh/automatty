@@ -43,21 +43,27 @@
   (paths nil)
   (programs-at 0)
   (group-at 0 :type integer)
+  (look-at nil :type (or null integer))
   (scrolled 0 :type fixnum)
   (find nil)
   (selecting nil)
   (pushed-seen 0 :type fixnum)
   (touched 0 :type integer)
+  (titled-at 0 :type integer)
   (saved-at 0 :type integer)
   ;; the last twenty minutes: a cell every +pulse-every+ of how much was
   ;; written and the worst state it was in, oldest first
   (pulse (loop :repeat +pulse-cells+ :collect (cons 0 nil)) :type list)
   (pulse-at -1 :type integer)
+  (pulse-state nil)
   (output 0 :type integer)
   ;; what happened here lately, newest first: (ms clock kind who text)
   (events nil :type list)
   (events-count 0 :type fixnum)
-  (decoder (term:make-decoder)))
+  (decoder (term:make-decoder))
+  (outbox nil :type (or null (simple-array (unsigned-byte 8) (*))))
+  (out-start 0 :type fixnum)
+  (out-end 0 :type fixnum))
 
 (defun pane-roll-pulse (pane now state)
   "Bring PANE's pulse up to NOW, in milliseconds: a fresh cell for every
@@ -69,14 +75,20 @@ cell and STATE kept in it when it is worse than what was."
                      0
                      (min +pulse-cells+ (- cell (pane-pulse-at pane))))))
         (setf (pane-pulse pane) (append (nthcdr gap (pane-pulse pane))
-                                        (loop :repeat gap :collect (cons 0 nil)))
+                                        (loop :repeat gap :collect (cons 0 (pane-pulse-state pane))))
               (pane-pulse-at pane) cell)))
+    (setf (pane-pulse-state pane) state)
     (let ((newest (car (last (pane-pulse pane)))))
       (incf (car newest) (pane-output pane))
       (setf (pane-output pane) 0)
       (when (< (state-rank-of state) (state-rank-of (cdr newest)))
         (setf (cdr newest) state)))
     (pane-pulse pane)))
+
+(declaim (ftype (function (pane integer) list) pane-pulse-now))
+(defun pane-pulse-now (pane now)
+  (let ((agent (pane-agent pane)))
+    (pane-roll-pulse pane now (and (agent:agent-reader agent) (agent:agent-state agent)))))
 
 (defun pane-push-event (pane now kind actor &optional text)
   "Put in PANE's events that KIND happened at NOW, done by WHO when somebody
@@ -109,7 +121,8 @@ made now takes the next."
                         :title-fn (lambda (term title)
                                     (declare (ignore term))
                                     (setf (pane-named pane) title
-                                          (pane-touched pane) (now-ms))
+                                          (pane-touched pane) (now-ms)
+                                          (pane-titled-at pane) (now-ms))
                                     (agent:agent-become (pane-agent pane) :title title
                                                                           :command command
                                                                           :programs (pane-programs pane)
@@ -123,32 +136,59 @@ made now takes the next."
 
 (defparameter +group-poll-interval+ 200)
 
+(declaim (ftype (function (pane integer) t) pane-look-later))
+(defun pane-look-later (pane ms)
+  (let ((at (pane-look-at pane)))
+    (when (or (null at) (< ms at))
+      (setf (pane-look-at pane) ms))))
+
+(declaim (ftype (function (pane) t) pane-look-soon))
+(defun pane-look-soon (pane)
+  (setf (pane-look-at pane) 0))
+
+(declaim (ftype (function (pane keyword) t) pane-hear))
+(defun pane-hear (pane state)
+  "What PANE's program says it is doing, looked at on the next step."
+  (agent:agent-hear (pane-agent pane) state)
+  (pane-look-soon pane))
+
+(declaim (ftype (function (pane integer) boolean) pane-due-p))
+(defun pane-due-p (pane now)
+  (or (pane-dirty pane)
+      (let ((at (pane-look-at pane)))
+        (and at (<= at now)))))
+
+(declaim (ftype (function (pane integer) t) pane-update-programs))
 (defun pane-update-programs (pane now)
-  (when (and (pane-started pane) (pane-running pane)
-             (or (pane-dirty pane) (>= (- now (pane-group-at pane)) +group-poll-interval+)))
-    (setf (pane-group-at pane) now)
-    (let ((group (pty:pty-foreground (pane-fd pane))))
-      (when (or (not (eql group (pane-group pane)))
-                (and (null (agent:agent-reader (pane-agent pane)))
-                     (>= (- now (pane-programs-at pane)) +program-poll-interval+)))
-        (let* ((running (and group (pty:group-processes group)))
-               (was (program-name (first (pane-programs pane))))
-               (is (program-name (first (mapcar (lambda (p) (getf p :line)) running)))))
-          (setf (pane-group pane) group
-                (pane-programs-at pane) now
-                (pane-programs pane) (mapcar (lambda (p) (getf p :line)) running)
-                (pane-paths pane) (mapcar (lambda (p) (getf p :path)) running))
-          ;; a program in the foreground that was not there before has
-          ;; started; one that is gone has finished
-          (unless (string= was is)
-            (when (and (plusp (length was)) (not (member was +shells+ :test #'string=)))
-              (pane-push-event pane now :finished nil was))
-            (when (and (plusp (length is)) (not (member is +shells+ :test #'string=)))
-              (pane-push-event pane now :started nil is))))
-        (agent:agent-become (pane-agent pane) :title (pane-named pane)
-                                              :command (pane-command pane)
-                                              :programs (pane-programs pane)
-                                              :paths (pane-paths pane))))))
+  (when (and (pane-started pane) (pane-running pane))
+    (if (< (- now (pane-group-at pane)) +group-poll-interval+)
+        (pane-look-later pane (+ (pane-group-at pane) +group-poll-interval+))
+        (let ((group (pty:pty-foreground (pane-fd pane)))
+              (reader (agent:agent-reader (pane-agent pane))))
+          (setf (pane-group-at pane) now)
+          (cond
+            ((or (not (eql group (pane-group pane)))
+                 (and (null reader)
+                      (>= (- now (pane-programs-at pane)) +program-poll-interval+)))
+             (let* ((running (and group (pty:group-processes group)))
+                    (was (program-name (first (pane-programs pane))))
+                    (is (program-name (first (mapcar (lambda (p) (getf p :line)) running)))))
+               (setf (pane-group pane) group
+                     (pane-programs-at pane) now
+                     (pane-programs pane) (mapcar (lambda (p) (getf p :line)) running)
+                     (pane-paths pane) (mapcar (lambda (p) (getf p :path)) running))
+               (unless (string= was is)
+                 (setf (pane-titled-at pane) now)
+                 (when (and (plusp (length was)) (not (member was +shells+ :test #'string=)))
+                   (pane-push-event pane now :finished nil was))
+                 (when (and (plusp (length is)) (not (member is +shells+ :test #'string=)))
+                   (pane-push-event pane now :started nil is))))
+             (agent:agent-become (pane-agent pane) :title (pane-named pane)
+                                                   :command (pane-command pane)
+                                                   :programs (pane-programs pane)
+                                                   :paths (pane-paths pane)))
+            ((null reader)
+             (pane-look-later pane (+ (pane-programs-at pane) +program-poll-interval+))))))))
 
 (defun pane-start (pane &key environment)
   "Run the pane's program on a terminal of its own, the size the pane is now."
@@ -161,7 +201,7 @@ made now takes the next."
                                      :cols (term:term-width term)
                                      :environment environment
                                      :directory (pane-directory pane))
-            (setf (pane-fd pane) fd
+            (setf (pane-fd pane) (pty:nonblocking fd)
                   (pane-pid pane) pid))
         (error (e)
           (setf (pane-running pane) nil
@@ -178,7 +218,7 @@ program is done.
 At most BUDGET reads a wakeup: the descriptor stays readable and the next poll
 comes straight back, so one pane writing without pause cannot starve the rest."
   (dotimes (i budget t)
-    (unless (and (plusp most) (pty:pty-wait (pane-fd pane) 0))
+    (unless (plusp most)
       (return t))
     (let* ((octets (if (and *drain-octets* (>= (length *drain-octets*) size))
                        *drain-octets*
@@ -233,11 +273,49 @@ program has taken the whole screen is back at it."
             (max 0 (min (pane-history pane)
                         (+ (pane-scrolled pane) (max 0 more))))))))
 
+(declaim (ftype (function (pane) boolean) pane-owing-p))
+(defun pane-owing-p (pane)
+  (< (pane-out-start pane) (pane-out-end pane)))
+
+(declaim (ftype (function (pane (simple-array (unsigned-byte 8) (*)) fixnum fixnum) t) pane-owe))
+(defun pane-owe (pane octets start end)
+  (let ((box (pane-outbox pane))
+        (have (- (pane-out-end pane) (pane-out-start pane)))
+        (more (- end start)))
+    (when (or (null box) (> (+ (pane-out-end pane) more) (length box)))
+      (let ((new (make-array (max 256 (* 2 (+ have more))) :element-type '(unsigned-byte 8))))
+        (when box
+          (replace new box :start2 (pane-out-start pane) :end2 (pane-out-end pane)))
+        (setf box new
+              (pane-outbox pane) new
+              (pane-out-start pane) 0
+              (pane-out-end pane) have)))
+    (replace box octets :start1 (pane-out-end pane) :start2 start :end2 end)
+    (incf (pane-out-end pane) more)))
+
+(declaim (ftype (function (pane) t) pane-flush))
+(defun pane-flush (pane)
+  (when (pane-owing-p pane)
+    (let ((n (handler-case (pty:pty-write-some (pane-fd pane) (pane-outbox pane)
+                                               (pane-out-start pane) (pane-out-end pane))
+               (error () (- (pane-out-end pane) (pane-out-start pane))))))
+      (incf (pane-out-start pane) n)
+      (unless (pane-owing-p pane)
+        (setf (pane-out-start pane) 0
+              (pane-out-end pane) 0)))))
+
 (declaim (ftype (function (pane string) t) pane-write))
 (defun pane-write (pane said)
   (when (and (pane-running pane) (pane-started pane))
     (setf (pane-typed-at pane) (now-ms))
-    (ignore-errors (pty:pty-write-string (pane-fd pane) said))))
+    (ignore-errors
+     (let* ((octets (sb-ext:string-to-octets said :external-format :latin-1))
+            (end (length octets))
+            (sent (if (pane-owing-p pane)
+                      0
+                      (pty:pty-write-some (pane-fd pane) octets 0 end))))
+       (when (< sent end)
+         (pane-owe pane octets sent end))))))
 
 (defun pane-resize (pane rows cols)
   (term:term-resize (pane-term pane) cols rows)

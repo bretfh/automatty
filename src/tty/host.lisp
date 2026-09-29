@@ -73,10 +73,12 @@ nothing else: it runs between any two instructions there are.")
 
 (defun hear-resizes ()
   (setf *resized* t)
+  (open-wake)
   (sb-sys:enable-interrupt sb-unix:sigwinch
                            (lambda (signal info context)
                              (declare (ignore signal info context))
-                             (setf *resized* t))))
+                             (setf *resized* t)
+                             (wake))))
 
 (defun stop-hearing-resizes ()
   (sb-sys:enable-interrupt sb-unix:sigwinch :default))
@@ -110,17 +112,51 @@ must not inherit it.")
 
 (defvar *asked-to-stop* nil)
 
+(defvar *wake* nil)
+(defvar *wake-octet* (make-array 1 :element-type '(unsigned-byte 8) :initial-element 1))
+
+(declaim (ftype (function () (or null fixnum)) wake-fd))
+(defun wake-fd ()
+  "The descriptor that is readable once a signal has been heard, a request to
+stop or a resize, so a wait with nothing else to wake it still ends."
+  (car *wake*))
+
+(declaim (ftype (function () t) drain-wake))
+(defun drain-wake ()
+  (when *wake*
+    (let ((octets (make-array 64 :element-type '(unsigned-byte 8))))
+      (sb-sys:with-pinned-objects (octets)
+        (loop :while (let ((n (sb-unix:unix-read (car *wake*) (sb-sys:vector-sap octets) 64)))
+                       (and n (plusp n))))))))
+
+(declaim (ftype (function () t) wake))
+(defun wake ()
+  (when *wake*
+    (sb-sys:with-pinned-objects (*wake-octet*)
+      (sb-unix:unix-write (cdr *wake*) *wake-octet* 0 1))))
+
+(declaim (ftype (function () cons) open-wake))
+(defun open-wake ()
+  (or *wake*
+      (multiple-value-bind (in out) (sb-posix:pipe)
+        (dolist (fd (list in out))
+          (pty:nonblocking (pty:close-on-exec fd)))
+        (setf *wake* (cons in out)))))
+
 (defun hear-the-end (&optional interrupt-too)
   "From here on a term or a hangup is a request to stop, heard as *ASKED-TO-STOP*
-rather than the end: whoever is looping checks it and leaves properly. With
-INTERRUPT-TOO an interrupt is one as well, for a server in the foreground."
+rather than the end: whoever is looping checks it and leaves properly, woken by
+WAKE-FD. With INTERRUPT-TOO an interrupt is one as well, for a server in the
+foreground."
   (setf *asked-to-stop* nil)
+  (open-wake)
   (dolist (signal (list* sb-unix:sigterm sb-unix:sighup
                          (and interrupt-too (list sb-unix:sigint))))
     (sb-sys:enable-interrupt signal
                              (lambda (signal info context)
                                (declare (ignore signal info context))
-                               (setf *asked-to-stop* t)))))
+                               (setf *asked-to-stop* t)
+                               (wake)))))
 
 (defun stop-hearing-the-end ()
   (dolist (signal (list sb-unix:sigterm sb-unix:sighup))

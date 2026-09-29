@@ -117,7 +117,7 @@ thing that acted on it was one."
   "Every pane's pulse: its session, its id and its cells, oldest first."
   (loop :for (session . pane) :in (all-panes server)
         :collect (list (session-name session) (pane-id pane)
-                       (mapcar (lambda (cell) (list (car cell) (cdr cell))) (pane-pulse pane)))))
+                       (mapcar (lambda (cell) (list (car cell) (cdr cell))) (pane-pulse-now pane (now-ms))))))
 
 (defun encode-events (server n now)
   "The last N things that happened anywhere on the server, newest first:

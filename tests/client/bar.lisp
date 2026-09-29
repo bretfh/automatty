@@ -116,7 +116,7 @@
   (with-session (session pane server "cat" :rows 8 :cols 100)
       (let ((agent (mux:pane-agent pane)))
         (step-until server (lambda () (member (agent:agent-state agent) '(:idle :working))))
-        (agent:agent-hear agent :blocked)
+        (mux::pane-hear pane :blocked)
         (is-true (step-until server (lambda () (eq :blocked (agent:agent-state agent)))))
         (is (eq :blocked (mux::window-worst (mux:session-window session))))
         (let ((said (with-output-to-string (out)

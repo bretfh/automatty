@@ -75,6 +75,7 @@ command line."
   (window nil)
   (screen nil)
   (geometry nil)
+  (composed-at 0 :type integer)
   (bar-p t)
   (field-kind 0 :type fixnum)
   (watchers nil)
@@ -126,12 +127,8 @@ command line."
         (format nil "~A:~D" (session-name session) (pane-id pane)))))
 
 (defparameter +bar-refresh-interval+ 1000000000
-  "How long the bar may stand before the session is composed again.
-
-Everything else on the screen is drawn because something happened. The clock on
-the bar is not: nothing tells the server the minute turned. So a session
-somebody is watching is marked behind this often, and the diff decides whether
-anything actually moved.")
+  "How often a terminal with something open over its session is drawn again,
+since what is open may show how long ago things were.")
 
 (defstruct (server (:constructor %make-server))
   (path nil)
@@ -155,6 +152,11 @@ anything actually moved.")
   (release-noted nil)
   (release-checked-at 0 :type integer)
   (drain-turn 0 :type fixnum)
+  (stirred nil :type boolean)
+  (tending nil :type boolean)
+  (polled-panes (make-array 16 :adjustable t :fill-pointer 0))
+  (polled-sessions (make-array 16 :adjustable t :fill-pointer 0))
+  (polled-watchers (make-array 8 :adjustable t :fill-pointer 0))
   (running t :type boolean))
 
 (defparameter +first-session-timeout+ 10000000000

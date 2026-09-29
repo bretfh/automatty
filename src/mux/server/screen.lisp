@@ -5,10 +5,6 @@
 (defun session-pane-term (session)
   (pane-term (session-focus session)))
 
-(defun oldest-watcher (session)
-  (let ((here (remove-if-not #'watcher-interactive (session-watchers session))))
-    (if here (reduce #'min here :key #'watcher-sent) 0)))
-
 (defun session-reset-shadows (session)
   "The session is a different size. Nobody watching knows what is on their own
 screen any more, so every shadow goes and everybody is told the new size."
@@ -44,14 +40,50 @@ not this one's."
       (session-reset-shadows session)
       t)))
 
+(declaim (ftype (function (integer) (integer 1)) duration-turns))
+(defun duration-turns (elapsed)
+  (let ((unit (cond ((< elapsed 60000) 1000)
+                    ((< elapsed 3600000) 60000)
+                    (t 3600000))))
+    (- unit (mod elapsed unit))))
+
+(declaim (ftype (function () (integer 1)) minute-turns))
+(defun minute-turns ()
+  (multiple-value-bind (seconds microseconds) (sb-ext:get-time-of-day)
+    (- 60000 (mod (+ (* seconds 1000) (floor microseconds 1000)) 60000))))
+
+(declaim (ftype (function (session integer) (integer 1)) session-next-tick))
+(defun session-next-tick (session now)
+  (if (some #'watcher-overlays (session-watchers session))
+      (floor +bar-refresh-interval+ 1000000)
+      (let ((next (minute-turns)))
+        (dolist (pane (session-panes session) next)
+          (let* ((agent (pane-agent pane))
+                 (for (agent:agent-for agent now)))
+            (when (and for (agent:agent-known-p agent))
+              (setf next (min next (duration-turns for)))))))))
+
+(declaim (ftype (function (session) (or null integer)) session-tick-at))
+(defun session-tick-at (session)
+  (and (some #'watcher-interactive (session-watchers session))
+       (session-clocked session)))
+
+(declaim (ftype (function (session integer) boolean) session-tick))
 (defun session-tick (session now)
-  "Put everybody watching behind when the bar has stood for +BAR-GAP+. Answers
-whether it did."
-  (when (>= (- now (session-clocked session)) +bar-refresh-interval+)
-    (setf (session-clocked session) now)
-    (dolist (watcher (session-watchers session))
-      (setf (watcher-behind watcher) t))
-    t))
+  "Put everybody watching behind once what the bar or an open overlay shows
+could read differently: the minute turned, a time it shows went up, or a second
+passed under an overlay. Answers whether it did."
+  (let ((watchers (session-watchers session)))
+    (when (some #'watcher-interactive watchers)
+      (when (some #'watcher-overlays watchers)
+        (setf (session-clocked session)
+              (min (session-clocked session) (+ now +bar-refresh-interval+))))
+      (when (>= now (session-clocked session))
+        (setf (session-clocked session)
+              (+ now (* 1000000 (session-next-tick session (floor now 1000000)))))
+        (dolist (watcher watchers)
+          (setf (watcher-behind watcher) t))
+        t))))
 
 (defun session-tree (session)
   "What the session looks like: the bar, and the panes under it."
@@ -104,11 +136,50 @@ is drawn is what they have just been told they are."
       (atty/ui:restyle tree)
       (atty/ui:measure tree m cols rows)
       (atty/ui:lay tree m 0 0 cols rows)
-      (setf (session-geometry session) tree)
+      (setf (session-geometry session) tree
+            (session-composed-at session) (now-ms))
       (fit-panes tree)
       (atty/ui:paint tree m))
     (place-cursor session tree)
     screen))
+
+(declaim (ftype (function (session) boolean) session-plain-p))
+(defun session-plain-p (session)
+  "Whether nothing drawn around the panes shown depends on what is in them:
+none is read back, searched or selected in, none was titled since the last
+compose, and none in a frame is an agent, whose frame reads its screen."
+  (let ((framed (or (session-zoomed session) (split-p (session-layout session))))
+        (since (session-composed-at session)))
+    (every (lambda (pane)
+             (and (zerop (pane-scrolled pane))
+                  (null (pane-find pane))
+                  (null (pane-selecting pane))
+                  (< (pane-titled-at pane) since)
+                  (not (and framed (pane-known-p pane)))))
+           (window-panes (session-window session)))))
+
+(declaim (ftype (function (session) (or null tty:screen)) session-repaint))
+(defun session-repaint (session)
+  "Paint the panes again where the last compose put them, when they are all
+that changed. Answers the screen, or nil when it takes a compose."
+  (let* ((tree (session-geometry session))
+         (screen (session-screen session))
+         (cols (tty:screen-width screen))
+         (rows (tty:screen-height screen)))
+    (when (and tree
+               (= cols (atty/ui:width tree))
+               (= rows (atty/ui:height tree))
+               (session-plain-p session))
+      (let ((m (atty/cells:make-cells (tty:screen-grid screen) cols rows)))
+        (atty/ui:with-pass
+          (labels ((walk (w)
+                     (if (typep w 'pane-area)
+                         (progn (atty/ui:paint (area-view w) m)
+                                (when (area-bar w) (atty/ui:paint (area-bar w) m)))
+                         (dolist (part (atty/ui:parts w)) (walk part)))))
+            (walk tree))))
+      (place-cursor session tree)
+      screen)))
 
 (defun watcher-frame (session watcher)
   (let* ((screen (watcher-view session watcher))

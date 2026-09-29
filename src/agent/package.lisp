@@ -30,6 +30,7 @@
    #:agent-still-since
    #:agent-heard
    #:agent-look
+   #:agent-next-look
    #:agent-hear
    #:agent-become
    #:agent-explain

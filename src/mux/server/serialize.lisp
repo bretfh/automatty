@@ -255,7 +255,7 @@ screen and its terminal's modes as they were, and nothing started."
           (term:term-enter-alt-screen term)
           (fill-rows term (rows-of over))))
       (when modes (setf (term:term-modes term) (decode-modes modes)))
-      (setf (pane-fd pane) fd
+      (setf (pane-fd pane) (pty:nonblocking fd)
             (pane-pid pane) pid
             (pane-pushed-seen pane) (term:term-scrollback-pushed term)
             (pane-label pane) label
