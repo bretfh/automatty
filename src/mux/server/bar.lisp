@@ -49,7 +49,7 @@ least this.")
 (defparameter +chip-width+ 14 "A window's chip: its number and name, and one glyph.")
 (defparameter +narrow-chip-width+ 5 "A window's chip on a narrow bar: its number and one glyph.")
 (defparameter +mode-width+ 16 "Zoomed, or reading back, or nothing, and its ends.")
-(defparameter +needs-width+ 16 "What needs you anywhere, or nothing.")
+(defparameter +needs-width+ 17 "What needs you anywhere, or nothing.")
 (defparameter +session-width+ 8 "One other session: its name and its worst pane's glyph.")
 
 (defun slot (text width &key (face :default) background)
@@ -124,7 +124,11 @@ reading back, from whoever is, is back to live."
   (let ((n (blocked-count server))
         (width (if narrow 7 +needs-width+)))
     (if (plusp n)
-        (bar-button "show queue"
+        (bar-button (lambda ()
+                      (loop :for s :in (server-sessions server)
+                            :for pane := (find :blocked (session-panes s)
+                                               :key (lambda (p) (agent:agent-state (pane-agent p))))
+                            :when pane :do (return (asks-or-go *client* s pane))))
                     (pill (slot (if narrow (format nil " ▲ ~D " n)
                                     (format nil " ▲ ~D need~A you " n (if (= n 1) "s" "")))
                                 (- width 2)
@@ -178,9 +182,11 @@ NARROW keeps three letters of each name."
          (worst (worst-pane session))
          (yours (eq session here))
          (name (- +rail-width+ 8)))
-    (bar-button (if worst
-                    (lambda () (focus-pane (session-server session) *client* (session-name session) (pane-id worst)))
-                    (lambda () (go-to *client* (session-name session))))
+    (bar-button (cond ((eq state :blocked)
+                       (lambda () (asks-or-go *client* session worst)))
+                      (worst
+                       (lambda () (focus-pane (session-server session) *client* (session-name session) (pane-id worst))))
+                      (t (lambda () (go-to *client* (session-name session)))))
                 (apply #'atty/ui:row :spacing 0
                        (append (when yours (list :background-color (bar-face :bg)))
                                (list (atty/ui:label " ")

@@ -108,6 +108,7 @@
                              (:module "overlays"
                               :components ((:file "panes")
                                            (:file "note")
+                                           (:file "asks")
                                            (:file "prompt")
                                            (:file "palette")
                                            (:file "queue")
