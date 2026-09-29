@@ -228,6 +228,32 @@ one are shown, with a ▲ at the edge an asking one is cut off at."
                                       width :face :driven))
                               terminals))))))))
 
+(defparameter +mode-chip-width+ 8 "The mode chip's room at the foot when there is no rail.")
+
+(defun session-field (session)
+  "Where everything is typed, sunk into the foot: the kind's prefix, which
+cycles the kind when clicked, the cursor, what it is for, and the other kinds
+at its end, each a click away."
+  (let* ((kind (nth (mod (session-field-kind session) (length +palette-kinds+)) +palette-kinds+)))
+    (destructuring-bind (prefix name runs placeholder) kind
+      (declare (ignore name))
+      (well (list (atty/ui:row :spacing 0
+                               (atty/ui:label " ")
+                               (bar-button :cycle-search-kind
+                                           (atty/ui:label (format nil " ~C " prefix) :face :brand))
+                               (atty/ui:label " ")
+                               (bar-button runs
+                                           (squeezed (atty/ui:row :spacing 0
+                                                                  (atty/ui:label " " :face :field-cursor)
+                                                                  (atty/ui:label " ")
+                                                                  (atty/ui:label placeholder :face :placeholder)))
+                                           :expand 1)
+                               (apply #'atty/ui:row :spacing 0
+                                      (loop :for (other nil opens) :in +palette-kinds+
+                                            :unless (eql other prefix)
+                                              :collect (hint (string other) (second (assoc other +palette-kinds+))
+                                                             :runs opens)))))))))
+
 (defun default-bar (session)
   "What the bar shows, left to right, each in a slot that keeps its place: the
 corner, which opens the menu; this session's windows and a way to another;

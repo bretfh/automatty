@@ -25,8 +25,7 @@
 
 (declaim (ftype (function (t) fixnum) chrome-bottom))
 (defun chrome-bottom (watcher)
-  (declare (ignore watcher))
-  0)
+  (if (and watcher (watcher-session watcher)) 3 0))
 
 ;;; A button is a widget like any other, except a click on it does not run
 ;;; anything itself: what it does is said by RUNS, a form for the server to

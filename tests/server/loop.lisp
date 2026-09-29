@@ -59,7 +59,7 @@
 (test a-resize-reaches-the-program-and-the-screen
       (with-server (path :command "trap 'stty size' WINCH; stty size; sleep 1; sleep 60" :rows 10 :cols 40)
                    (with-seer (seer path :rows 10 :cols 40)
-                              (is-true (pump seer :want "5 37")
+                              (is-true (pump seer :want "2 37")
                                        "the program was not given the rows the bar left it")
                               (pty:pty-set-size (seer-master seer) 20 60)
                               (term:term-resize (seer-host seer) 60 20)
@@ -67,7 +67,7 @@
                                                    (is (eql 20 rows))
                                                    (is (eql 60 cols)))
                               (mux:client-resized (seer-client seer))
-                              (is-true (pump seer :want "15 57")))))
+                              (is-true (pump seer :want "12 57")))))
 
 (test a-pane-whose-program-is-done-says-bye
       (with-server (path :command "printf 'and-out\\n'; sleep 1")
@@ -82,8 +82,8 @@
 
 (test a-screenful-of-redraws-arrives-as-the-same-screen
       (with-server (path :command "for i in 1 2 3 4 5 6 7 8; do printf '\\033[2J\\033[H'; printf 'frame-%d\\n' $i; done; printf 'done-them\\n'; sleep 30"
-                         :rows 10 :cols 40)
-                   (with-seer (seer path)
+                         :rows 14 :cols 40)
+                   (with-seer (seer path :rows 14 :cols 40)
                               (is-true (pump seer :want "done-them"))
                               (pump seer :seconds 1/4)
                               (is (search "frame-8" (seen seer))
@@ -98,8 +98,8 @@
 
 (test the-bar-says-what-a-known-agent-is-doing
       (with-server (path :command "printf '\\033]0;\\342\\234\\263 Claude Code\\007'; printf '\\342\\224\\200\\342\\224\\200\\342\\224\\200\\342\\224\\200\\n\\342\\235\\257 \\n\\342\\224\\200\\342\\224\\200\\342\\224\\200\\342\\224\\200\\n'; sleep 1.5; printf '\\342\\217\\265\\342\\217\\265 auto mode on \\302\\267 esc to interrupt\\n'; sleep 30"
-                         :rows 10 :cols 60)
-                   (with-seer (seer path :rows 10 :cols 60)
+                         :rows 14 :cols 60)
+                   (with-seer (seer path :rows 14 :cols 60)
                               ;; sixty columns is a narrow bar: the glyph after the window's number says it
                               (is-true (pump seer :want "1 ○") "the bar never showed idle: ~S" (seen seer))
                               (is-true (pump seer :want "1 ◐") "the bar never showed working: ~S" (seen seer)))))
@@ -294,7 +294,7 @@
 (test the-program-is-given-the-rows-the-bar-left-it
       (with-server (path :command "stty size; sleep 30" :rows 10 :cols 40)
                    (with-seer (seer path :rows 10 :cols 40)
-                              (is-true (pump seer :want "5 37")
+                              (is-true (pump seer :want "2 37")
                                        "the program was told the whole terminal, bar and all: ~S"
                                        (seen seer)))))
 
@@ -302,12 +302,12 @@
       (with-server (path :command "while :; do stty size; sleep 0.3; done"
                          :rows 10 :cols 40)
                    (with-seer (seer path :rows 10 :cols 40)
-                              (is-true (pump seer :want "5 37") "the bar was not taking a row")
+                              (is-true (pump seer :want "2 37") "the bar was not taking a row")
                               (type-at seer (format nil "~Ct" mux:+prefix+))
-                              (is-true (pump seer :want "6 37")
+                              (is-true (pump seer :want "3 37")
                                        "the bar did not come off: ~S" (seen seer))
                               (type-at seer (format nil "~Ct" mux:+prefix+))
-                              (is-true (pump seer :want "5 37")
+                              (is-true (pump seer :want "2 37")
                                        "the bar did not come back: ~S" (seen seer)))))
 
 (test with-no-bar-the-program-has-the-whole-terminal
@@ -318,7 +318,7 @@
             (progn (setf mux:*bar* nil)
                    (with-server (path :command "stty size; sleep 30" :rows 10 :cols 40)
                                 (with-seer (seer path :rows 10 :cols 40)
-                                           (is-true (pump seer :want "6 37") "~S" (seen seer)))))
+                                           (is-true (pump seer :want "3 37") "~S" (seen seer)))))
           (setf mux:*bar* was))))
 
 (test the-prompt-opens-on-the-prefix-and-runs-what-was-chosen

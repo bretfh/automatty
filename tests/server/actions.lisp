@@ -6,9 +6,9 @@
 (in-suite server-actions)
 
 (test finding-in-a-pane-scrolls-to-the-hit-and-counts-them-and-lines-can-be-copied
-  (with-session (session pane server "cat" :rows 10 :cols 70)
+  (with-session (session pane server "cat" :rows 14 :cols 70)
     (let ((wire (wire-to (mux::server-path server))))
-      (say-to wire (list :want "work") (list :attach 10 70 t))
+      (say-to wire (list :want "work") (list :attach 14 70 t))
       (heard-from server wire :hello)
       ;; forty numbered lines, so most are behind the screen
       (say-to wire (list :keys (format nil "~{line-~D~%~}" (loop :for i :from 1 :to 40 :collect i))))

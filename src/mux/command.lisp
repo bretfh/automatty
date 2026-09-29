@@ -90,12 +90,12 @@ the server down."
 (atty/mode:define-mode pane-mode ())
 
 (defparameter +palette-kinds+
-  '((#\: "commands" "commands")
-    (#\@ "windows" "switch window")
-    (#\# "clients" "clients")
-    (#\/ "find" "find in pane"))
-  "The palette's kinds: the prefix that opens each, what its tab says, and
-the command that opens it.")
+  '((#\: "commands" "commands" "run a command…")
+    (#\@ "windows" "switch window" "go to a window…")
+    (#\# "clients" "clients" "a terminal…")
+    (#\/ "find" "find in pane" "find in the pane…"))
+  "The palette's kinds: the prefix that opens each, what its tab says, the
+command that opens it, and what the field says while nothing is typed.")
 
 (defparameter +palette-prefixes+
   (mapcar (lambda (kind) (cons (first kind) (third kind))) +palette-kinds+)

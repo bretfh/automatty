@@ -90,12 +90,20 @@ passed under an overlay. Answers whether it did."
 under it."
   (let ((panes (layout-tree (session-layout session) (session-focus session)
                             session (session-zoomed session))))
-    (atty/ui:column
-     :align :stretch
-     (session-bar session)
-     (if (rail-shown-p session)
-         (atty/ui:row :align :stretch :spacing 0 :expand 1 (session-rail session) panes)
-         panes))))
+    (if (rail-shown-p session)
+        (atty/ui:column
+         :align :stretch
+         (session-bar session)
+         (atty/ui:row :align :stretch :spacing 0 :expand 1
+                      (session-rail session)
+                      (atty/ui:column :align :stretch :expand 1 panes (session-field session))))
+        (atty/ui:column
+         :align :stretch
+         (session-bar session)
+         panes
+         (atty/ui:row :align :stretch :spacing 0 :background-color (bar-face :ground)
+                      (atty/ui:label (make-string +mode-chip-width+ :initial-element #\Space))
+                      (atty/ui:column :align :stretch :expand 1 (session-field session)))))))
 
 (defun fit-panes (tree)
   "Give each pane the room the layout gave its view."

@@ -23,8 +23,8 @@
 (test a-blocked-pane-is-answered-by-clicking-an-answer-in-its-border
   (let ((script (dialog-script)))
     (unwind-protect
-         (with-server (path :command "/bin/sh" :rows 16 :cols 90)
-           (with-seer (seer path :rows 16 :cols 90)
+         (with-server (path :command "/bin/sh" :rows 20 :cols 90)
+           (with-seer (seer path :rows 20 :cols 90)
              (pump seer :seconds 1/2)
              (type-at seer (format nil "~C3" mux:+prefix+))
              (pump seer :until (lambda () (search "╔" (seen seer))))
