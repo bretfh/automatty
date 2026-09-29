@@ -76,7 +76,7 @@
               "the session did not say its windows: ~S" these))
         (mux:wire-close wire))
       (type-at seer (format nil "~C," mux:+prefix+))
-      (is-true (pump seer :want "window 0 › 2") "naming the window did not ask: ~S" (seen seer))
+      (is-true (pump seer :want "↵ keep") "naming the window did not ask: ~S" (seen seer))
       (type-at seer (format nil "tests~C" #\Return))
       (pump seer :seconds 1/2)
       (let ((wire (wire-to path)))

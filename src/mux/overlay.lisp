@@ -41,6 +41,12 @@ would.")
   (:documentation "THING, drawn on top, hears that session OLD is now NEW.")
   (:method (thing old new) (declare (ignore thing old new)) nil))
 
+(defgeneric overlay-field (thing)
+  (:documentation "What is typed into the field while THING is on top: its
+prefix, the text so far, and the hints at the field's end; nil when THING
+takes nothing typed.")
+  (:method (thing) (declare (ignore thing)) nil))
+
 (defgeneric overlay-unbound-key (thing chord watcher)
   (:documentation "What to do with a key the mode has no binding for. A prompt
 puts it in what has been typed; most things ignore it.")
@@ -79,11 +85,37 @@ for it, so they are worked out once.")
                 (*rows* (list nil)))
             (dolist (it (reverse (watcher-overlays watcher)))
               (draw-overlay it work))
+            (draw-field watcher work)
             (if (menu-due-p watcher)
                 (draw-menu watcher work)
                 (setf (watcher-menu watcher) nil)))
           work)
         screen)))
+
+(defun draw-field (watcher screen)
+  "What WATCHER is typing, in the field's row, with the cursor after it."
+  (let* ((top (first (watcher-overlays watcher)))
+         (typed (and top (overlay-field top)))
+         (cols (tty:screen-width screen))
+         (rows (tty:screen-height screen))
+         (left (if (plusp (chrome-left watcher)) (chrome-left watcher) +mode-chip-width+))
+         (y (- rows 2)))
+    (setf (watcher-field watcher) nil)
+    (when (and typed (watcher-session watcher) (plusp y) (< left cols))
+      (destructuring-bind (prefix text hints) typed
+        (let ((tree (atty/ui:row :spacing 0 :background-color (bar-face :bg-well)
+                                 (atty/ui:label " ")
+                                 (atty/ui:label (format nil " ~A " prefix) :face :brand)
+                                 (atty/ui:label " ")
+                                 (atty/ui:label text :face :strong)
+                                 (atty/ui:gap)
+                                 (or hints (atty/ui:label "")))))
+          (atty/cells:draw tree (tty:screen-grid screen) cols (1+ y) :left left :top y)
+          (setf (watcher-field watcher) tree
+                (tty:screen-cursor-x screen) (min (1- cols) (+ left 4 (length prefix)
+                                                               (atty/cells:columns-of text)))
+                (tty:screen-cursor-y screen) y
+                (tty:screen-cursor-visible screen) t))))))
 
 (defun bar-shown-p (watcher)
   (let ((session (watcher-session watcher)))

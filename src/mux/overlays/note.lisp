@@ -168,8 +168,7 @@ what it says is written out with whatever else the command says."
            (text "" :type string)
            (keep nil)
            (swap nil)
-           (swap-label nil)
-           (laid nil))
+           (swap-label nil))
 
 (defun entry (watcher title what text &key keep swap swap-says)
   "Ask WATCHER for a line of TEXT to start from, under TITLE, about WHAT. KEEP
@@ -178,30 +177,23 @@ when there is one, and SWAP-SAYS says what TAB does."
   (push-overlay watcher (%make-entry :title title :what what :text text
                                            :keep keep :swap swap :swap-label swap-says)))
 
-(defun entry-tree (e cols)
-  (band (list (pill (atty/ui:label (format nil " ~A " (entry-of-title e)) :face :number-working) :ground :blue)
-              (atty/ui:label (format nil " ~A  " (entry-of-what e)) :face :strong)
-              (squeezed (field "" (entry-of-text e))))
-        (append (when (entry-of-swap e)
-                  (list (hint "⇥" (entry-of-swap-label e) :runs :swap)))
-                (list (hint "↵" "keep" :runs :keep)
-                      (hint "Esc" "undo" :runs :close)))))
-
 (defmethod draw-overlay ((e entry) screen)
-           (let* ((cols (tty:screen-width screen))
-                  (rows (tty:screen-height screen))
-                  (tree (entry-tree e cols))
-                  (top (max 0 (- rows (chrome-bottom *client*) 1))))
-             (atty/cells:draw tree (tty:screen-grid screen) cols rows :top top)
-             (top-edge (atty/cells:make-cells (tty:screen-grid screen) cols rows) 0 top cols :bg-dim)
-             (setf (entry-of-laid e) tree
-                   (tty:screen-cursor-visible screen) nil)))
+           (declare (ignore screen))
+           nil)
+
+(defmethod overlay-field ((e entry))
+           (list "name" (entry-of-text e)
+                 (apply #'atty/ui:row :spacing 0
+                        (append (when (entry-of-swap e)
+                                  (list (hint "⇥" (entry-of-swap-label e) :runs :swap)))
+                                (list (hint "↵" "keep" :runs :keep)
+                                      (hint "Esc" "cancel" :runs :close))))))
 
 (atty/mode:define-mode entry-mode ())
 
 (defmethod mode-of ((e entry)) 'entry-mode)
 (defmethod overlay-name ((e entry)) (entry-of-title e))
-(defmethod overlay-laid-tree ((e entry)) (entry-of-laid e))
+(defmethod overlay-laid-tree ((e entry)) (watcher-field *client*))
 
 (defmethod overlay-unbound-key ((e entry) chord watcher)
            (let ((said (atty/mode:self-inserting chord)))
@@ -239,8 +231,8 @@ when there is one, and SWAP-SAYS says what TAB does."
 
 (defcommand (entry-click :unlisted) ()
             (let* ((e (current-entry))
-                   (hit (and e (entry-of-laid e) *mouse-position*
-                             (button-at (entry-of-laid e) (cdr *mouse-position*) (car *mouse-position*)))))
+                   (hit (and e (watcher-field *client*) *mouse-position*
+                             (button-at (watcher-field *client*) (cdr *mouse-position*) (car *mouse-position*)))))
               (when hit
                 (case (bar-button-runs hit)
                       (:keep (accept-entry e *client*))

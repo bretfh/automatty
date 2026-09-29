@@ -53,21 +53,14 @@
     (is (eq :yes said) "the click on yes did not say yes")
     (is (null (mux:watcher-overlays client)))))
 
-(test a-name-is-typed-on-the-line-at-the-foot-and-kept-or-undone
+(test a-name-is-typed-and-kept-or-undone
   (let* ((client (mux::%make-watcher :id 7 :rows 10 :cols 80))
-         (kept nil) (swapped nil)
-         (screen (tty:make-screen :width 80 :height 10)))
+         (kept nil) (swapped nil))
     (mux::entry client "name" "window todo › 2" "impl"
                 :keep (lambda (text c) (declare (ignore c)) (setf kept text))
                 :swap (lambda (c) (declare (ignore c)) (setf swapped t))
                 :swap-says "pane instead")
     (is (eq 'mux::entry-mode (mux:watcher-mode client)))
-    (let ((mux:*client* client)) (mux:draw-overlay (first (mux:watcher-overlays client)) screen))
-    (is (search " name ▌ window todo › 2  " (shown screen 9)) "~S" (shown screen 9))
-    (is (search " impl_" (shown screen 9)) "~S" (shown screen 9))
-    (is (search "↵ keep" (shown screen 9)))
-    (is (search "Esc undo" (shown screen 9)))
-    (is (search "⇥ pane instead" (shown screen 9)))
     ;; typing adds to it, DEL takes off it, RET keeps it
     (let ((mux::*client* client))
       (mux::overlay-unbound-key (first (mux:watcher-overlays client)) "-" client)

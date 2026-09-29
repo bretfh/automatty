@@ -95,10 +95,8 @@ FOOT a line under the items saying what the keys do."
                                   (close-button) (atty/ui:label " ")))
                     (header-band (prompt-title p)
                                  :right (atty/ui:label (format nil " ~A " count) :face :quiet)))
-                  (apply #'toolbar
-                         (field (if (prompt-kind p) (string (prompt-kind p)) "›") (prompt-query p))
-                         (append (when (prompt-controls p) (list :right))
-                                 (and (prompt-controls p) (funcall (prompt-controls p) p))))
+                  (and (prompt-controls p)
+                       (apply #'toolbar :right (funcall (prompt-controls p) p)))
                   (atty/ui:row
                    :align :stretch :spacing 0
                    (apply #'atty/ui:column :align :stretch :expand 2
@@ -126,12 +124,15 @@ FOOT a line under the items saying what the keys do."
                   (bottom (min rows (+ top high))))
              (atty/cells:draw tree (tty:screen-grid screen) cols bottom :top top)
              (cast-shadow m 0 top cols (- bottom top))
-             (setf (prompt-laid p) tree)
-             (setf (tty:screen-cursor-y screen) (min (1- rows) (1+ top))
-                   (tty:screen-cursor-x screen) (min (1- cols) (+ 4 (length (prompt-query p))))
-                   (tty:screen-cursor-visible screen) t)))
+             (setf (prompt-laid p) tree
+                   (tty:screen-cursor-visible screen) nil)))
 
 (defmethod overlay-laid-tree ((p prompt)) (prompt-laid p))
+
+(defmethod overlay-field ((p prompt))
+           (list (if (prompt-kind p) (string (prompt-kind p)) "›")
+                 (prompt-query p)
+                 (and (prompt-kind p) (kind-hints (prompt-kind p)))))
 
 (defun prompt-close (p watcher)
   "Take it away. Nothing else needs doing: what it was covering is still in the
@@ -262,8 +263,11 @@ the palette's next kind."
             "A click on a row chooses it; on a tab, opens that kind; on a control, does
 what it says; on the field, nothing."
             (let* ((p (current-prompt))
-                   (hit (and p (prompt-laid p) *mouse-position*
-                             (button-at (prompt-laid p) (cdr *mouse-position*) (car *mouse-position*))))
+                   (hit (and p *mouse-position*
+                             (or (and (prompt-laid p)
+                                      (button-at (prompt-laid p) (cdr *mouse-position*) (car *mouse-position*)))
+                                 (and (watcher-field *client*)
+                                      (button-at (watcher-field *client*) (cdr *mouse-position*) (car *mouse-position*))))))
                    (runs (and hit (bar-button-runs hit))))
               (when hit
                 (cond

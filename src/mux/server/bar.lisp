@@ -230,6 +230,13 @@ one are shown, with a ▲ at the edge an asking one is cut off at."
 
 (defparameter +mode-chip-width+ 8 "The mode chip's room at the foot when there is no rail.")
 
+(defun kind-hints (prefix)
+  "The palette's kinds other than PREFIX's, each a hint that opens it."
+  (apply #'atty/ui:row :spacing 0
+         (loop :for (other name opens) :in +palette-kinds+
+               :unless (eql other prefix)
+                 :collect (hint (string other) name :runs opens))))
+
 (defun session-field (session)
   "Where everything is typed, sunk into the foot: the kind's prefix, which
 cycles the kind when clicked, the cursor, what it is for, and the other kinds
@@ -248,11 +255,7 @@ at its end, each a click away."
                                                                   (atty/ui:label " ")
                                                                   (atty/ui:label placeholder :face :placeholder)))
                                            :expand 1)
-                               (apply #'atty/ui:row :spacing 0
-                                      (loop :for (other nil opens) :in +palette-kinds+
-                                            :unless (eql other prefix)
-                                              :collect (hint (string other) (second (assoc other +palette-kinds+))
-                                                             :runs opens)))))))))
+                               (kind-hints prefix)))))))
 
 (defun default-bar (session)
   "What the bar shows, left to right, each in a slot that keeps its place: the

@@ -139,7 +139,7 @@
     (with-seer (seer path :rows 10 :cols 100)
       (pump seer :seconds 1/2)
       (type-at seer (format nil "~C$" mux:+prefix+))
-      (is-true (pump seer :want " name ▌ session ") "no line at the foot to name the session: ~S" (seen seer)))))
+      (is-true (pump seer :want "↵ keep") "the field does not ask for the session's name: ~S" (seen seer)))))
 
 (test a-prompt-says-which-pane-sent-it-and-a-refused-one-says-so
   (with-stepped-server (server path)
