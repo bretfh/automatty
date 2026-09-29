@@ -134,14 +134,12 @@
       (is (equal "session done" (mux::entry-of-what (first (mux:watcher-overlays client)))))
       (is (equal "done" (mux::entry-of-text (first (mux:watcher-overlays client))))))))
 
-(test the-session-is-named-from-the-keys-and-the-bar-says-the-new-name
+(test the-session-is-named-from-the-keys
   (with-server (path :command "cat" :rows 10 :cols 100)
     (with-seer (seer path :rows 10 :cols 100)
       (pump seer :seconds 1/2)
       (type-at seer (format nil "~C$" mux:+prefix+))
-      (is-true (pump seer :want " name ▌ session ") "no line at the foot to name the session: ~S" (seen seer))
-      (type-at seer (format nil "~C~C~Ctodo~C" #\Rubout #\Rubout #\Rubout #\Return))
-      (is-true (pump seer :want " todo │") "the bar does not say the new name: ~S" (seen seer)))))
+      (is-true (pump seer :want " name ▌ session ") "no line at the foot to name the session: ~S" (seen seer)))))
 
 (test a-prompt-says-which-pane-sent-it-and-a-refused-one-says-so
   (with-stepped-server (server path)

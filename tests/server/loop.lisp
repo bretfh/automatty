@@ -101,8 +101,8 @@
                          :rows 10 :cols 60)
                    (with-seer (seer path :rows 10 :cols 60)
                               ;; sixty columns is a narrow bar: the glyph after the window's number says it
-                              (is-true (pump seer :want "1○") "the bar never showed idle: ~S" (seen seer))
-                              (is-true (pump seer :want "1◐") "the bar never showed working: ~S" (seen seer)))))
+                              (is-true (pump seer :want "1 ○") "the bar never showed idle: ~S" (seen seer))
+                              (is-true (pump seer :want "1 ◐") "the bar never showed working: ~S" (seen seer)))))
 
 (test a-program-is-told-which-pane-it-is-in-and-where-its-server-is
       (with-server (path :command "printf 'pane=%s socket=%s\\n' \"$ATTY_PANE\" \"$ATTY_SOCKET\"; sleep 30"
