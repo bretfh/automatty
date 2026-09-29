@@ -101,7 +101,7 @@
     (with-seer (seer path :rows 10 :cols 100)
       (pump seer :seconds 1/2)
       (type-at seer (format nil "~C3" mux:+prefix+))
-      (is-true (pump seer :until (lambda () (search "┏" (seen seer)))))
+      (is-true (pump seer :until (lambda () (search "╔" (seen seer)))))
       (type-at seer (format nil "~Cz" mux:+prefix+))
       (is-true (pump seer :want "⤢ cat zoomed") "the bar does not name the zoomed pane: ~S" (seen seer))
       (type-at seer (format nil "~Cz" mux:+prefix+))

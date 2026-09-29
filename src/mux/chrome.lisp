@@ -416,12 +416,12 @@ it GRABBED cells from its head is at POS."
 
 (defun card (title right body &key (face :card) cursor bl br runs (width 0) (height 0))
   "BODY framed, TITLE at the top left and RIGHT at the top right, BL and BR
-along the bottom; a thin rounded line in FACE, the state's colour, and a heavy
+along the bottom; a single line in FACE, the state's colour, and a double
 one when it is the CURSOR's (lit, when its state has no colour of its own)."
   (let* ((framed (atty/ui:framed
                   (apply #'atty/ui:column :align :stretch :expand 1 (ensure-list body))
                   :face (if (and cursor (eq face :card)) :card-cursor face)
-                  :line (if cursor :heavy :rounded)
+                  :line (if cursor :double :single)
                   :titles (list :tl title :tr right :bl bl :br br)))
          (it (if (and (plusp width) (plusp height)) (fixed framed width height) framed)))
     (if runs (bar-button runs it) it)))

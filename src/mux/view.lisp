@@ -223,7 +223,7 @@ with no frame to say it in: the chip goes over the pane's own last line."
                      wide 1)))))
 
 ;;; A pane sits inside a frame of its own, all four sides, coloured by what its
-;;; program is doing and drawn heavy where the focus is, on the pane's ground. What the corners say
+;;; program is doing and drawn double where the focus is, on the pane's ground. What the corners say
 ;;; is src/mux/frames.lisp's business.
 
 (defvar *scrollbars* t
@@ -234,7 +234,7 @@ while one is laid out.")
   (atty/ui:framed (pane-area pane :scrollbarp *scrollbars* :focusp focusp)
                   :background-color (bar-face (if focusp :bg :bg-well))
                   :face (frame-face pane focusp)
-                  :line (if focusp :heavy :rounded)
+                  :line (if focusp :double :single)
                   :titles (and session (frame-corners session pane focusp))))
 
 (defun views-in (tree)

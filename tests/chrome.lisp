@@ -111,7 +111,7 @@
     (is (> (search "↵ go" line) 60) "the go button is not at the right: ~S" line)
     (is (eq :sort (mux::bar-button-runs (mux::button-at tree 0 3))))))
 
-(test a-card-is-heavy-where-the-cursor-is-and-rounded-elsewhere
+(test a-card-is-double-where-the-cursor-is-and-single-elsewhere
   (let* ((plain (mux::card (atty/ui:label " 1 arch ") (atty/ui:label " ◐ ")
                            (list (atty/ui:label "hello"))
                            :width 20 :height 4))
@@ -120,8 +120,8 @@
                             :bl (mux::keycap "1" "Yes" :runs '(:option 1))))
          (tree (atty/ui:row :spacing 1 plain cursor))
          (screen (painted tree 41 4)))
-    (is (search "╭─ 1 arch " (shown screen 0)))
-    (is (search "┏━ 2 impl " (shown screen 0)))
+    (is (search "┌─ 1 arch " (shown screen 0)))
+    (is (search "╔═ 2 impl " (shown screen 0)))
     (is (search " 1 Yes " (shown screen 3)) "the answers are in the bottom border")
     (is (equal '(:option 1) (mux::bar-button-runs (mux::button-at tree 3 24))))))
 

@@ -95,12 +95,12 @@
     (setf tree (mux::layout-tree layout two))
     (laid tree screen)
     (destructuring-bind (frame-one frame-two) (atty/ui:parts tree)
-      (is (eq :rounded (atty/ui:line frame-one)))
-      (is (eq :heavy (atty/ui:line frame-two)) "the focused pane was not framed heavy")
+      (is (eq :single (atty/ui:line frame-one)))
+      (is (eq :double (atty/ui:line frame-two)) "the focused pane was not framed double")
       (is (eq :state-blocked (atty/ui:face frame-two))
           "a blocked pane's frame was ~S" (atty/ui:face frame-two)))
-    (is (search "┏" (shown screen 0)) "~S" (shown screen 0))
-    (is (search "╭" (shown screen 0)))))
+    (is (search "╔" (shown screen 0)) "~S" (shown screen 0))
+    (is (search "┌" (shown screen 0)))))
 
 (test a-frame-with-no-session-given-has-no-titles
   (let* ((one (pane "aaa" :rows 3 :cols 20))
@@ -109,7 +109,7 @@
          (tree (mux::layout-tree layout)))
     (dolist (frame (atty/ui:parts tree))
       (is (null (atty/ui:titles frame)))
-      (is (eq :rounded (atty/ui:line frame))))))
+      (is (eq :single (atty/ui:line frame))))))
 
 (test a-title-sits-in-the-border-and-is-cut-where-the-border-ends
   (let* ((screen (tty:make-screen :width 16 :height 4))
@@ -294,12 +294,12 @@ but the last ROWS of them are behind the screen."
       (is (search "↓ 5 to live" (shown screen 3)) "~S" (shown screen 3))
       (is (typep (atty/ui:under tree 3 (search "↓" (shown screen 3))) 'mux::live-chip)))))
 
-(test the-focused-pane-is-framed-heavy-and-the-others-rounded
+(test the-focused-pane-is-framed-double-and-the-others-single
   (let* ((pane (pane "abc" :rows 4 :cols 12))
          (screen (tty:make-screen :width 12 :height 4)))
     (laid (mux::pane-frame pane t) screen)
-    (is (char= #\┏ (char-at screen 0 0)) "~S" (shown screen 0))
-    (is (char= #\┃ (char-at screen 0 1)))
+    (is (char= #\╔ (char-at screen 0 0)) "~S" (shown screen 0))
+    (is (char= #\║ (char-at screen 0 1)))
     (laid (mux::pane-frame pane nil) screen)
-    (is (char= #\╭ (char-at screen 0 0)) "~S" (shown screen 0))
+    (is (char= #\┌ (char-at screen 0 0)) "~S" (shown screen 0))
     (is (char= #\│ (char-at screen 0 1)))))

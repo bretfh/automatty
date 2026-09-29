@@ -72,7 +72,7 @@ in the order the groups are listed."
 
 (defun menu-tree (watcher cols)
   "The menu: columns of groups, each its title and the keys under it, in a
-rounded box that says what it is for and how to put it away."
+box that says what it is for and how to put it away."
   (let* ((groups (menu-groups watcher))
          (across (max 1 (min 4 (floor (- cols 4) +menu-column+))))
          (width (max 20 (floor (- cols 4) across)))
@@ -92,7 +92,7 @@ rounded box that says what it is for and how to put it away."
             (loop :for column :across columns
                   :collect (apply #'atty/ui:column :align :stretch :min-width width
                                   (cons (atty/ui:label "") column))))
-     :line :rounded :face :card-cursor :background-color (bar-face :bg-dim)
+     :line :single :face :card-cursor :background-color (bar-face :bg-dim)
      :titles (list :tl (atty/ui:row :spacing 0
                                     (atty/ui:label (format nil " ~A " (prefix-string)) :face :key)
                                     (atty/ui:label " then one key" :face :strong))
