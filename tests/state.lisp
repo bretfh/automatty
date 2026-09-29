@@ -136,8 +136,8 @@ so most of them are behind the screen."
 (defun server-with-windows (server)
   "Two sessions; the first with three windows, the second one shown, splits in
 it, a zoom in the third. Answers the first session."
-  (let* ((one (mux:add-session server "sleep 30" :name "work" :rows 12 :cols 40))
-         (two (mux:add-session server "sleep 30" :name "other" :rows 12 :cols 40)))
+  (let* ((one (mux:add-session server "sleep 30" :name "work" :rows 14 :cols 40))
+         (two (mux:add-session server "sleep 30" :name "other" :rows 14 :cols 40)))
     (declare (ignore two))
     (mux:session-add-window one)
     (mux::session-split one :across)

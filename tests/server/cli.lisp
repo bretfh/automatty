@@ -127,10 +127,10 @@
 
 (test a-pane-that-never-asks-for-bracketed-paste-leaves-the-host-alone
   (with-stepped-server (server path)
-    (let* ((session (mux:add-session server "cat" :name "work" :rows 6 :cols 30))
+    (let* ((session (mux:add-session server "cat" :name "work" :rows 10 :cols 30))
            (pane (mux:session-focus session))
            (wire (wire-to path)))
-      (say-to wire (list :want "work") (list :attach 6 30 t))
+      (say-to wire (list :want "work") (list :attach 10 30 t))
       (heard-from server wire :hello)
       (say-to wire (list :keys (format nil "hello~%")))
       (is-true (step-until server (lambda () (search "hello" (term:term-dump-to-string

@@ -152,7 +152,7 @@ between them."
 
 (declaim (ftype (function (session pane t) list) frame-corners))
 (defun frame-corners (session pane focusp)
-  "The four corners of PANE's frame."
+  "What PANE's header says at its left and right, and its footer."
   (let* ((agent (pane-agent pane))
          (state (agent:agent-state agent))
          (term (pane-term pane))
@@ -175,7 +175,7 @@ between them."
                 (let* ((says (format nil "~(~A~) ~A " state (format-duration (agent:agent-for agent now))))
                        (doing (agent:agent-doing agent term))
                        ;; what it is doing gives way before the state does
-                       (room (- width (columns-in tl) (length says) 7)))
+                       (room (- width (columns-in tl) (length says) 7 (if focusp 2 0))))
                   (atty/ui:row :spacing 0
                                (atty/ui:label (format nil " ~A " (state-glyph state)) :face (state-face state))
                                (atty/ui:label (if (and doing (> room 3))
@@ -186,13 +186,13 @@ between them."
      :bl (cond
           (asks
            (let* ((extras (answer-extras session pane (agent:agent-won agent term)))
-                  (room (- width 2 (extras-width extras) 1)))
+                  (room (- width (extras-width extras) 1)))
              ;; what follows the answers gives way before the answers do,
              ;; the rule first, then zoom; read stays
              (loop :while (and (rest extras)
                                (> (+ (* 5 (length (getf asks :options))) 1) room))
                    :do (setf extras (butlast extras)
-                             room (- width 2 (extras-width extras) 1)))
+                             room (- width (extras-width extras) 1)))
              (atty/ui:row :spacing 1
                           (option-buttons session pane (getf asks :options) room)
                           (apply #'atty/ui:row :spacing 1 extras))))

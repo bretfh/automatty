@@ -53,13 +53,13 @@
                               (is-true (pump seer :want "red"))
                               (pump seer :seconds 1/4)
                               (let ((host (seer-host seer)))
-                                (is (eql 1 (term:face-fg (face-at host 0 1))) "the red did not come across")
-                                (is (term:face-bold (face-at host 4 1)) "the bold did not come across")))))
+                                (is (eql 1 (term:face-fg (face-at host 1 3))) "the red did not come across")
+                                (is (term:face-bold (face-at host 5 3)) "the bold did not come across")))))
 
 (test a-resize-reaches-the-program-and-the-screen
       (with-server (path :command "trap 'stty size' WINCH; stty size; sleep 1; sleep 60" :rows 10 :cols 40)
                    (with-seer (seer path :rows 10 :cols 40)
-                              (is-true (pump seer :want "9 39")
+                              (is-true (pump seer :want "5 37")
                                        "the program was not given the rows the bar left it")
                               (pty:pty-set-size (seer-master seer) 20 60)
                               (term:term-resize (seer-host seer) 60 20)
@@ -67,7 +67,7 @@
                                                    (is (eql 20 rows))
                                                    (is (eql 60 cols)))
                               (mux:client-resized (seer-client seer))
-                              (is-true (pump seer :want "19 59")))))
+                              (is-true (pump seer :want "15 57")))))
 
 (test a-pane-whose-program-is-done-says-bye
       (with-server (path :command "printf 'and-out\\n'; sleep 1")
@@ -149,7 +149,7 @@
 
 (test a-pane-can-be-read-typed-at-prompted-and-explained-by-its-number
       (with-stepped-server (server path)
-                          (let* ((session (mux:add-session server "cat" :rows 6 :cols 20))
+                          (let* ((session (mux:add-session server "cat" :rows 10 :cols 20))
                                  (pane (first (mux:session-panes session)))
                                  (id (mux:pane-id pane))
                                  (socket (make-instance 'sb-bsd-sockets:local-socket :type :stream))
@@ -249,8 +249,8 @@
                    (with-seer (seer path)
                               (is-true (pump seer :want "leaf"))
                               (pump seer :seconds 1/4)
-                              (is (eql 0 (search "├── leaf " (row (seer-host seer) 1)))
-                                  "came out as ~S" (row (seer-host seer) 1)))))
+                              (is (eql 1 (search "├── leaf " (row (seer-host seer) 3)))
+                                  "came out as ~S" (row (seer-host seer) 3)))))
 
 (test a-wide-character-takes-two-columns-through-the-whole-loop
       (with-server (path :command "printf '\\346\\274\\242\\345\\255\\227x\\n'; sleep 30"
@@ -259,12 +259,12 @@
                               (is-true (pump seer :want "x"))
                               (pump seer :seconds 1/4)
                               (let ((host (seer-host seer)))
-                                (is (eql (code-char #x6F22) (at host 0 1)))
-                                (is (eql (code-char #x5B57) (at host 2 1))
+                                (is (eql (code-char #x6F22) (at host 1 3)))
+                                (is (eql (code-char #x5B57) (at host 3 3))
                                     "the second wide character did not start at column 2")
-                                (is (eql #\x (at host 4 1))
+                                (is (eql #\x (at host 5 3))
                                     "the wide characters did not take two columns each: ~S"
-                                    (row host 1))))))
+                                    (row host 3))))))
 
 (test something-listening-that-never-answers-is-not-a-server
       (let* ((path (socket-path))
@@ -294,7 +294,7 @@
 (test the-program-is-given-the-rows-the-bar-left-it
       (with-server (path :command "stty size; sleep 30" :rows 10 :cols 40)
                    (with-seer (seer path :rows 10 :cols 40)
-                              (is-true (pump seer :want "9 39")
+                              (is-true (pump seer :want "5 37")
                                        "the program was told the whole terminal, bar and all: ~S"
                                        (seen seer)))))
 
@@ -302,12 +302,12 @@
       (with-server (path :command "while :; do stty size; sleep 0.3; done"
                          :rows 10 :cols 40)
                    (with-seer (seer path :rows 10 :cols 40)
-                              (is-true (pump seer :want "9 39") "the bar was not taking a row")
+                              (is-true (pump seer :want "5 37") "the bar was not taking a row")
                               (type-at seer (format nil "~Ct" mux:+prefix+))
-                              (is-true (pump seer :want "10 39")
+                              (is-true (pump seer :want "6 37")
                                        "the bar did not come off: ~S" (seen seer))
                               (type-at seer (format nil "~Ct" mux:+prefix+))
-                              (is-true (pump seer :want "9 39")
+                              (is-true (pump seer :want "5 37")
                                        "the bar did not come back: ~S" (seen seer)))))
 
 (test with-no-bar-the-program-has-the-whole-terminal
@@ -318,7 +318,7 @@
             (progn (setf mux:*bar* nil)
                    (with-server (path :command "stty size; sleep 30" :rows 10 :cols 40)
                                 (with-seer (seer path :rows 10 :cols 40)
-                                           (is-true (pump seer :want "10 39") "~S" (seen seer)))))
+                                           (is-true (pump seer :want "6 37") "~S" (seen seer)))))
           (setf mux:*bar* was))))
 
 (test the-prompt-opens-on-the-prefix-and-runs-what-was-chosen
@@ -428,9 +428,9 @@ clear was done in whatever colour was last in force"
                               (type-at seer "the-first")
                               (is-true (pump seer :want "the-first"))
                               (type-at seer (format nil "~C3" mux:+prefix+))
-                              (is-true (pump seer :until (lambda () (search "│" (seen seer))))
-                                       "no rule came up between the two panes: ~S" (seen seer))
-                              (type-at seer (format nil "~C[<0;3;3M~C[<0;3;3m" #\Escape #\Escape))
+                              (is-true (pump seer :until (lambda () (search "┌" (seen seer))))
+                                       "no second frame came up beside the first: ~S" (seen seer))
+                              (type-at seer (format nil "~C[<0;3;5M~C[<0;3;5m" #\Escape #\Escape))
                               (pump seer :seconds 1/2)
                               (type-at seer "-again")
                               (is-true (pump seer :want "the-first-again")
@@ -556,14 +556,14 @@ not the one clicked on: ~S" (seen seer))
                               (type-at seer "in-the-first")
                               (is-true (pump seer :want "in-the-first"))
                               (type-at seer (format nil "~C3" mux:+prefix+))
-                              (is-true (pump seer :until (lambda () (search "╔" (seen seer))))
+                              (is-true (pump seer :until (lambda () (search "┌" (seen seer))))
                                        "nothing split: ~S" (seen seer))
                               (type-at seer "in-the-second")
                               (is-true (pump seer :want "in-the-second"))
                               (type-at seer (format nil "~C1" mux:+prefix+))
                               ;; below the bar, which has a rule of its own after the session
-                              (is-true (pump seer :until (lambda () (null (search "╔" (seen-below-bar seer)))))
-                                       "the frame is still there, so both panes are: ~S" (seen seer))
+                              (is-true (pump seer :until (lambda () (null (search "┌" (seen-below-bar seer)))))
+                                       "the other frame is still there, so both panes are: ~S" (seen seer))
                               (is-true (pump seer :until (lambda () (null (search "in-the-first"
                                                                                   (seen seer)))))
                                        "the pane without the cursor was kept: ~S" (seen seer))
@@ -583,7 +583,7 @@ not the one clicked on: ~S" (seen seer))
       (let* ((session (mux:add-session
                        server
                        "printf '\\033]0;probe\\007────────\\n Proceed?\\n > 1. Yes\\n   2. No\\n'; exec cat"
-                       :rows 8 :cols 30))
+                       :rows 12 :cols 30))
              (pane (first (mux:session-panes session)))
              (id (mux:pane-id pane))
              (socket (make-instance 'sb-bsd-sockets:local-socket :type :stream))
@@ -639,8 +639,8 @@ not the one clicked on: ~S" (seen seer))
 
 (test past-the-scrollback-budget-a-pane-nobody-is-looking-at-gives-up-its-oldest-rows
       (with-stepped-server (server path)
-                          (let* ((one (mux:add-session server "seq 1 3000; sleep 30" :name "one" :rows 6 :cols 20))
-                                 (two (mux:add-session server "seq 1 3000; sleep 30" :name "two" :rows 6 :cols 20))
+                          (let* ((one (mux:add-session server "seq 1 3000; sleep 30" :name "one" :rows 10 :cols 20))
+                                 (two (mux:add-session server "seq 1 3000; sleep 30" :name "two" :rows 10 :cols 20))
                                  (terms (mapcar (lambda (s) (mux:pane-term (first (mux:session-panes s))))
                                                 (list one two))))
                             (is-true (step-until server (lambda ()

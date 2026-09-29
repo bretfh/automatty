@@ -376,8 +376,8 @@ built from ROWS, with ROWS what the overlays are told of its panes."
 
 (defmacro with-session ((session pane server command &key (rows 12) (cols 30)) &body body)
   "One session of one pane running COMMAND on a server stepped by hand, laid
-out: the bar on the first row, the pane under it, its scrollbar down the last
-column."
+out: the bar on the first row, the pane framed under it between its header and
+footer rows, its scrollbar down the column inside the frame's right."
   (let ((path (gensym "PATH")))
     `(with-stepped-server (,server ,path)
        (let* ((,session (mux:add-session ,server ,command :name "work" :rows ,rows :cols ,cols))

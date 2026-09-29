@@ -35,7 +35,7 @@
   (let ((dir (string-right-trim "/" (namestring (truename (uiop:temporary-directory))))))
     (with-stepped-server (server path)
       (let ((wire (wire-to path)))
-        (say-to wire (list :open "here" "pwd -P; sleep 30" dir 6 60 t))
+        (say-to wire (list :open "here" "pwd -P; sleep 30" dir 10 60 t))
         (is-true (step-until server (lambda ()
                                       (let ((s (mux:session-named server "here")))
                                         (and s (search dir (term:term-dump-to-string

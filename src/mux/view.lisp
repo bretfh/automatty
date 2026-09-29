@@ -169,16 +169,6 @@ cells down from its head is at LINE."
   (make-instance 'live-chip :pane pane :face :chip-scrolled
                             :text (format nil " ↓ ~D to live " (pane-scrolled pane))))
 
-(defun scroll-strip (pane)
-  "What a pane read back says over its last line when it has no frame to say
-it in: what was found, a way to find, and the way back to live."
-  (apply #'atty/ui:row :spacing 0
-         (remove nil
-                 ;; the ways out first: what was found is cut when the pane is narrow
-                 (list (and (plusp (pane-scrolled pane)) (live-chip pane))
-                       (bar-button "find in pane" (atty/ui:label " ⌕ find " :face :quiet))
-                       (and (pane-find pane) (search-marker pane))))))
-
 (defmethod atty/ui:under ((w live-chip) line col)
   (when (and (<= (atty/ui:top w) line) (< line (atty/ui:bottom w))
              (<= (atty/ui:left w) col) (< col (atty/ui:right w)))
@@ -192,19 +182,14 @@ it in: what was found, a way to find, and the way back to live."
 
 (defclass pane-area (atty/ui:widget)
   ((view :initarg :view :reader area-view)
-   (bar :initarg :bar :reader area-bar)
-   (chip :initarg :chip :reader area-chip)))
+   (bar :initarg :bar :reader area-bar)))
 
-(defun pane-area (pane &key (scrollbarp t) chipp focusp)
-  "PANE with a scrollbar down its right when SCROLLBARP. CHIPP is for a pane
-with no frame to say it in: the chip goes over the pane's own last line."
+(defun pane-area (pane &key (scrollbarp t) focusp)
+  "PANE with a scrollbar down its right when SCROLLBARP."
   (let ((view (pane-view pane :focusp focusp))
-        (bar (and scrollbarp (scrollbar pane)))
-        (chip (and chipp (or (plusp (pane-scrolled pane)) (pane-find pane))
-                   (scroll-strip pane))))
-    (make-instance 'pane-area :expand 1 :view view :bar bar :chip chip
-                              ;; the chip last, so it is painted over the pane
-                              :parts (remove nil (list view bar chip)))))
+        (bar (and scrollbarp (scrollbar pane))))
+    (make-instance 'pane-area :expand 1 :view view :bar bar
+                              :parts (remove nil (list view bar)))))
 
 (defmethod atty/ui:measure ((w pane-area) m aw ah)
   (declare (ignore m aw ah))
@@ -216,26 +201,30 @@ with no frame to say it in: the chip goes over the pane's own last line."
          (room (if bar (1- width) width)))
     (atty/ui:lay (area-view w) m x y room height)
     (when (area-bar w)
-      (atty/ui:lay (area-bar w) m (+ x room) y (if bar 1 0) height))
-    (when (area-chip w)
-      (let ((wide (min room (atty/ui:measure (area-chip w) m room 1))))
-        (atty/ui:lay (area-chip w) m (+ x (- room wide)) (+ y (max 0 (1- height)))
-                     wide 1)))))
+      (atty/ui:lay (area-bar w) m (+ x room) y (if bar 1 0) height))))
 
 ;;; A pane sits inside a frame of its own, all four sides, coloured by what its
-;;; program is doing and drawn double where the focus is, on the pane's ground. What the corners say
-;;; is src/mux/frames.lisp's business.
+;;; program is doing and drawn double where the focus is, on the pane's ground,
+;;; with a header row and a footer row inside it. What they say is
+;;; src/mux/frames.lisp's business.
 
 (defvar *scrollbars* t
   "Whether panes are drawn with a scrollbar. The session's to say, and bound
 while one is laid out.")
 
 (defun pane-frame (pane focusp &optional session)
-  (atty/ui:framed (pane-area pane :scrollbarp *scrollbars* :focusp focusp)
-                  :background-color (bar-face (if focusp :bg :bg-well))
-                  :face (frame-face pane focusp)
-                  :line (if focusp :double :single)
-                  :titles (and session (frame-corners session pane focusp))))
+  (let ((area (pane-area pane :scrollbarp *scrollbars* :focusp focusp)))
+    (atty/ui:framed (if session
+                        (destructuring-bind (&key tl tr bl br) (frame-corners session pane focusp)
+                          (atty/ui:column :align :stretch :expand 1
+                                          (band (list (and focusp (atty/ui:label " ◆" :face :here)) tl) tr
+                                                :ground (if focusp :bg-alt :bg-dim))
+                                          area
+                                          (band (list (atty/ui:label "") bl) br)))
+                        area)
+                    :background-color (bar-face (if focusp :bg :bg-well))
+                    :face (frame-face pane focusp)
+                    :line (if focusp :double :single))))
 
 (defun views-in (tree)
   "Every pane-view in TREE, in the order they were put there."
@@ -287,13 +276,12 @@ one part is that part: nobody wants a border around a single pane."
         (t it)))
 
 (defun layout-tree (it &optional focus session zoomed)
-  "IT as widgets: a pane alone is a view with nothing around it, since there is
-nothing for a border to tell it apart from. A split is a row or a column of
-panes each in a frame of its own. A ZOOMED pane is the whole of it, framed, so
-what it is doing still shows while the others are out of sight."
+  "IT as widgets: a row or a column of panes each in a frame of its own, a pane
+alone framed the same. A ZOOMED pane is the whole of it, framed, so what it is
+doing still shows while the others are out of sight."
   (cond (zoomed (pane-frame zoomed t session))
         ((split-p it) (framed-tree it focus session))
-        (t (pane-area it :scrollbarp *scrollbars* :chipp t :focusp t))))
+        (t (pane-frame it t session))))
 
 (defun framed-tree (it focus &optional session)
   (if (split-p it)

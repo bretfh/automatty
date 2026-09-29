@@ -146,16 +146,16 @@ is drawn is what they have just been told they are."
 (declaim (ftype (function (session) boolean) session-plain-p))
 (defun session-plain-p (session)
   "Whether nothing drawn around the panes shown depends on what is in them:
-none is read back, searched or selected in, none was titled since the last
-compose, and none in a frame is an agent, whose frame reads its screen."
-  (let ((framed (or (session-zoomed session) (split-p (session-layout session))))
-        (since (session-composed-at session)))
+none is read back, searched or selected in, none was titled or scrolled since
+the last compose, and none is an agent, whose frame reads its screen."
+  (let ((since (session-composed-at session)))
     (every (lambda (pane)
              (and (zerop (pane-scrolled pane))
                   (null (pane-find pane))
                   (null (pane-selecting pane))
                   (< (pane-titled-at pane) since)
-                  (not (and framed (pane-known-p pane)))))
+                  (< (pane-scrolled-at pane) since)
+                  (not (pane-known-p pane))))
            (window-panes (session-window session)))))
 
 (declaim (ftype (function (session) (or null tty:screen)) session-repaint))

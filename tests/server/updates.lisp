@@ -24,12 +24,12 @@
 (test a-panes-last-rows-come-with-their-faces
   (with-stepped-server (server path)
     (let* ((session (mux:add-session server "printf 'one\\n\\033[31mtwo\\033[0m\\n'; sleep 30"
-                                     :name "work" :rows 6 :cols 20))
+                                     :name "work" :rows 10 :cols 20))
            (pane (mux:session-focus session)))
       (step-until server (lambda () (search "two" (term:term-dump-to-string (mux:pane-term pane)))))
       (let ((screen (mux::pane-last-rows pane 2)))
-        ;; a column of the twenty is the scrollbar's
-        (is (eql 19 (tty:screen-width screen)))
+        ;; three columns of the twenty are the frame's and the scrollbar's
+        (is (eql 17 (tty:screen-width screen)))
         (is (equal "one" (shown screen 0)))
         (is (equal "two" (shown screen 1)))
         (is (eql 1 (term:face-fg (term:row-face (tty:screen-row screen 1) 0)))

@@ -147,11 +147,10 @@
   (is (equal "2h" (mux::format-duration (* 2 3600000))))
   (is (equal "" (mux::format-duration nil))))
 
-(test a-lone-pane-with-no-split-has-no-frame
+(test a-lone-pane-is-framed-as-any-other
   (let* ((pane (pane "solo"))
          (tree (mux::layout-tree pane pane)))
-    (is (typep tree 'mux::pane-area)
-        "a lone pane is itself and its scrollbar, with no frame round them")
+    (is (typep tree 'atty/ui:framed))
     (is (equal (list pane) (mapcar #'mux::view-pane (mux:views-in tree))))))
 
 (test a-layout-with-nothing-left-in-it-holds-no-panes
@@ -248,7 +247,7 @@ but the last ROWS of them are behind the screen."
          (tree (let ((mux::*scrollbars* nil)) (mux::layout-tree pane pane)))
          (screen (tty:make-screen :width 8 :height 3)))
     (laid tree screen)
-    (is (eql 8 (atty/ui:width (first (mux:views-in tree)))))))
+    (is (eql 6 (atty/ui:width (first (mux:views-in tree)))))))
 
 (test each-part-of-a-scrollbar-is-where-it-is-drawn
   (let* ((pane (pane-with-history 38 :rows 8 :cols 12))
@@ -284,15 +283,6 @@ but the last ROWS of them are behind the screen."
     (is (eql 0 (mux::scrollbar-back-at bar 6 0)) "the foot of it is live")
     (is (eql 0 (mux::scrollbar-back-at bar 100 0)) "past the foot is still the foot")
     (is (< 0 (mux::scrollbar-back-at bar 3 0) 30))))
-
-(test a-lone-pane-read-back-says-so-over-its-own-last-line
-  (let* ((pane (pane-with-history 30 :rows 4 :cols 24))
-         (screen (tty:make-screen :width 24 :height 4)))
-    (mux::pane-scroll-to pane 5)
-    (let ((tree (mux::layout-tree pane pane)))
-      (laid tree screen)
-      (is (search "↓ 5 to live" (shown screen 3)) "~S" (shown screen 3))
-      (is (typep (atty/ui:under tree 3 (search "↓" (shown screen 3))) 'mux::live-chip)))))
 
 (test the-focused-pane-is-framed-double-and-the-others-single
   (let* ((pane (pane "abc" :rows 4 :cols 12))

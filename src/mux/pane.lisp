@@ -50,6 +50,7 @@
   (pushed-seen 0 :type fixnum)
   (touched 0 :type integer)
   (titled-at 0 :type integer)
+  (scrolled-at 0 :type integer)
   (saved-at 0 :type integer)
   ;; the last twenty minutes: a cell every +pulse-every+ of how much was
   ;; written and the worst state it was in, oldest first
@@ -253,6 +254,7 @@ whether that moved it."
   (let ((back (max 0 (min (pane-history pane) back))))
     (unless (= back (pane-scrolled pane))
       (setf (pane-scrolled pane) back
+            (pane-scrolled-at pane) (now-ms)
             (pane-dirty pane) t)
       t)))
 
