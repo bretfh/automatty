@@ -617,6 +617,7 @@ newest first."
                   (cols (tty:screen-width screen))
                   (rows (tty:screen-height screen))
                   (top (chrome-top watcher rows))
+                  (foot (- rows (chrome-bottom watcher)))
                   (m (atty/cells:make-cells (tty:screen-grid screen) cols rows))
                   (regions nil))
              (board-place b watcher)
@@ -634,7 +635,7 @@ newest first."
                  (scroll-to-cursor b watcher sessions)
                  (setf (board-following b) nil))
                (clamp-scroll b watcher sessions room wide)
-               (atty/cells:fill-rect m 0 top cols (- rows top) (term:make-face :bg (bar-face :bg)))
+               (atty/cells:fill-rect m 0 top cols (- foot top) (term:make-face :bg (bar-face :bg)))
                ;; the header
                (push (list :tree (draw-in (board-header b watcher sessions) screen 0 top cols (1+ top))) regions)
                ;; the side pane and its rule
@@ -648,11 +649,11 @@ newest first."
                  (draw-in (atty/ui:row :align :stretch r) screen (1- cols) area-top cols area-bottom)
                  (push (list :rail-v r (1- cols) area-top room) regions))
                ;; the status and the footer
-               (push (list :tree (draw-in (board-status b watcher) screen 0 (- rows 2) cols (1- rows))) regions)
+               (push (list :tree (draw-in (board-status b watcher) screen 0 (- foot 2) cols (1- foot))) regions)
                (push (list :tree (draw-in (footer-band (board-footer-hints b)
                                                        :right (list (hint "?" "keys" :runs "describe mode")
                                                                     (hint "Esc" "close" :runs :close)))
-                                          screen 0 (1- rows) cols rows))
+                                          screen 0 (1- foot) cols foot))
                      regions)
                (setf (board-regions b) (if (plusp side) (cons (list :side 0 area-top side room) regions) regions)
                      (board-area-top b) area-top

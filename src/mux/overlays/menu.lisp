@@ -113,7 +113,7 @@ box that says what it is for and how to put it away."
                              (atty/ui:restyle tree)
                              (atty/ui:measure tree m cols rows))))
          (top (max 0 (- rows (chrome-bottom watcher) (min high rows)))))
-    (atty/cells:fill-rect m 0 top cols (- rows top) (term:make-face :bg (bar-face :bg-dim)))
+    (atty/cells:fill-rect m 0 top cols (min high rows) (term:make-face :bg (bar-face :bg-dim)))
     (top-edge m 0 top cols :bg-dim)
     (atty/cells:draw tree (tty:screen-grid screen) cols (+ top (min high rows)) :top top)
     (setf (watcher-menu watcher) tree
