@@ -44,6 +44,9 @@ would.")
 (defgeneric overlay-field (thing)
   (:method (thing) (declare (ignore thing)) nil))
 
+(defgeneric overlay-rail-cursor (thing)
+  (:method (thing) (declare (ignore thing)) nil))
+
 (defgeneric overlay-unbound-key (thing chord watcher)
   (:documentation "What to do with a key the mode has no binding for. A prompt
 puts it in what has been typed; most things ignore it.")
@@ -82,12 +85,27 @@ for it, so they are worked out once.")
       (dolist (it (reverse (watcher-overlays watcher)))
         (draw-overlay it work))
       (draw-field watcher work)
+      (draw-rail-cursor session watcher work)
       (if (menu-due-p watcher)
           (draw-menu watcher work)
           (setf (watcher-menu watcher) nil
                 (watcher-menu-full watcher) nil))
       (draw-mode-chip watcher work))
     work))
+
+(defun draw-rail-cursor (session watcher screen)
+  (let* ((top (first (watcher-overlays watcher)))
+         (on (and top (overlay-rail-cursor top)))
+         (row (and on (session-geometry session)
+                   (labels ((walk (w)
+                              (if (and (typep w 'rail-row) (equal on (rail-row-session w)))
+                                  w
+                                  (some #'walk (atty/ui:parts w)))))
+                     (walk (session-geometry session))))))
+    (when row
+      (atty/cells:draw (atty/ui:label "▶" :face :strong) (tty:screen-grid screen)
+                       (1+ (atty/ui:left row)) (1+ (atty/ui:top row))
+                       :left (atty/ui:left row) :top (atty/ui:top row)))))
 
 (defun mode-word (watcher)
   (if (menu-due-p watcher)

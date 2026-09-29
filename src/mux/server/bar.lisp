@@ -175,6 +175,9 @@ NARROW keeps three letters of each name."
   (let ((worst (worst-pane session)))
     (and worst (pane-known-p worst) (agent:agent-state (pane-agent worst)))))
 
+(defclass rail-row (bar-button)
+  ((session :initarg :session :reader rail-row-session)))
+
 (defun rail-session-row (session here)
   (let* ((state (session-state session))
          (asking (count :blocked (session-panes session)
@@ -182,23 +185,25 @@ NARROW keeps three letters of each name."
          (worst (worst-pane session))
          (yours (eq session here))
          (name (- +rail-width+ 8)))
-    (bar-button (cond ((eq state :blocked)
-                       (lambda () (asks-or-go *client* session worst)))
-                      (worst
-                       (lambda () (focus-pane (session-server session) *client* (session-name session) (pane-id worst))))
-                      (t (lambda () (go-to *client* (session-name session)))))
-                (apply #'atty/ui:row :spacing 0
-                       (append (when yours (list :background-color (bar-face :bg)))
-                               (list (atty/ui:label " ")
-                                     (atty/ui:label (if yours "◆" " ") :face :here)
-                                     (atty/ui:label " ")
-                                     (slot (session-name session) name
-                                           :face (cond (yours :strong) (state :default) (t :quiet)))
-                                     (atty/ui:label " ")
-                                     (slot (state-glyph state) 1
-                                           :face (if (eq state :blocked) :state-blocked-strong (state-face state)))
-                                     (slot (if (> asking 1) (princ-to-string asking) "") 3
-                                           :face :state-blocked-strong)))))))
+    (make-instance 'rail-row
+                   :session (session-name session)
+                   :runs (cond ((eq state :blocked)
+                                (lambda () (asks-or-go *client* session worst)))
+                               (worst
+                                (lambda () (focus-pane (session-server session) *client* (session-name session) (pane-id worst))))
+                               (t (lambda () (go-to *client* (session-name session)))))
+                   :parts (list (apply #'atty/ui:row :spacing 0
+                                       (append (when yours (list :background-color (bar-face :bg)))
+                                               (list (atty/ui:label " ")
+                                                     (atty/ui:label (if yours "◆" " ") :face :here)
+                                                     (atty/ui:label " ")
+                                                     (slot (session-name session) name
+                                                           :face (cond (yours :strong) (state :default) (t :quiet)))
+                                                     (atty/ui:label " ")
+                                                     (slot (state-glyph state) 1
+                                                           :face (if (eq state :blocked) :state-blocked-strong (state-face state)))
+                                                     (slot (if (> asking 1) (princ-to-string asking) "") 3
+                                                           :face :state-blocked-strong))))))))
 
 (defun session-rail (session)
   (let* ((server (session-server session))

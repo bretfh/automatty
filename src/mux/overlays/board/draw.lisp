@@ -112,7 +112,9 @@ footer row."
                              (looking (clients-on watcher session n))
                              (tags (loop :for c :in looking
                                          :append (list (atty/ui:label " ") (client-glyph c watcher))))
+                             (picked (some (lambda (r) (member (row-key r) (board-picked b) :test #'equal)) rows))
                              (title (atty/ui:row :spacing 0
+                                                 (atty/ui:label (if picked " ✓" "") :face :state-idle)
                                                  (atty/ui:label (format nil " ~D " n)
                                                                 :face (if state (number-face state) :number-unknown))
                                                  (atty/ui:label (format nil " ~A" (truncate-string (window-name watcher session window) 14))
@@ -262,7 +264,7 @@ cursor's lane what can be pressed here. Answers the tree and the rail."
     (values tree (lane-strip-width b watcher session width))))
 
 (defun side-shown-p (b watcher)
-  (and (board-side b) (>= (view-cols watcher) +side-from+)))
+  (and (board-side b) (>= (- (view-cols watcher) (chrome-left watcher)) +side-from+)))
 
 (defun side-width (b watcher)
   (cond ((not (side-shown-p b watcher)) 0)
@@ -270,12 +272,14 @@ cursor's lane what can be pressed here. Answers the tree and the rail."
         (t +side-width+)))
 
 (defun lanes-left (b watcher)
-  (let ((side (side-width b watcher)))
-    (if (plusp side) (1+ side) 0)))
+  (declare (ignore b))
+  (chrome-left watcher))
 
 (defun lanes-width (b watcher)
-  "The columns the lanes have: after the side pane and its rule, before the rail."
-  (max 10 (- (view-cols watcher) (lanes-left b watcher) 1)))
+  "The columns the lanes have: after the rail of sessions, before their own rail
+and the side pane and its rule."
+  (let ((side (side-width b watcher)))
+    (max 10 (- (view-cols watcher) (lanes-left b watcher) 1 (if (plusp side) (1+ side) 0)))))
 
 ;;; The side pane: what is going on everywhere, not only where the cursor
 ;;; is. The server and every session with a sparkline each, the cursor's
@@ -308,38 +312,6 @@ SPARK, and RIGHT after it."
   (if (find-if (lambda (c) (this-client-p c watcher)) looking)
       (atty/ui:label " ◆" :face :here)
     (atty/ui:label "")))
-
-(defun session-tree-rows (b watcher session &key narrow)
-  "The side pane's rows for SESSION: its own with its sparkline, and its
-windows' when it is the cursor's session and not folded."
-  (let* ((place (board-place b watcher))
-         (on (and place (equal session (first place))))
-         (unfolded (and on (not (member session (board-folded b) :test #'equal))))
-         (windows (windows-of watcher session)))
-    (cons (side-row (if on "▶" "")
-                    (atty/ui:row :spacing 0
-                                 (atty/ui:label (truncate-string session (if narrow 8 9)) :face :strong)
-                                 (client-marker (clients-on watcher session) watcher))
-                    (unless narrow (spark (session-cells watcher session)))
-                    (count-chip (session-counts watcher session))
-                    :runs (list :cursor session (if on (second place) nil)))
-          (when unfolded
-            (loop :for w :in windows
-                  :for last := (eq w (car (last windows)))
-                  :collect (let* ((n (first w))
-                                  (worst (window-worst-row watcher session w))
-                                  (state (and worst (row-state worst)))
-                                  (here (and place (eql n (second place)))))
-                             (side-row ""
-                                       (atty/ui:row :spacing 0
-                                                    (atty/ui:label (if last "└ " "├ ") :face :tree)
-                                                    (atty/ui:label (format nil "~D ~A" n (truncate-string (window-name watcher session w) (if narrow 5 7)))
-                                                                   :face (if here :cursor :default)))
-                                       (unless narrow (spark (window-cells watcher session w)))
-                                       (atty/ui:row :spacing 0
-                                                    (atty/ui:label (state-glyph state) :face (state-face state))
-                                                    (client-marker (clients-on watcher session n) watcher))
-                                       :runs (list :cursor session n))))))))
 
 (defun event-row (event watcher width)
   "One line of the activity log: when, what kind, which window, what, and
@@ -386,16 +358,13 @@ has it, with its own rail when there is more than fits."
      (max 1 (min n rows)))))
 
 (defun side-pane (b watcher sessions room)
-  "The whole side pane as a column: the server, the sessions, the activity
-log, the clients, in ROOM rows."
+  "The whole side pane as a column: the server, the activity log, the
+clients, in ROOM rows."
   (let* ((windows (loop :for s :in sessions :sum (length (windows-of watcher s))))
          (clients (clients-of watcher))
          (tree-only (eq :one (board-zoom b)))
          (width (side-width b watcher))
-         (place (board-place b watcher))
-         (on (first place))
-         (unfolded (and on (not (member on (board-folded b) :test #'equal)) (length (windows-of watcher on))))
-         (used (+ (if tree-only 0 3) 2 (length sessions) (or unfolded 0) 1 1 3 1 1 (max 1 (length clients))))
+         (used (+ (if tree-only 0 3) 3 1 1 (max 1 (length clients))))
          (log-rows (max 3 (- room used))))
     (apply #'atty/ui:column :align :stretch :min-width width
            :background-color (bar-face :bg)
@@ -407,12 +376,6 @@ log, the clients, in ROOM rows."
                               (spark (server-cells watcher sessions))
                               (atty/ui:label (format nil "~Dw" windows) :face :quiet))
                     (atty/ui:label "")))
-            (list (section "sessions")
-                  (if tree-only
-                      (atty/ui:label "")
-                    (side-row "" (atty/ui:label "") (atty/ui:label "20m ago      now" :face :quiet) nil)))
-            (loop :for s :in sessions :append (session-tree-rows b watcher s :narrow tree-only))
-            (list (atty/ui:label ""))
             (unless tree-only
               (list (activity-log b watcher width log-rows)
                     (atty/ui:label "")))
@@ -436,7 +399,6 @@ log, the clients, in ROOM rows."
          (window (and place (find (second place) (windows-of watcher (first place)) :key #'first)))
          (asks (and row (getf row :asks))))
     (cond
-     ((board-composing b) (composer b watcher))
      ((null row)
       (atty/ui:row :spacing 0 :background-color (bar-face :bg-alt)
                    (atty/ui:label " nothing here yet" :face :quiet)))
@@ -464,17 +426,6 @@ log, the clients, in ROOM rows."
                                                    (length windows))
                                            :face :quiet))))
             :ground :bg-alt)))))
-
-(defun composer (b watcher)
-  (let ((targets (board-targets b watcher)))
-    (atty/ui:row :spacing 1 :background-color (bar-face :bg-alt)
-                 (atty/ui:label (format nil " prompt ~D " (length targets)) :face :number-working)
-                 (atty/ui:label (format nil "~{~A~^, ~}" (mapcar #'row-path targets)) :face :quiet)
-                 (atty/ui:label "›" :face :quiet)
-                 (atty/ui:label (format nil "~A_" (board-composing b)))
-                 (atty/ui:gap)
-                 (atty/ui:label "RET sends · a busy one gets it when it is next idle "
-                                :face :quiet))))
 
 (defun board-footer-hints (b)
   "The keys that work anywhere on the board, for its footer. The lane's keys
@@ -618,6 +569,7 @@ newest first."
                   (rows (tty:screen-height screen))
                   (top (chrome-top watcher rows))
                   (foot (- rows (chrome-bottom watcher)))
+                  (from (chrome-left watcher))
                   (m (atty/cells:make-cells (tty:screen-grid screen) cols rows))
                   (regions nil))
              (board-place b watcher)
@@ -630,34 +582,47 @@ newest first."
                     (area-bottom (+ area-top room))
                     (left (lanes-left b watcher))
                     (wide (lanes-width b watcher))
-                    (side (side-width b watcher)))
+                    (side (side-width b watcher))
+                    (side-left (- cols side)))
                (when (board-following b)
                  (scroll-to-cursor b watcher sessions)
                  (setf (board-following b) nil))
                (clamp-scroll b watcher sessions room wide)
-               (atty/cells:fill-rect m 0 top cols (- foot top) (term:make-face :bg (bar-face :bg)))
+               (atty/cells:fill-rect m from top (- cols from) (- foot top) (term:make-face :bg (bar-face :bg)))
                ;; the header
-               (push (list :tree (draw-in (board-header b watcher sessions) screen 0 top cols (1+ top))) regions)
+               (push (list :tree (draw-in (board-header b watcher sessions) screen from top cols (1+ top))) regions)
                ;; the side pane and its rule
                (when (plusp side)
-                 (push (list :tree (draw-in (side-pane b watcher sessions room) screen 0 area-top side area-bottom)) regions)
-                 (atty/cells:fill-rect m side area-top 1 room (atty/cells:face-of (atty/ui:label "" :face :card)) #\│))
+                 (push (list :tree (draw-in (side-pane b watcher sessions room) screen side-left area-top cols area-bottom)) regions)
+                 (atty/cells:fill-rect m (1- side-left) area-top 1 room (atty/cells:face-of (atty/ui:label "" :face :card)) #\│))
                ;; the lanes, and the rail they slide under
                (setf regions (append (draw-lanes b watcher sessions screen left wide area-top area-bottom) regions))
                (let* ((tall (loop :for s :in sessions :sum (lane-height b watcher s)))
                       (r (rail (board-scroll-y b) room (max room tall))))
-                 (draw-in (atty/ui:row :align :stretch r) screen (1- cols) area-top cols area-bottom)
-                 (push (list :rail-v r (1- cols) area-top room) regions))
+                 (draw-in (atty/ui:row :align :stretch r) screen (+ left wide) area-top (+ left wide 1) area-bottom)
+                 (push (list :rail-v r (+ left wide) area-top room) regions))
                ;; the status and the footer
-               (push (list :tree (draw-in (board-status b watcher) screen 0 (- foot 2) cols (1- foot))) regions)
+               (push (list :tree (draw-in (board-status b watcher) screen from (- foot 2) cols (1- foot))) regions)
                (push (list :tree (draw-in (footer-band (board-footer-hints b)
                                                        :right (list (hint "?" "keys" :runs "describe mode")
                                                                     (hint "Esc" "close" :runs :close)))
-                                          screen 0 (1- foot) cols foot))
+                                          screen from (1- foot) cols foot))
                      regions)
-               (setf (board-regions b) (if (plusp side) (cons (list :side 0 area-top side room) regions) regions)
+               (setf (board-regions b) (if (plusp side) (cons (list :side side-left area-top side room) regions) regions)
                      (board-area-top b) area-top
                      (tty:screen-cursor-visible screen) nil))))
+
+(defmethod overlay-field ((b board))
+           (cond ((board-composing b)
+                  (list (format nil "prompt ~D" (length (board-targets b *client*)))
+                        (board-composing b)
+                        (atty/ui:row :spacing 0 (hint "↵" "send") (hint "Esc" "cancel"))))
+                 ((board-filtering b)
+                  (list "filter" (board-query b)
+                        (atty/ui:row :spacing 0 (hint "↵" "keep") (hint "Esc" "clear"))))))
+
+(defmethod overlay-rail-cursor ((b board))
+           (first (board-place b *client*)))
 
 (defmethod overlay-ticks-p ((b board)) t)
 (defmethod overlay-name ((b board)) "switchboard")
