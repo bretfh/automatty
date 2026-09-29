@@ -96,9 +96,9 @@ them, a rule between; a pane under another has its title in the rule."
   (atty/ui:label (if (this-client-p c watcher) "◆" "⌨") :face (if (this-client-p c watcher) :here :client)))
 
 (defun window-card (b watcher session window width height)
-  "One window as a card: its number and name in the top border with who is
+  "One window as a card: its number and name in the header row with who is
 looking at it, its panes inside, the answers of the one that asks in the
-bottom border."
+footer row."
   (destructuring-bind (n label tree focus shownp) window
                       (declare (ignore label focus shownp))
                       (let* ((place (board-place b watcher))
@@ -140,7 +140,7 @@ bottom border."
                               :width width :height height))))
 
 (defun card-keys (b wide)
-  "What can be pressed on the card with the cursor, in its bottom edge: go,
+  "What can be pressed on the card with the cursor, in its footer row: go,
 and on a wide card the rest of what acts on it."
   (declare (ignore b))
   (atty/ui:row :spacing 0

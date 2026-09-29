@@ -410,19 +410,21 @@ it GRABBED cells from its head is at POS."
                   (put (+ from top) long (ink thumb-face) (glyph (if upright :thumb-up :thumb))))))))
         (setf (atty/ui:face w) own)))))
 
-;;; A card: a window as a box, its name in the top border, who looks at it
-;;; at the right, what is inside in its real splits, and its answers in the
-;;; bottom border the way a frame carries them.
+;;; A card: a window as a box drawn as a pane is, its name in the header row,
+;;; who looks at it at the right, what is inside in its real splits, and its
+;;; answers in the footer row the way a pane carries them.
 
 (defun card (title right body &key (face :card) cursor bl br runs (width 0) (height 0))
-  "BODY framed, TITLE at the top left and RIGHT at the top right, BL and BR
-along the bottom; a single line in FACE, the state's colour, and a double
-one when it is the CURSOR's (lit, when its state has no colour of its own)."
+  "BODY framed between a header row of TITLE and RIGHT and a footer row of BL
+and BR; a single line in FACE, the state's colour, and a double one when it
+is the CURSOR's (lit, when its state has no colour of its own)."
   (let* ((framed (atty/ui:framed
-                  (apply #'atty/ui:column :align :stretch :expand 1 (ensure-list body))
+                  (apply #'atty/ui:column :align :stretch :expand 1
+                         (band title right :ground (if cursor :bg-alt :bg-dim))
+                         (append (ensure-list body)
+                                 (list (band (list (atty/ui:label "") bl) br))))
                   :face (if (and cursor (eq face :card)) :card-cursor face)
-                  :line (if cursor :double :single)
-                  :titles (list :tl title :tr right :bl bl :br br)))
+                  :line (if cursor :double :single)))
          (it (if (and (plusp width) (plusp height)) (fixed framed width height) framed)))
     (if runs (bar-button runs it) it)))
 

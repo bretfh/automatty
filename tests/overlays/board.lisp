@@ -80,7 +80,7 @@
     (multiple-value-bind (all screen) (board-screen client b :cols 120 :rows 30)
       (declare (ignore all))
       ;; two windows fit past the side pane; the fifth is off to the right
-      (let ((titles (shown screen 3)))
+      (let ((titles (shown screen 4)))
         (is (search " 1  agents " titles) "~S" titles)
         (is (null (search " 5  last " titles)) "the fifth window fits when it should not: ~S" titles))
       (is (find #\━ (shown screen 11)) "no rail under a lane wider than the view: ~S" (shown screen 11))
@@ -94,7 +94,7 @@
     (multiple-value-bind (all screen) (board-screen client b :cols 120 :rows 30)
       (declare (ignore all))
       (let ((slid (gethash "todo" (mux::board-offsets b)))
-            (titles (shown screen 3)))
+            (titles (shown screen 4)))
         (is (plusp slid) "the lane did not slide for the cursor")
         (is (< 0 (mod slid 36) 36) "the lane snapped to a whole card rather than sliding by cells: ~D" slid)
         (is (search "5  last" titles) "the cursor's card is not in sight: ~S" titles))))))
