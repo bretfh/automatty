@@ -41,6 +41,24 @@
   "the bar off or on"
   (set-bar (here) :toggle))
 
+(defun set-rail (session state)
+  (setf (session-rail-p session) (if (eq state :toggle)
+                                     (not (session-rail-p session))
+                                     (and state t)))
+  (session-reset-shadows session))
+
+(defcommand (rail-off :group asking) ()
+  "take the rail of sessions off, for everybody on the session"
+  (set-rail (here) nil))
+
+(defcommand (rail-on :group asking) ()
+  "put the rail of sessions back"
+  (set-rail (here) t))
+
+(defcommand (toggle-rail :group asking) ()
+  "the rail of sessions off or on"
+  (set-rail (here) :toggle))
+
 (defcommand (commands :group asking) ()
   "run any command by name; the palette's first tab"
   (open-palette *client* :commands))

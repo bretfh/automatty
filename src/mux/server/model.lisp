@@ -77,6 +77,7 @@ command line."
   (geometry nil)
   (composed-at 0 :type integer)
   (bar-p t)
+  (rail-p t)
   (field-kind 0 :type fixnum)
   (watchers nil)
   (clocked 0 :type integer)
@@ -321,6 +322,7 @@ either."
          (session (%make-session :name name :rows rows :cols cols
                                  :socket (server-path server)
                                  :bar-p +bar-by-default+
+                                 :rail-p +rail-by-default+
                                  :scrollbars-p +scrollbars-by-default+
                                  :windows (list window) :window window :server server
                                  :screen (tty:make-screen :width cols

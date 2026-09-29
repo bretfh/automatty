@@ -57,14 +57,16 @@
     (is (member :prefix rows :key #'first))
     (is (member :theme rows :key #'first))))
 
-(test a-new-session-takes-the-defaults-for-the-bar-and-the-scrollbars
+(test a-new-session-takes-the-defaults-for-the-bar-the-rail-and-the-scrollbars
   (with-setting-kept (:scrollbars-by-default)
     (with-setting-kept (:bar-by-default)
-      (mux:configure :scrollbars-by-default nil :bar-by-default nil)
-      (with-stepped-server (server path)
-        (let ((session (mux:add-session server "sleep 30" :name "work" :rows 6 :cols 30)))
-          (is (null (mux::session-scrollbars-p session)))
-          (is (null (mux::session-bar-p session))))))))
+      (with-setting-kept (:rail-by-default)
+        (mux:configure :scrollbars-by-default nil :bar-by-default nil :rail-by-default nil)
+        (with-stepped-server (server path)
+          (let ((session (mux:add-session server "sleep 30" :name "work" :rows 6 :cols 30)))
+            (is (null (mux::session-scrollbars-p session)))
+            (is (null (mux::session-bar-p session)))
+            (is (null (mux::session-rail-p session)))))))))
 
 (test a-hook-that-comes-apart-is-said-and-the-rest-still-run
   (let ((ran nil))

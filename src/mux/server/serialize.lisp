@@ -395,7 +395,8 @@ it could not be as it was."
 (defun encode-session (session)
   (list :name (session-name session)
         :rows (session-rows session) :cols (session-cols session)
-        :bar (session-bar-p session) :scrollbars (session-scrollbars-p session)
+        :bar (session-bar-p session) :rail (session-rail-p session)
+        :scrollbars (session-scrollbars-p session)
         :search-kind (session-field-kind session)
         :window (or (window-number session (session-window session)) 1)
         :windows (mapcar #'encode-window (session-windows session))))
@@ -430,14 +431,14 @@ that is not there is left out, and a split left with one part is that part."
                         :zoomed (find zoomed in :key #'pane-id)))))))
 
 (defun decode-session (server form panes)
-  (destructuring-bind (&key name rows cols bar scrollbars search-kind window windows
+  (destructuring-bind (&key name rows cols bar (rail t) scrollbars search-kind window windows
                        &allow-other-keys)
       form
     (let ((made (remove nil (mapcar (lambda (w) (decode-window w panes)) windows))))
       (when made
         (%make-session :name name :rows rows :cols cols
                        :socket (server-path server) :server server
-                       :bar-p bar :scrollbars-p scrollbars
+                       :bar-p bar :rail-p rail :scrollbars-p scrollbars
                        :field-kind (or search-kind 0)
                        :windows made
                        :window (or (and window (nth (1- window) made)) (first made))

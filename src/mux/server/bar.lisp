@@ -163,6 +163,71 @@ NARROW keeps three letters of each name."
        (list (bar-button "switch session"
                          (slot (format nil " +~D" rest) (if narrow 3 5) :face :quiet)))))))
 
+(declaim (ftype (function (session) boolean) rail-shown-p))
+(defun rail-shown-p (session)
+  (and (session-rail-p session) (>= (session-cols session) +narrow-bar+)))
+
+(defun session-state (session)
+  (let ((worst (worst-pane session)))
+    (and worst (pane-known-p worst) (agent:agent-state (pane-agent worst)))))
+
+(defun rail-session-row (session here)
+  (let* ((state (session-state session))
+         (asking (count :blocked (session-panes session)
+                        :key (lambda (p) (agent:agent-state (pane-agent p)))))
+         (worst (worst-pane session))
+         (yours (eq session here))
+         (name (- +rail-width+ 8)))
+    (bar-button (if worst
+                    (lambda () (focus-pane (session-server session) *client* (session-name session) (pane-id worst)))
+                    (lambda () (go-to *client* (session-name session))))
+                (apply #'atty/ui:row :spacing 0
+                       (append (when yours (list :background-color (bar-face :bg)))
+                               (list (atty/ui:label " ")
+                                     (atty/ui:label (if yours "◆" " ") :face :here)
+                                     (atty/ui:label " ")
+                                     (slot (session-name session) name
+                                           :face (cond (yours :strong) (state :default) (t :quiet)))
+                                     (atty/ui:label " ")
+                                     (slot (state-glyph state) 1
+                                           :face (if (eq state :blocked) :state-blocked-strong (state-face state)))
+                                     (slot (if (> asking 1) (princ-to-string asking) "") 3
+                                           :face :state-blocked-strong)))))))
+
+(defun session-rail (session)
+  "The sessions down the left, by name, each with the glyph of its pane that
+most wants somebody; this one on the panes' ground. Under them the way to a
+new one, and the terminals on this one. A click on a session goes to the pane
+there that most wants somebody. When they do not all fit, the ones round this
+one are shown, with a ▲ at the edge an asking one is cut off at."
+  (let* ((server (session-server session))
+         (all (if server (server-sessions server) (list session)))
+         (terminals (remove-if-not #'watcher-interactive (session-watchers session)))
+         (room (max 1 (- (session-rows session) (if (session-bar-p session) 1 0) 4
+                         (if (rest terminals) (1+ (length terminals)) 0))))
+         (at (or (position session all) 0))
+         (from (max 0 (min (- (length all) room) (- at (floor room 2)))))
+         (shown (subseq all from (min (length all) (+ from room))))
+         (asking-p (lambda (s) (eq :blocked (session-state s))))
+         (width +rail-width+))
+    (flet ((edge (cut)
+             (atty/ui:label (format nil "~vA" width (if (some asking-p cut) "   ▲" ""))
+                            :face :state-blocked-strong)))
+      (apply #'atty/ui:column :align :stretch :spacing 0 :min-width width
+             :background-color (bar-face :ground)
+             (append
+              (list (if (plusp from) (edge (subseq all 0 from)) (atty/ui:label "")))
+              (mapcar (lambda (s) (rail-session-row s session)) shown)
+              (when (< (+ from (length shown)) (length all))
+                (list (edge (nthcdr (+ from (length shown)) all))))
+              (list (bar-button "new session" (slot "   + session" width :face :quiet)))
+              (when (rest terminals)
+                (cons (atty/ui:label "")
+                      (mapcar (lambda (w)
+                                (slot (format nil " ⌨ ~A" (format-tty (watcher-tty w) (watcher-id w)))
+                                      width :face :driven))
+                              terminals))))))))
+
 (defun default-bar (session)
   "What the bar shows, left to right, each in a slot that keeps its place: the
 corner, which opens the menu; this session's windows and a way to another;
@@ -182,7 +247,8 @@ session answering another tree, and it is another bar."
          (narrow (eq fit :narrow))
          (tight (not (eq fit :wide)))
          (chip (if narrow +narrow-chip-width+ +chip-width+))
-         (lead 4)
+         (rail (rail-shown-p session))
+         (lead (if rail +rail-width+ 4))
          (room (max 0 (- cols (bar-right-width session fit) 3)))
          ;; the windows have what the right leaves, less the plus, and are
          ;; cut there; the plus follows them wherever they end. The one
@@ -199,14 +265,18 @@ session answering another tree, and it is another bar."
             (list (fixed (apply #'atty/ui:row :spacing 0
                                 (append
                                  (list (bar-button "show menu" (atty/ui:label " λ " :face :brand))
-                                       (atty/ui:label " "))
+                                       (if rail
+                                           (slot (format nil " ~A" (if server (file-namestring (server-path server)) ""))
+                                                 (- +rail-width+ 3) :face :quiet)
+                                           (atty/ui:label " ")))
                                  (mapcar (lambda (w) (window-chip session w :narrow narrow)) windows)))
                          (min natural room) 1)
                   (plus-chip session)
                   (atty/ui:gap))
             (unless narrow (list (mode-slot session)))
-            (other-sessions-folded session :narrow narrow
-                                          :most (ecase fit (:wide +sessions-shown+) (:tight 2) (:narrow 2)))
+            (unless rail
+              (other-sessions-folded session :narrow narrow
+                                            :most (ecase fit (:wide +sessions-shown+) (:tight 2) (:narrow 2))))
             (list (atty/ui:label " ")
                   (queue-slot server :narrow tight)
                   (atty/ui:label "  ")
@@ -217,7 +287,9 @@ session answering another tree, and it is another bar."
   "How many columns the right of the bar takes at FIT: what is pinned to the
 right edge, everything but the session's windows."
   (let* ((server (session-server session))
-         (others (length (and server (remove session (server-sessions server)))))
+         (others (if (rail-shown-p session)
+                     0
+                     (length (and server (remove session (server-sessions server))))))
          (clock 10))
     (flet ((sessions (most width more-width)
              (let ((shown (min others most)))

@@ -14,6 +14,7 @@
     ("?" . describe-bindings)
     (:prefix . send-prefix)
     ("t" . toggle-bar)
+    ("T" . toggle-rail)
     ("2" . split-below)
     ("3" . split-right)
     ("0" . close-pane)

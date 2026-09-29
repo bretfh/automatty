@@ -116,6 +116,14 @@ slip in an init file says so rather than doing nothing."
   "Whether a new session has the bar; C-b t changes one session."
   :check #'check-boolean)
 
+(defsetting +rail-by-default+ t
+  "Whether a new session has the rail of sessions down the left; C-b T changes one session."
+  :check #'check-boolean)
+
+(defsetting +rail-width+ 14
+  "How many columns the rail of sessions takes."
+  :check (check-number 8))
+
 (defsetting +max-scrollback+ 10000
   "How many rows behind its screen a pane keeps."
   :check (check-number 0))

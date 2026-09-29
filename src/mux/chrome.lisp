@@ -20,8 +20,8 @@
 
 (declaim (ftype (function (t) fixnum) chrome-left))
 (defun chrome-left (watcher)
-  (declare (ignore watcher))
-  0)
+  (let ((session (and watcher (watcher-session watcher))))
+    (if (and session (rail-shown-p session)) +rail-width+ 0)))
 
 (declaim (ftype (function (t) fixnum) chrome-bottom))
 (defun chrome-bottom (watcher)

@@ -86,12 +86,16 @@ passed under an overlay. Answers whether it did."
         t))))
 
 (defun session-tree (session)
-  "What the session looks like: the bar, and the panes under it."
-  (atty/ui:column
-   :align :stretch
-   (session-bar session)
-   (layout-tree (session-layout session) (session-focus session)
-                session (session-zoomed session))))
+  "What the session looks like: the bar, the rail of sessions and the panes
+under it."
+  (let ((panes (layout-tree (session-layout session) (session-focus session)
+                            session (session-zoomed session))))
+    (atty/ui:column
+     :align :stretch
+     (session-bar session)
+     (if (rail-shown-p session)
+         (atty/ui:row :align :stretch :spacing 0 :expand 1 (session-rail session) panes)
+         panes))))
 
 (defun fit-panes (tree)
   "Give each pane the room the layout gave its view."
