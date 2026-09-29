@@ -200,7 +200,6 @@ last thing answered, when there was one."
      :toolbar (toolbar (selector "sort" (if (eq :name (queue-order q)) "by name" "oldest first") :runs '(:sort) :key "s")
                        (toggle "every session" (queue-every q) :runs '(:toggle :every) :key "a")
                        (toggle "answered lately" (queue-showing-recent q) :runs '(:toggle :lately) :key "l")
-                       (field "/" (queue-query q) :cursor (queue-filtering q) :runs '(:filter) :width 24)
                        :right
                        (keycap "↵" "go" :runs "queue goto")
                        (keycap "e" "why" :runs "queue explain")
@@ -234,6 +233,11 @@ last thing answered, when there was one."
      :hints (hints 'queue-mode "↑↓" "choose" "1-9" "answer in place"
                    'queue-goto "go there" 'queue-explain "why it thinks so" 'queue-read "read"
                    'queue-prompt "prompt instead" 'queue-filter "filter"))))
+
+(defmethod overlay-field ((q queue))
+           (when (queue-filtering q)
+             (list "filter" (queue-query q)
+                   (atty/ui:row :spacing 0 (hint "↑↓" "choose") (hint "Esc" "clear")))))
 
 (defmethod draw-overlay ((q queue) screen)
            (let ((watcher *client*))
