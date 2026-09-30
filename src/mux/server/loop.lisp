@@ -6,7 +6,7 @@
   "End a SESSION. Whoever was watching it goes to another session when there
 is one, the way a terminal left open on a closed tab shows the next; only when
 it was the last are they told WHY and let go."
-  (setf (server-sessions server) (remove session (server-sessions server)))
+  (sb-ext:atomic-update (server-sessions server) (lambda (all) (remove session all)))
   (dolist (watcher (copy-list (session-watchers session)))
     (let ((next (first (server-sessions server))))
       (if next

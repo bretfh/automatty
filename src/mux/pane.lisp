@@ -4,6 +4,11 @@
 
 (defvar *panes-made* 0)
 
+(defun next-number (symbol)
+  (loop :for was := (symbol-value symbol)
+        :until (eql was (sb-ext:compare-and-swap (symbol-value symbol) was (1+ was)))
+        :finally (return (1+ was))))
+
 (defvar *drain-octets* nil)
 (defvar *drain-chars* (make-string 0))
 
@@ -123,7 +128,7 @@ room the layout gave it rather than a guess it is corrected out of afterwards.
 
 ID is for a pane brought back from disk, which keeps the number it had; one
 made now takes the next."
-  (let ((pane (%make-pane :id (or id (incf *panes-made*)) :command command
+  (let ((pane (%make-pane :id (or id (next-number '*panes-made*)) :command command
                           :directory directory
                           :agent (agent:make-agent :command command))))
     (setf (pane-term pane)

@@ -55,7 +55,7 @@
     (ignore-errors (send-message watcher (list :bye why))
                    (wire-flush (watcher-wire watcher))))
   (wire-close (watcher-wire watcher))
-  (setf (server-pending-watchers server) (remove watcher (server-pending-watchers server)))
+  (sb-ext:atomic-update (server-pending-watchers server) (lambda (all) (remove watcher all)))
   (leave-session watcher)
   (stop-following server watcher)
   (when (watcher-interactive watcher) (send-client-list server)))
@@ -66,8 +66,8 @@
     (return-from join-session
       (on-watcher watcher (lambda () (join-session server watcher session)))))
   (leave-session watcher)
-  (setf (server-pending-watchers server) (remove watcher (server-pending-watchers server))
-        (watcher-session watcher) session)
+  (sb-ext:atomic-update (server-pending-watchers server) (lambda (all) (remove watcher all)))
+  (setf (watcher-session watcher) session)
   (push watcher (session-watchers session))
   ;; a fit that changed the size has already told everybody, this one included;
   ;; only a fit that changed nothing leaves it to be said here
@@ -80,11 +80,12 @@
     (send-hello watcher session))
   ;; what the server has had to say since anybody was here to hear it: the
   ;; first to arrive is told, and it is said once
-  (when (server-notes server)
-    (dolist (note (reverse (server-notes server)))
+  (let ((notes (loop :for had := (server-notes server)
+                     :until (eq had (sb-ext:compare-and-swap (server-notes server) had nil))
+                     :finally (return had))))
+    (dolist (note (reverse notes))
       (destructuring-bind (text &optional (face :accent)) note
-        (show-note watcher "atty" text :face face)))
-    (setf (server-notes server) nil))
+        (show-note watcher "atty" text :face face))))
   (send-client-list server)
   (let ((*client* watcher)) (run-hook 'client-attached watcher))
   (move-followers server watcher session)

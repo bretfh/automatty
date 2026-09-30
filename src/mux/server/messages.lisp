@@ -233,5 +233,5 @@ session's."
                       :wire (make-wire (sb-bsd-sockets:socket-file-descriptor
                                         socket)
                                        socket))))
-        (push watcher (server-pending-watchers server))
+        (sb-ext:atomic-push watcher (server-pending-watchers server))
         watcher))))
