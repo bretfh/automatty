@@ -70,7 +70,9 @@ command line."
   (rung 0 :type fixnum)
   (thread nil)
   (inbox nil)
-  (wake nil))
+  (wake nil)
+  (reading nil)
+  (keys-read nil))
 
 ;;; A window is what a session shows at one time: a layout of panes, which of
 ;;; them has the focus, and whether one of them is zoomed. A session holds its

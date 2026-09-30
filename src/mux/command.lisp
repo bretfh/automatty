@@ -66,10 +66,13 @@ from a prompt, which is where being asked for a command happens."
               :unless (and offered (gethash name *unlisted*)) :collect name)
         #'string<))
 
+(define-condition quit () ())
+
 (defun call-guarded (does what &rest arguments)
   "Run DOES. One that comes apart is shown to whoever asked rather than taking
 the server down."
   (handler-case (apply does arguments)
+    (quit () nil)
     (error (e)
       (when *client* (show-error *client* what e))
       nil)))

@@ -166,11 +166,44 @@ arrived yet is kept until it has."
                           (pane-send pane text)))
                  :wait nil)))))
 
+(defun keys-into (watcher said)
+  (let* ((said (pending-input watcher said))
+         (at 0)
+         (n (length said)))
+    (loop :while (< at n)
+          :do (multiple-value-bind (event took)
+                  (tty:escape-sequence-to-key-event said at n nil)
+                (when (zerop took) (hold-input watcher said at n) (return))
+                (incf at took)
+                (when (and event (not (and (consp event) (eq :mouse (first event)))))
+                  (setf (watcher-keys-read watcher)
+                        (append (watcher-keys-read watcher) (list (event-key event)))))))))
+
+(defun read-key (&optional (watcher *client*))
+  (unless (and watcher (eq (watcher-thread watcher) sb-thread:*current-thread*))
+    (error "only a client's own commands can wait for its keys"))
+  (let ((w (tty:make-waiting 2)))
+    (setf (watcher-reading watcher) t)
+    (unwind-protect
+         (loop
+           (let ((key (pop (watcher-keys-read watcher))))
+             (when key
+               (if (string= "C-g" (atty/mode:spelled key))
+                   (error 'quit)
+                   (return key))))
+           (unless (wire-open (watcher-wire watcher))
+             (error 'quit))
+           (watcher-turn *server* watcher w))
+      (setf (watcher-reading watcher) nil)
+      (tty:free-waiting w))))
+
 (defun handle-input (watcher said)
   "Pass what was typed to the pane, byte for byte, until the one byte that says
 a chord is starting. Once a chord has started, or while something on top takes
 the keys, bytes are read as keys and the pane does not see them. A mouse report
 this build has a name for goes to the mode; any other is passed on."
+  (when (watcher-reading watcher)
+    (return-from handle-input (keys-into watcher said)))
   (when (and (watcher-overlays watcher)
              (not (overlay-passes-keys-p (first (watcher-overlays watcher)))))
     (return-from handle-input (handle-key watcher said)))
