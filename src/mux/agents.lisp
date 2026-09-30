@@ -187,7 +187,9 @@
   (multiple-value-bind (pane session) (address-pane *caller*)
     (pane-push-log pane (now-ms) (actor-of *client* *caller*) :signal (parse-state state))
     (pane-hear pane (parse-state state))
-    (session-observe session (monotonic-ns))))
+    (let ((ms (now-ms)))
+      (session-observe session (monotonic-ns)
+                       (and (on-pane pane (lambda () (look-at-agent pane ms))) (list pane))))))
 
 (defcommand (agent-observe :unlisted) (address)
   "what the pane's screen shows, and what can be done"

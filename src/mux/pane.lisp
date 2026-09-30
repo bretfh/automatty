@@ -67,6 +67,8 @@
   (out-end 0 :type fixnum)
   (thread nil)
   (woken nil)
+  (look nil)
+  (looked-at -1 :type integer)
   (shown nil)
   (inbox nil)
   (wake nil)
@@ -152,7 +154,8 @@ made now takes the next."
 
 (declaim (ftype (function (pane) t) pane-look-soon))
 (defun pane-look-soon (pane)
-  (setf (pane-look-at pane) 0))
+  (setf (pane-look-at pane) 0)
+  (when (pane-thread-p pane) (pane-poke pane)))
 
 (declaim (ftype (function (pane keyword) t) pane-hear))
 (defun pane-hear (pane state)
@@ -162,7 +165,7 @@ made now takes the next."
 
 (declaim (ftype (function (pane integer) boolean) pane-due-p))
 (defun pane-due-p (pane now)
-  (or (pane-dirty pane)
+  (or (> (pane-moved-at pane) (pane-looked-at pane))
       (let ((at (pane-look-at pane)))
         (and at (<= at now)))))
 
@@ -198,9 +201,10 @@ made now takes the next."
             ((null reader)
              (pane-look-later pane (+ (pane-programs-at pane) +program-poll-interval+))))))))
 
-(defun pane-start (pane &key environment woken)
+(defun pane-start (pane &key environment woken look)
   "Run the pane's program on a terminal of its own, the size the pane is now."
   (when woken (setf (pane-woken pane) woken))
+  (when look (setf (pane-look pane) look))
   (unless (or (pane-started pane) (pane-failed pane))
     (pane-open pane environment)
     (when (pane-started pane) (pane-run pane)))
@@ -321,6 +325,7 @@ made now takes the next."
         (sb-thread:make-thread
          (lambda ()
            (pane-show pane)
+           (when (pane-look pane) (funcall (pane-look pane) pane (now-ms)))
            (let ((*drain-octets* nil)
                  (*drain-chars* (make-string 0))
                  (w (tty:make-waiting 2)))
@@ -332,7 +337,8 @@ made now takes the next."
                                                  (logior sb-unix:pollin sb-unix:pollout)
                                                  sb-unix:pollin))
                             (tty:waiting-add w (car (pane-wake pane)))
-                            (tty:wait-on w 1000)
+                            (tty:wait-on w (let ((at (pane-look-at pane)))
+                                             (if at (max 0 (min 1000 (- at (now-ms)))) 1000)))
                             (when (tty:readable-p (tty:waiting-back w 1))
                               (drain-wake-pipe (pane-wake pane)))
                             (pane-jobs pane)
@@ -347,7 +353,11 @@ made now takes the next."
                                 (setf (pane-moved-at pane) (now-ms))
                                 (pane-show pane)
                                 (setf (pane-dirty pane) t)
-                                (pane-tell pane))))
+                                (pane-tell pane))
+                              (let ((look (pane-look pane))
+                                    (ms (now-ms)))
+                                (when (and look (pane-due-p pane ms))
+                                  (funcall look pane ms)))))
                (pane-jobs pane)
                (tty:free-waiting w))))
          :name (format nil "atty pane ~D" (pane-id pane)))))

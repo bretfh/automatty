@@ -67,7 +67,7 @@ that has since gone would land in whatever is there now. Answers t, or
 :gone, :not-blocked or :no-such-option."
   (let* ((pane (find-pane server name id))
          (agent (and pane (pane-agent pane)))
-         (asks (and pane (with-term (term pane) (agent:agent-asks agent term))))
+         (asks (and pane (agent:agent-asks agent nil)))
          (outcome (cond ((null pane) :gone)
                         ((not (eq :blocked (agent:agent-state agent))) :not-blocked)
                         ((and asks (not (assoc n (getf asks :options)))) :no-such-option)
@@ -322,7 +322,7 @@ new window when it is :new. Answers the pane."
                                            :directory (or directory (pane-directory focus)))))
                        (change-window session w
                                       (lambda (w) (setf (window-layout w) (layout-insert (window-layout w) focus :across it))))
-                       (pane-start it :environment (pane-environment session it) :woken (session-woken session))
+                       (pane-start it :environment (pane-environment session it) :woken (session-woken session) :look (session-look session))
                        it))
                     (t
                      ;; beside the focus, the way a split puts one, but running
@@ -335,7 +335,7 @@ new window when it is :new. Answers the pane."
                        (setf (session-layout session)
                              (layout-insert (session-layout session) focus :across it))
                        (session-compose session)
-                       (pane-start it :environment (pane-environment session it) :woken (session-woken session))
+                       (pane-start it :environment (pane-environment session it) :woken (session-woken session) :look (session-look session))
                        it)))
                  (session-focus (add-session server command :name name
                                              :directory directory)))))

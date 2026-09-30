@@ -46,7 +46,7 @@ server's notes for whoever attaches first."
            (dolist (session sessions)
              (session-compose session)
              (dolist (pane (session-panes session))
-               (pane-start pane :environment (pane-environment session pane) :woken (session-woken session))))
+               (pane-start pane :environment (pane-environment session pane) :woken (session-woken session) :look (session-look session))))
            (setf (server-sessions server) (append (server-sessions server) sessions)
                  (server-had-sessions server) (or (server-had-sessions server) (and sessions t))
                  (server-tree-saved server) (encode-tree server))

@@ -157,12 +157,11 @@ between them."
 (declaim (ftype (function (session pane t) list) frame-corners))
 (defun frame-corners (session pane focusp)
   "What PANE's header says at its left and right, and its footer."
-  (with-term (term pane)
   (let* ((agent (pane-agent pane))
          (state (agent:agent-state agent))
          (now (now-ms))
-         (asks (agent:agent-asks agent term))
-         (width (term:term-width term))
+         (asks (agent:agent-asks agent nil))
+         (width (pane-width pane))
          (tl (atty/ui:row :spacing 0
                           (atty/ui:label (format nil " ~D " (or (pane-number session pane) (pane-id pane)))
                                          :face (if (pane-known-p pane) (number-face state) :number-unknown))
@@ -180,7 +179,7 @@ between them."
      :tr (cond (asks (question-title asks (max 8 (- width 12))))
                ((pane-known-p pane)
                 (let* ((says (format nil "~(~A~) ~A " state (format-duration (agent:agent-for agent now))))
-                       (doing (agent:agent-doing agent term))
+                       (doing (agent:agent-doing agent nil))
                        ;; what it is doing gives way before the state does
                        (room (- width (columns-in tl) (length says) 9)))
                   (atty/ui:row :spacing 0
@@ -192,7 +191,7 @@ between them."
                                (atty/ui:label says :face (state-face state))))))
      :bl (cond
           (asks
-           (let* ((extras (answer-extras session pane (agent:agent-won agent term)))
+           (let* ((extras (answer-extras session pane (agent:agent-won agent nil)))
                   (room (- width (extras-width extras) 1)))
              ;; what follows the answers gives way before the answers do,
              ;; the rule first, then zoom; read stays
@@ -224,4 +223,4 @@ between them."
                                              :face :state-blocked)
                               (atty/ui:label ""))
                           (pane-position pane))))
-          (t (pane-position pane)))))))
+          (t (pane-position pane))))))

@@ -242,6 +242,7 @@ since what is open may show how long ago things were.")
   (polled-sessions (make-array 16 :adjustable t :fill-pointer 0))
   (polled-watchers (make-array 8 :adjustable t :fill-pointer 0))
   (wake nil)
+  (changed-panes nil)
   (running t :type boolean))
 
 (defparameter +first-session-timeout+ 10000000000
@@ -426,7 +427,7 @@ either."
                                  :screen (tty:make-screen :width cols
                                                           :height rows))))
     (session-compose session)
-    (pane-start pane :environment (pane-environment session pane) :woken (session-woken session))
+    (pane-start pane :environment (pane-environment session pane) :woken (session-woken session) :look (session-look session))
     (when (pane-failed pane)
       (error "~A" (pane-failed pane)))
     (setf (server-sessions server) (append (server-sessions server) (list session))

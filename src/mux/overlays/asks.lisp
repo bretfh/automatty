@@ -15,7 +15,7 @@
 (defun asks-tree (a width)
   (multiple-value-bind (pane session) (asks-pane a)
     (let* ((agent (and pane (pane-agent pane)))
-           (asks (and agent (with-term (term pane) (agent:agent-asks agent term))))
+           (asks (and agent (agent:agent-asks agent nil)))
            (options (getf asks :options)))
       (sheet :asks
              (atty/ui:row :spacing 0

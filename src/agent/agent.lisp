@@ -16,6 +16,7 @@
    (version :initform nil :accessor agent-version)
    (verified :initform nil :accessor agent-verified)
    (observation :initform nil :accessor agent-observation)
+   (lines :initform nil :accessor agent-lines)
    (looked :initform nil :accessor agent-looked)
    (state :initform :unknown :accessor agent-state)
    (reason :initform nil :accessor agent-reason)
@@ -188,6 +189,8 @@
 
 (defun agent-look (agent term now moved)
   (setf (agent-moved agent) moved)
+  (when (or moved (null (agent-lines agent)))
+    (setf (agent-lines agent) (screen-lines term)))
   (when moved
     (setf (agent-heard agent) nil
           (agent-still-since agent) now))
@@ -239,7 +242,8 @@
         :thereis (eq :blocked (getf (observe reader term) :means))))
 
 (defun agent-won (agent term)
-  (and (agent-reader agent) (getf (observe (agent-reader agent) term) :screen)))
+  (and (agent-reader agent)
+       (getf (if term (observe (agent-reader agent) term) (agent-observation agent)) :screen)))
 
 (defun asks-of (seen)
   (when (and (eq :choice (getf seen :widget)) (getf seen :question))
@@ -263,7 +267,7 @@
        (asks-of (agent-reason agent))))
 
 (defun agent-doing (agent term)
-  (let* ((lines (screen-lines term))
+  (let* ((lines (if term (screen-lines term) (agent-lines agent)))
          (spinning (spinner lines))
          (reader (agent-reader agent)))
     (cond (spinning (getf spinning :label))

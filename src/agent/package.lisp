@@ -26,6 +26,7 @@
    #:agent-version
    #:agent-verified
    #:agent-observation
+   #:agent-lines
    #:agent-moved
    #:agent-still-since
    #:agent-heard
