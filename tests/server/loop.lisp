@@ -389,7 +389,7 @@ clear was done in whatever colour was last in force"
       (let ((session (mux::%make-session))
             (w (mux::%make-watcher :interactive t)))
         (setf (mux::session-watchers session) (list w)
-              (mux::session-clocked session) 0
+              (mux::watcher-clocked w) 0
               (mux::watcher-behind w) nil)
         (is-true (mux::session-tick session mux::+bar-refresh-interval+)
                  "the bar stood a whole gap and nobody was put behind")
@@ -398,9 +398,9 @@ clear was done in whatever colour was last in force"
         (is (null (mux::session-tick session (1+ mux::+bar-refresh-interval+)))
             "the bar was drawn again the moment after")
         (is-false (mux::watcher-behind w))
-        (is (<= (- (mux::session-clocked session) mux::+bar-refresh-interval+) (* 60 1000000000))
+        (is (<= (- (mux::watcher-clocked w) mux::+bar-refresh-interval+) (* 60 1000000000))
             "the bar waits past the turn of the minute")
-        (is-true (mux::session-tick session (mux::session-clocked session)))
+        (is-true (mux::session-tick session (mux::watcher-clocked w)))
         (is-true (mux::watcher-behind w))))
 
 (test a-split-gives-the-new-pane-half-the-terminal-and-the-cursor

@@ -58,7 +58,13 @@ command line."
   (overlays nil :type list)
   (screen nil)
   (found nil)
-  (find-text nil))
+  (find-text nil)
+  (session-screen nil)
+  (geometry nil)
+  (composed-at 0 :type integer)
+  (clocked 0 :type integer)
+  (held nil)
+  (panes-moved nil))
 
 ;;; A window is what a session shows at one time: a layout of panes, which of
 ;;; them has the focus, and whether one of them is zoomed. A session holds its
@@ -92,22 +98,19 @@ command line."
   (socket nil)
   (screen nil)
   (geometry nil)
-  (composed-at 0 :type integer)
-  (clocked 0 :type integer)
-  (held nil)
   (readers nil)
   (server nil))
 
 (defun %make-session (&key (name "0") windows window (bar-p t) (rail-p t) (field-kind 0)
                         (scrollbars-p t) (rows 24) (cols 80) watchers
-                        socket screen geometry held readers server)
+                        socket screen geometry readers server)
   (%new-session :now (make-session-state :name name :windows windows
                                            :window (or window (first windows))
                                            :bar-p bar-p :rail-p rail-p :field-kind field-kind
                                            :scrollbars-p scrollbars-p :rows rows :cols cols
                                            :watchers watchers)
                 :socket socket :screen screen :geometry geometry
-                :held held :readers readers :server server))
+                :readers readers :server server))
 
 (declaim (ftype (function (session function) session-state) change-session))
 (defun change-session (session change)

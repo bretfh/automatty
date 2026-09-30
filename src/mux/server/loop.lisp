@@ -57,7 +57,7 @@ it was the last are they told WHY and let go."
             ((pane-due-p pane ms)
              (when (look-at-agent pane ms) (push pane changed)))))
     (when changed
-      (setf (session-clocked session) 0)
+      (dolist (w (session-watchers session)) (setf (watcher-clocked w) 0))
       (when (session-server session)
         (dolist (w (all-watchers (session-server session)))
           (when (watcher-interactive w)
@@ -92,7 +92,7 @@ it was the last are they told WHY and let go."
   "Whether anybody watching SESSION is owed a frame."
   (let ((panes (session-panes session)))
     (some (lambda (c) (and (watcher-interactive c)
-                           (or (watcher-owed-p c) (some #'pane-dirty panes))))
+                           (or (watcher-owed-p c) (watcher-panes-moved c) (some #'pane-dirty panes))))
           (session-watchers session))))
 
 (declaim (ftype (function (watcher integer) integer) frame-due-at))
@@ -113,7 +113,7 @@ or nothing when nobody is."
       (let ((dirty (some #'pane-dirty (session-panes session))))
         (dolist (w (session-watchers session))
           (when (and (watcher-interactive w)
-                     (or dirty (watcher-owed-p w))
+                     (or dirty (watcher-owed-p w) (watcher-panes-moved w))
                      (wire-open (watcher-wire w))
                      (zerop (wire-pending (watcher-wire w))))
             (let ((at (frame-due-at w gap)))
@@ -121,33 +121,32 @@ or nothing when nobody is."
                 (setf earliest at)))))))))
 
 (defun session-render (session gap)
-  "Draw SESSION once, for whoever is behind and has waited GAP."
+  "Draw SESSION for whoever is behind and has waited GAP, each as it last saw it."
   (let ((panes (session-panes session))
-        (composed nil)
-        (chrome (some #'watcher-owed-p (session-watchers session)))
+        (drawn nil)
         (then (monotonic-ns)))
     (when (some #'pane-dirty panes)
       (dolist (watcher (session-watchers session))
-        (setf (watcher-behind watcher) t))
+        (setf (watcher-panes-moved watcher) t))
       (dolist (pane panes) (setf (pane-dirty pane) nil)))
     (dolist (watcher (session-watchers session))
-      (when (and (watcher-owed-p watcher)
+      (when (and (or (watcher-owed-p watcher) (watcher-panes-moved watcher))
                  (watcher-interactive watcher)
                  (wire-open (watcher-wire watcher))
                  (zerop (wire-pending (watcher-wire watcher)))
                  (>= then (frame-due-at watcher gap)))
-        (unless composed
-          (or (and (not chrome) (session-repaint session))
-              (session-compose session))
-          (setf composed t))
+        (or (and (not (watcher-owed-p watcher)) (session-repaint session watcher))
+            (session-compose session watcher))
+        (setf drawn t)
         (watcher-frame session watcher)
         (setf (watcher-sent watcher) then
               (watcher-behind watcher) nil
+              (watcher-panes-moved watcher) nil
               (watcher-seen watcher) (session-version session))
         (wire-flush (watcher-wire watcher))))
-    (when composed
+    (when drawn
       (dolist (pane panes) (setf (pane-rang pane) nil)))
-    composed))
+    drawn))
 
 (defparameter +typed-lately+ 1000)
 
