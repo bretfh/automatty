@@ -75,9 +75,14 @@
     due))
 
 (defun watcher-draw (server watcher)
-  (let ((session (watcher-session watcher))
-        (wire (watcher-wire watcher)))
-    (when (and session (session-panes session) (watcher-interactive watcher) (wire-open wire))
+  (let ((session (watcher-session watcher)))
+    (when session
+      (drawing-session (session)
+        (watcher-draw-seen server watcher session)))))
+
+(defun watcher-draw-seen (server watcher session)
+  (let ((wire (watcher-wire watcher)))
+    (when (and (session-panes session) (watcher-interactive watcher) (wire-open wire))
       (let ((now (monotonic-ns)))
         (watcher-tick watcher session now)
         (let ((want (let ((focus (session-focus session)))

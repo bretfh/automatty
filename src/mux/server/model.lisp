@@ -128,11 +128,25 @@ command line."
       (when (eq was (sb-ext:compare-and-swap (session-now session) was now))
         (return now)))))
 
-(defun session-version (session) (state-version (session-now session)))
+(defvar *drawing* nil)
+
+(defun session-seen (session)
+  (let ((drawing *drawing*))
+    (if (and drawing (eq (car drawing) session))
+        (cdr drawing)
+        (session-now session))))
+
+(defmacro drawing-session ((session) &body body)
+  (let ((it (gensym "SESSION")))
+    `(let* ((,it ,session)
+            (*drawing* (cons ,it (session-now ,it))))
+       ,@body)))
+
+(defun session-version (session) (state-version (session-seen session)))
 
 (macrolet ((kept (name slot)
              `(progn
-                (defun ,name (session) (,slot (session-now session)))
+                (defun ,name (session) (,slot (session-seen session)))
                 (defun (setf ,name) (new session)
                   (change-session session (lambda (s) (setf (,slot s) new)))
                   new))))
@@ -149,7 +163,7 @@ command line."
 (defun same-window-p (a b)
   (and a b (= (window-id a) (window-id b))))
 
-(defun session-window (session) (state-window (session-now session)))
+(defun session-window (session) (state-window (session-seen session)))
 (defun (setf session-window) (window session)
   (change-session session
                   (lambda (s)
