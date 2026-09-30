@@ -144,8 +144,11 @@ uninstall:
 
 # what a frame costs: a pane blitted to a screen, diffed against what was last
 # sent, and encoded as the bytes a terminal reads
+# RUNS times each keystroke run; PROFILE=cpu or alloc samples every thread of it
+#   make mux-bench RUNS=5 PROFILE=alloc
+RUNS ?= 3
 mux-bench:
-	$(IN) '$(ENV) BENCH_DIR="$(BENCH_DIR)" $(SBCL) --non-interactive --load bench/mux.lisp'
+	$(IN) '$(ENV) BENCH_DIR="$(BENCH_DIR)" RUNS="$(RUNS)" PROFILE="$(if $(filter command line,$(origin PROFILE)),$(PROFILE))" $(SBCL) --non-interactive --load bench/mux.lisp'
 
 # the server under load, a profile of each run and a csv in BENCH_DIR/trace:
 #   make stress SESSIONS=1,10 CHARS=1k,1m PROFILE=alloc

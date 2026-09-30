@@ -197,7 +197,7 @@
                (flet ((step-once ()
                         (let ((then (monotonic-ns)))
                           (setf *bench-waited* 0)
-                          (server-step server)
+                          (server-step server :most 5)
                           (vector-push-extend (- (monotonic-ns) then *bench-waited*) step-ns))
                         (incf (run-frames run) (raw-drain (wire-fd client) buffer))
                         (raw-drain (wire-fd typist) buffer)))
@@ -377,7 +377,7 @@ step_p50_ms,step_p99_ms,step_max_ms,key_p50_ms,key_p99_ms,key_max_ms,keys_lost,d
              (loop
                (let ((then (monotonic-ns)))
                  (setf *bench-waited* 0)
-                 (server-step server)
+                 (server-step server :most 5)
                  (vector-push-extend (- (monotonic-ns) then *bench-waited*) steps))
                (raw-drain (wire-fd client) buffer)
                (raw-drain (wire-fd typist) buffer)
@@ -414,6 +414,44 @@ step_p50_ms,step_p99_ms,step_max_ms,key_p50_ms,key_p99_ms,key_max_ms,keys_lost,d
       (server-close server)
       (ignore-errors (delete-file path)))))
 
+(defun bench-waiting (stepper)
+  (lambda (wait w milliseconds)
+    (if (eq sb-thread:*current-thread* stepper)
+        (let ((then (monotonic-ns)))
+          (multiple-value-prog1 (funcall wait w milliseconds)
+            (incf *bench-waited* (- (monotonic-ns) then))))
+        (funcall wait w milliseconds))))
+
+(defun every-backtrace (out)
+  (dolist (thread (sb-thread:list-all-threads))
+    (format out "~&~%~A~%" (sb-thread:thread-name thread))
+    (if (eq thread sb-thread:*current-thread*)
+        (sb-debug:print-backtrace :count 40 :stream out)
+        (let ((done (sb-thread:make-semaphore)))
+          (ignore-errors
+           (sb-thread:interrupt-thread thread
+                                       (lambda ()
+                                         (sb-debug:print-backtrace :count 40 :stream out)
+                                         (sb-thread:signal-semaphore done))))
+          (unless (sb-thread:wait-on-semaphore done :timeout 3)
+            (format out "~&it did not answer~%"))))
+    (finish-output out)))
+
+(defparameter +bench-stall+ 10)
+
+(defun bench-stall-watch ()
+  (sb-thread:make-thread
+   (lambda ()
+     (loop
+       (let ((before (cpu-seconds)))
+         (sleep +bench-stall+)
+         (when (< (- (cpu-seconds) before) 0.05d0)
+           (format t "~&~%atty bench: stalled, under 0.05s of cpu in ~Ds; every thread:~%"
+                   +bench-stall+)
+           (every-backtrace *standard-output*)
+           (sb-ext:exit :code 3 :abort t)))))
+   :name "bench stall watch"))
+
 (defun bench-atty (args)
   (let* ((sessions (if (option-value args "--sessions")
                        (count-list (option-value args "--sessions") "--sessions")
@@ -446,41 +484,37 @@ step_p50_ms,step_p99_ms,step_max_ms,key_p50_ms,key_p99_ms,key_max_ms,keys_lost,d
             (floor (sb-ext:dynamic-space-size) 1048576))
     (when (option-value args "--soak")
       (ensure-directories-exist dir)
-      (sb-int:encapsulate 'tty:wait-on 'bench
-                          (lambda (wait w milliseconds)
-                            (let ((then (monotonic-ns)))
-                              (multiple-value-prog1 (funcall wait w milliseconds)
-                                (incf *bench-waited* (- (monotonic-ns) then))))))
-      (unwind-protect
-           (bench-soak (first sessions) (parse-integer (option-value args "--soak"))
-                       :rows rows :cols cols :dir dir)
-        (sb-int:unencapsulate 'tty:wait-on 'bench)
-        (ignore-errors (uiop:delete-directory-tree (pathname dir) :validate t)))
+      (sb-int:encapsulate 'tty:wait-on 'bench (bench-waiting sb-thread:*current-thread*))
+      (let ((watch (bench-stall-watch)))
+        (unwind-protect
+             (bench-soak (first sessions) (parse-integer (option-value args "--soak"))
+                         :rows rows :cols cols :dir dir)
+          (sb-thread:terminate-thread watch)
+          (sb-int:unencapsulate 'tty:wait-on 'bench)
+          (ignore-errors (uiop:delete-directory-tree (pathname dir) :validate t))))
       (return-from bench-atty))
     (bench-header t)
     (when csv (bench-csv-header csv))
-    (sb-int:encapsulate 'tty:wait-on 'bench
-                        (lambda (wait w milliseconds)
-                          (let ((then (monotonic-ns)))
-                            (multiple-value-prog1 (funcall wait w milliseconds)
-                              (incf *bench-waited* (- (monotonic-ns) then))))))
-    (unwind-protect
-         (dolist (n sessions)
-           (dolist (c chars)
-             (let ((run (if (and too-many (>= n too-many))
-                            (make-run :sessions n :chars c
-                                      :failed (format nil "skipped: ~D sessions could not start" too-many))
-                            (handler-case (bench-once n c :rows rows :cols cols :dir dir
-                                                          :trace trace :mode mode)
-                              (storage-condition (e)
-                                (make-run :sessions n :chars c
-                                          :failed (format nil "out of heap: ~A" e)))))))
-               (when (and (run-failed run) (search "sessions started" (run-failed run)))
-                 (setf too-many (min n (or too-many n))))
-               (bench-row t run)
-               (when csv (bench-csv-row csv run)))))
-      (sb-int:unencapsulate 'tty:wait-on 'bench)
-      (when csv (close csv))
-      (ignore-errors (uiop:delete-directory-tree (pathname dir) :validate t)))
+    (sb-int:encapsulate 'tty:wait-on 'bench (bench-waiting sb-thread:*current-thread*))
+    (let ((watch (bench-stall-watch)))
+      (unwind-protect
+          (dolist (n sessions)
+            (dolist (c chars)
+              (let ((run (if (and too-many (>= n too-many))
+                             (make-run :sessions n :chars c
+                                       :failed (format nil "skipped: ~D sessions could not start" too-many))
+                             (handler-case (bench-once n c :rows rows :cols cols :dir dir
+                                                           :trace trace :mode mode)
+                               (storage-condition (e)
+                                 (make-run :sessions n :chars c
+                                           :failed (format nil "out of heap: ~A" e)))))))
+                (when (and (run-failed run) (search "sessions started" (run-failed run)))
+                  (setf too-many (min n (or too-many n))))
+                (bench-row t run)
+                (when csv (bench-csv-row csv run)))))
+       (sb-thread:terminate-thread watch)
+       (sb-int:unencapsulate 'tty:wait-on 'bench)
+       (when csv (close csv))
+       (ignore-errors (uiop:delete-directory-tree (pathname dir) :validate t))))
     (when trace
       (format t "~&~%~A~%" trace))))

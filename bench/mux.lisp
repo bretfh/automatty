@@ -226,9 +226,24 @@ standing in for one, and answer how many bytes that was."
   (format t "  into cost, and the wire does not need to be binary.~%")
   (format t "~&~%what a keystroke costs: typed, to the frame that shows it~%~%")
   (format t "~&  ~8A ~7A ~10A ~10A ~10A~%" "interval" "kept" "p50 us" "p99 us" "max us")
-  (dolist (interval +intervals+)
-    (keystrokes interval))
+  (dotimes (run (max 1 (or (parse-integer (or (uiop:getenv "RUNS") "") :junk-allowed t) 1)))
+    (dolist (interval +intervals+)
+      (keystrokes interval)))
   (format t "~%"))
 
+(defun profiled (thunk)
+  (let ((mode (let ((said (uiop:getenv "PROFILE")))
+                (cond ((string-equal said "cpu") :cpu)
+                      ((string-equal said "alloc") :alloc)))))
+    (if mode
+        (progn
+          (sb-sprof:start-profiling :mode mode :sample-interval 0.0005 :threads :all
+                                    :max-samples 400000)
+          (unwind-protect (funcall thunk)
+            (sb-sprof:stop-profiling)
+            (format t "~&~%every thread, ~(~A~):~%" mode)
+            (sb-sprof:report :type :flat :max 40)))
+        (funcall thunk))))
+
 (run-it)
-(run-the-loop)
+(profiled #'run-the-loop)
