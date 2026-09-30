@@ -121,7 +121,7 @@ arrived yet is kept until it has."
   (let ((session (watcher-session watcher)))
     (when (and session (session-server session))
       (schedule-task (session-server session) +menu-delay+
-                     (lambda () (setf (watcher-behind watcher) t))))))
+                     (lambda () (draw-again watcher))))))
 
 (defun press-chord (watcher key)
   "Give KEY to the mode WATCHER is in. Answers whether the chord wants more."

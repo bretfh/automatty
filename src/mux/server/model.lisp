@@ -64,7 +64,10 @@ command line."
   (composed-at 0 :type integer)
   (clocked 0 :type integer)
   (held nil)
-  (panes-moved nil))
+  (panes-moved nil)
+  (thread nil)
+  (inbox nil)
+  (wake nil))
 
 ;;; A window is what a session shows at one time: a layout of panes, which of
 ;;; them has the focus, and whether one of them is zoomed. A session holds its

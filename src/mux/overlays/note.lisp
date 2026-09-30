@@ -70,9 +70,11 @@
 (defmethod show-note ((watcher watcher) title text &key (face :warning))
   "A note over WATCHER's terminal; for one with no terminal, a command line,
 what it says is written out with whatever else the command says."
-  (if (watcher-interactive watcher)
-      (push-overlay watcher (make-note title (split-lines text) :face face))
-      (format t "~&~A: ~A~%" title text)))
+  (cond ((watcher-elsewhere-p watcher)
+         (on-watcher watcher (lambda () (show-note watcher title text :face face))))
+        ((watcher-interactive watcher)
+         (push-overlay watcher (make-note title (split-lines text) :face face)))
+        (t (format t "~&~A: ~A~%" title text))))
 
 (declaim (ftype (function (t t condition) t) show-error))
 (defun show-error (watcher what e)

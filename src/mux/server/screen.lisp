@@ -9,11 +9,13 @@ screen any more, so every shadow goes and everybody is told the new size."
         (cols (session-cols session)))
     (dolist (pane (session-panes session)) (setf (pane-dirty pane) t))
     (dolist (w (session-watchers session))
-      (setf (watcher-shadow w) (tty:make-screen :width cols :height rows)
-            (watcher-told w) nil
-            (watcher-behind w) t)
-      (when (watcher-interactive w)
-        (ignore-errors (send-hello w session))))))
+      (on-watcher w (let ((w w))
+                      (lambda ()
+                        (setf (watcher-shadow w) (tty:make-screen :width cols :height rows)
+                              (watcher-told w) nil)
+                        (draw-again w)
+                        (when (watcher-interactive w)
+                          (ignore-errors (send-hello w session)))))))))
 
 (defun session-fit (session)
   "As big as the smallest watcher can show, so nobody is shown a screen with a

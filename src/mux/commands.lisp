@@ -243,4 +243,4 @@ watching blocked windows)."
   (load-user-init)
   (destructuring-bind (text face) (init-load-note)
     (show-note *client* "atty" text :face face))
-  (dolist (w (all-watchers (here-server))) (setf (watcher-behind w) t)))
+  (dolist (w (all-watchers (here-server))) (draw-again w)))

@@ -96,8 +96,10 @@ Answers t, or :empty or :taken."
               (t
                (setf (session-name session) new)
                (dolist (w (all-watchers server))
-                 (dolist (it (watcher-overlays w)) (overlay-session-renamed it old new))
-                 (setf (watcher-behind w) t))
+                 (on-watcher w (let ((w w))
+                                 (lambda ()
+                                   (dolist (it (watcher-overlays w)) (overlay-session-renamed it old new))
+                                   (draw-again w)))))
                t))))
       (send-message watcher (list :session-named old new outcome))
       outcome)))

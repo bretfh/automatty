@@ -203,7 +203,7 @@ watcher is told how many there are and which this is."
                (hit (and at (nth at hits))))
           (when hit (pane-scroll-to-row pane (first hit)))
           (dolist (w (session-watchers (pane-session server pane)))
-            (setf (watcher-behind w) t))
+            (draw-again w))
           ;; the hits nearest the one gone to go out with their text, for a
           ;; list of them: the nearest two hundred, and which of those it is
           ;; a clear is not a find: nothing is said back for one
@@ -242,7 +242,7 @@ end of what is shown now, or the screen when nothing was marked."
                                   (loop :for a :from from :below (min to (pane-row-count pane))
                                         :collect (string-right-trim " " (pane-row-text pane a)))))
                   (setf (pane-selecting pane) nil (pane-dirty pane) t))))
-        (dolist (w (session-watchers session)) (setf (watcher-behind w) t))))))
+        (dolist (w (session-watchers session)) (draw-again w))))))
 
 (defun copied (watcher text)
   "TEXT to the clipboard of WATCHER's terminal, and a note saying so."
@@ -360,7 +360,7 @@ new window when it is :new. Answers the pane."
                                    (string-trim " " label))
             (pane-touched pane) (now-ms))
       (dolist (w (session-watchers (session-named server name)))
-        (setf (watcher-behind w) t)))
+        (draw-again w)))
     pane))
 
 (defun prompt-named (watcher name id text &key when-idle)
@@ -392,4 +392,4 @@ WATCHER when it could not be."
             (if readingp
                 (adjoin watcher (session-readers session))
                 (remove watcher (session-readers session))))
-      (dolist (w (session-watchers session)) (setf (watcher-behind w) t)))))
+      (dolist (w (session-watchers session)) (draw-again w)))))

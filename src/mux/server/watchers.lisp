@@ -4,8 +4,31 @@
 
 
 (declaim (ftype (function (watcher list) t) send-message))
+(defun watcher-elsewhere-p (watcher)
+  (let ((thread (watcher-thread watcher)))
+    (and thread (not (eq thread sb-thread:*current-thread*)) (sb-thread:thread-alive-p thread))))
+
+(defun watcher-poke (watcher)
+  (let ((wake (watcher-wake watcher)))
+    (when wake
+      (sb-sys:with-pinned-objects (*poke-octet*)
+        (sb-unix:unix-write (cdr wake) *poke-octet* 0 1)))))
+
+(declaim (ftype (function (watcher function) t) on-watcher))
+(defun on-watcher (watcher job)
+  (if (watcher-elsewhere-p watcher)
+      (progn (sb-ext:atomic-push job (watcher-inbox watcher))
+             (watcher-poke watcher))
+      (let ((*client* watcher)) (funcall job))))
+
+(defun draw-again (watcher)
+  (setf (watcher-behind watcher) t)
+  (watcher-poke watcher))
+
 (defun send-message (watcher form)
-  (wire-send (watcher-wire watcher) form))
+  (if (watcher-elsewhere-p watcher)
+      (on-watcher watcher (lambda () (send-message watcher form)))
+      (wire-send (watcher-wire watcher) form)))
 
 (declaim (ftype (function (watcher session) t) send-hello))
 (defun send-hello (watcher session)
@@ -25,6 +48,9 @@
     session))
 
 (defun drop-watcher (server watcher &optional why)
+  (when (watcher-elsewhere-p watcher)
+    (return-from drop-watcher
+      (on-watcher watcher (lambda () (drop-watcher server watcher why)))))
   (when why
     (ignore-errors (send-message watcher (list :bye why))
                    (wire-flush (watcher-wire watcher))))
@@ -36,6 +62,9 @@
 
 (defun join-session (server watcher session)
   "Put WATCHER on SESSION and tell it what it is looking at."
+  (when (watcher-elsewhere-p watcher)
+    (return-from join-session
+      (on-watcher watcher (lambda () (join-session server watcher session)))))
   (leave-session watcher)
   (setf (server-pending-watchers server) (remove watcher (server-pending-watchers server))
         (watcher-session watcher) session)
@@ -84,7 +113,8 @@
   "WATCHER goes its own way, and nobody follows it any more."
   (let ((was (or (watcher-following watcher) (followers-of server watcher))))
     (setf (watcher-following watcher) nil)
-    (dolist (w (followers-of server watcher)) (setf (watcher-following w) nil))
+    (dolist (w (followers-of server watcher))
+      (on-watcher w (let ((w w)) (lambda () (setf (watcher-following w) nil)))))
     (when was (send-client-list server))))
 
 (defun watcher-resize (watcher rows cols takes)
@@ -118,4 +148,4 @@ typed."
   "Everybody attached is drawn again: who is attached is on the bar and in
 what lists the terminals."
   (dolist (w (all-watchers server))
-    (when (watcher-interactive w) (setf (watcher-behind w) t))))
+    (when (watcher-interactive w) (draw-again w))))
