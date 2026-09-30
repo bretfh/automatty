@@ -4,6 +4,9 @@
 
 (defvar *panes-made* 0)
 
+(defvar *drain-octets* nil)
+(defvar *drain-chars* (make-string 0))
+
 (defparameter +pulse-cells+ 16 "How many cells a pane's pulse has.")
 (defparameter +pulse-interval+ 75000 "How long one cell of the pulse covers, in milliseconds.")
 (defparameter +max-events+ 64 "How many events a pane keeps.")
@@ -371,9 +374,6 @@ made now takes the next."
     (setf (pane-thread pane) nil)
     (close-wake-pipe (pane-wake pane))
     (setf (pane-wake pane) nil)))
-
-(defvar *drain-octets* nil)
-(defvar *drain-chars* (make-string 0))
 
 (defun pane-drain (pane &key (budget 16) (size 65536) (most 65536))
   "Read what the program wrote and give it to the term. Answers nil when the
