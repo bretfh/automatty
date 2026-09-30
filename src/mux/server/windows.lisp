@@ -34,7 +34,7 @@ take whoever is attached away from what they were looking at."
     (when show
       (session-show-window session window)
       (session-compose session))
-    (pane-start pane :environment (pane-environment session pane) :woken (session-woken session) :look (session-look session))
+    (session-start-pane session pane)
     (run-hook 'pane-started session pane)
     window))
 
@@ -140,7 +140,7 @@ many of them are asking, and whether it is the one shown."
                      (setf (window-layout w) (layout-insert (window-layout w) focus way new)
                            (window-focus w) new)))
     (session-compose session)
-    (pane-start new :environment (pane-environment session new) :woken (session-woken session) :look (session-look session))
+    (session-start-pane session new)
     (run-hook 'pane-started session new)
     new))
 

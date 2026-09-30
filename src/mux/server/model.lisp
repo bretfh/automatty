@@ -430,8 +430,9 @@ becomes, rather than letting them go.")
 
 (defun session-woken (session)
   (let ((server (session-server session)))
-    (lambda ()
-      (if server (server-poke server) (tty:wake))
+    (lambda (&optional ended)
+      (cond ((null server) (tty:wake))
+            (ended (server-poke server)))
       (dolist (w (session-watchers session))
         (watcher-poke w)))))
 
@@ -441,6 +442,15 @@ moved to another window keeps the address it was born with; the server answers
 either."
   (list (format nil "ATTY_PANE=~A" (pane-address-of session pane))
         (format nil "ATTY_SOCKET=~A" (or (session-socket session) ""))))
+
+(defun session-start-pane (session pane)
+  (let ((server (session-server session)))
+    (pane-start pane :environment (pane-environment session pane)
+                     :woken (session-woken session)
+                     :look (session-look session)
+                     :watched (lambda () (session-watchers session))
+                     :urgent (lambda () (pane-urgent-p session pane (now-ms)))
+                     :gap (if server (* (server-interval server) 1000000) 0))))
 
 (defun add-session (server command &key (name "0") (rows 24) (cols 80) directory)
   (let* ((pane (make-pane command :rows rows :cols cols :directory directory))
@@ -454,7 +464,7 @@ either."
                                  :screen (tty:make-screen :width cols
                                                           :height rows))))
     (session-compose session)
-    (pane-start pane :environment (pane-environment session pane) :woken (session-woken session) :look (session-look session))
+    (session-start-pane session pane)
     (when (pane-failed pane)
       (error "~A" (pane-failed pane)))
     (let ((had (loop :for all := (server-sessions server)

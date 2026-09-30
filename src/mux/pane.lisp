@@ -9,6 +9,16 @@
         :until (eql was (sb-ext:compare-and-swap (symbol-value symbol) was (1+ was)))
         :finally (return (1+ was))))
 
+(sb-alien:define-alien-routine ("sysconf" %sysconf) sb-alien:long (name sb-alien:int))
+
+(defconstant +processors-online+
+  #+darwin 58
+  #+linux 84
+  #-(or darwin linux) (error "atty has no _SC_NPROCESSORS_ONLN for this system."))
+
+(defvar *drains* (sb-thread:make-semaphore :name "panes draining in the background"
+                                           :count (max 2 (- (%sysconf +processors-online+) 2))))
+
 (defvar *drain-octets* nil)
 (defvar *drain-chars* (make-string 0))
 
@@ -81,7 +91,14 @@
   (inbox nil)
   (wake nil)
   (stopping nil)
-  (ended nil))
+  (ended nil)
+  (changed nil)
+  (gap 0 :type integer)
+  (watched nil)
+  (urgent nil)
+  (kept 0 :type fixnum)
+  (written-at 0 :type integer)
+  (echoed 0 :type integer))
 
 (defun pane-roll-pulse (pane now state)
   "Bring PANE's pulse up to NOW, in milliseconds: a fresh cell for every
@@ -209,10 +226,13 @@ made now takes the next."
             ((null reader)
              (pane-look-later pane (+ (pane-programs-at pane) +program-poll-interval+))))))))
 
-(defun pane-start (pane &key environment woken look)
+(defun pane-start (pane &key environment woken look watched urgent (gap 0))
   "Run the pane's program on a terminal of its own, the size the pane is now."
   (when woken (setf (pane-woken pane) woken))
   (when look (setf (pane-look pane) look))
+  (setf (pane-gap pane) gap
+        (pane-watched pane) watched
+        (pane-urgent pane) urgent)
   (unless (or (pane-started pane) (pane-failed pane))
     (pane-open pane environment)
     (when (pane-started pane) (pane-run pane)))
@@ -241,6 +261,7 @@ made now takes the next."
 
 (defun drain-wake-pipe (wake)
   (let ((octets (make-array 64 :element-type '(unsigned-byte 8))))
+    (declare (dynamic-extent octets))
     (sb-sys:with-pinned-objects (octets)
       (loop :while (let ((n (sb-unix:unix-read (car wake) (sb-sys:vector-sap octets) 64)))
                      (and n (plusp n)))))))
@@ -289,7 +310,8 @@ made now takes the next."
     `(let ((,it ,pane))
        (on-pane ,it (lambda () (let ((,term (pane-term ,it))) ,@body))))))
 
-(defstruct (shown (:constructor %make-shown)) screen (history 0 :type fixnum) (paste nil) (at 0 :type integer))
+(defstruct (shown (:constructor %make-shown))
+  screen (history 0 :type fixnum) (paste nil) (at 0 :type integer) (echoed 0 :type integer))
 
 (defun pane-show (pane)
   (let* ((term (pane-term pane))
@@ -304,18 +326,61 @@ made now takes the next."
           (tty:screen-cursor-style screen) (term:term-cursor-style term)
           (pane-shown pane) (%make-shown :screen screen
                                          :at (monotonic-ns)
+                                         :echoed (pane-echoed pane)
                                          :history (if (term:term-in-alt-screen term)
                                                       0
                                                       (term:term-scrollback-size term))
                                          :paste (and (term:term-bracketed-paste term) t)))))
 
+(defun pane-show-history (pane)
+  (let* ((term (pane-term pane))
+         (had (pane-shown pane))
+         (history (if (term:term-in-alt-screen term) 0 (term:term-scrollback-size term)))
+         (paste (and (term:term-bracketed-paste term) t)))
+    (unless (and (= history (shown-history had)) (eq paste (shown-paste had)))
+      (setf (pane-shown pane) (%make-shown :screen (shown-screen had) :history history
+                                           :paste paste :at (shown-at had)
+                                           :echoed (shown-echoed had))))))
+
 (defun pane-pastes-p (pane)
   (let ((shown (pane-shown-now pane)))
     (if shown (shown-paste shown) (and (term:term-bracketed-paste (pane-term pane)) t))))
 
-(defun pane-tell (pane)
+(defun pane-tell (pane &optional ended)
   (let ((woken (pane-woken pane)))
-    (if woken (funcall woken) (tty:wake))))
+    (if woken (funcall woken ended) (tty:wake))))
+
+(defun pane-show-due (pane)
+  (let ((shown (pane-shown pane)))
+    (if (> (pane-echoed pane) (shown-echoed shown))
+        (shown-at shown)
+        (+ (shown-at shown) (pane-gap pane)))))
+
+(defun pane-watched-p (pane)
+  (let ((watched (pane-watched pane)))
+    (or (null watched) (funcall watched))))
+
+(defun pane-drain-now (pane)
+  (let ((urgent (pane-urgent pane)))
+    (if (or (null urgent) (funcall urgent))
+        (pane-drain pane)
+        (if (sb-thread:wait-on-semaphore *drains* :timeout 0.005)
+            (unwind-protect (pane-drain pane)
+              (sb-thread:signal-semaphore *drains*))
+            :later))))
+
+(defun pane-look-due (pane)
+  (let ((at (pane-look-at pane))
+        (moved (and (> (pane-moved-at pane) (pane-looked-at pane))
+                    (+ (pane-looked-at pane) (floor (pane-gap pane) 1000000)))))
+    (if (and at moved) (min at moved) (or at moved))))
+
+(defun pane-wait (pane)
+  (let* ((at (pane-look-due pane))
+         (ms (if at (max 0 (min 1000 (- at (now-ms)))) 1000)))
+    (if (and (pane-changed pane) (pane-watched-p pane))
+        (min ms (max 0 (ceiling (- (pane-show-due pane) (monotonic-ns)) 1000000)))
+        ms)))
 
 (defun pane-shown-now (pane)
   (and (pane-thread-p pane) (pane-shown pane)))
@@ -353,8 +418,7 @@ made now takes the next."
                                         (logior sb-unix:pollin sb-unix:pollout)
                                         sb-unix:pollin))
                    (tty:waiting-add w (car (pane-wake pane)))
-                   (tty:wait-on w (let ((at (pane-look-at pane)))
-                                    (if at (max 0 (min 1000 (- at (now-ms)))) 1000)))
+                   (tty:wait-on w (pane-wait pane))
                    (when (tty:readable-p (tty:waiting-back w 1))
                      (drain-wake-pipe (pane-wake pane)))
                    (pane-jobs pane)
@@ -362,17 +426,26 @@ made now takes the next."
                      (when (and (pane-owing-p pane) (tty:writable-p back))
                        (pane-flush pane))
                      (when (tty:readable-p back)
-                       (unless (pane-drain pane)
-                         (setf (pane-ended pane) t)
-                         (pane-tell pane)
-                         (return))
-                       (setf (pane-moved-at pane) (now-ms))
-                       (pane-show pane)
-                       (setf (pane-dirty pane) t)
-                       (pane-tell pane))
+                       (let ((drained (pane-drain-now pane)))
+                         (unless drained
+                           (setf (pane-ended pane) t)
+                           (pane-tell pane t)
+                           (return))
+                         (unless (eq drained :later)
+                           (setf (pane-changed pane) t
+                                 (pane-echoed pane) (pane-written-at pane)
+                                 (pane-moved-at pane) (now-ms)))))
+                     (when (and (pane-changed pane) (>= (monotonic-ns) (pane-show-due pane)))
+                       (if (pane-watched-p pane)
+                           (progn (setf (pane-changed pane) nil)
+                                  (pane-show pane)
+                                  (setf (pane-dirty pane) t)
+                                  (pane-tell pane))
+                           (pane-show-history pane)))
                      (let ((look (pane-look pane))
+                           (due (pane-look-due pane))
                            (ms (now-ms)))
-                       (when (and look (pane-due-p pane ms))
+                       (when (and look due (<= due ms))
                          (funcall look pane ms)))))
       (pane-jobs pane)
       (tty:free-waiting w))))
@@ -408,6 +481,7 @@ comes straight back, so one pane writing without pause cannot starve the rest."
              (setf *drain-chars* chars)
              (term:term-process-output (pane-term pane) chars count))
            (pane-scroll-settle pane)
+           (setf (pane-kept pane) (term:term-scrollback-size (pane-term pane)))
            (incf (pane-output pane) n)
            (decf most n)
            (setf (pane-dirty pane) t))))))
@@ -508,6 +582,7 @@ program has taken the whole screen is back at it."
           (sent (if (pane-owing-p pane)
                     0
                     (pty:pty-write-some (pane-fd pane) octets 0 end))))
+     (setf (pane-written-at pane) (monotonic-ns))
      (when (< sent end)
        (pane-owe pane octets sent end)))))
 

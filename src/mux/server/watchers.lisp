@@ -105,7 +105,7 @@
                   (watcher-behind watcher) nil
                   (watcher-seen watcher) version
                   (watcher-drawn watcher) shown)
-            (when (or (null echo) (>= (shown-at echo) (watcher-keyed-at watcher)))
+            (when (or (null echo) (>= (shown-echoed echo) (watcher-keyed-at watcher)))
               (setf (watcher-answered watcher) (watcher-keyed-at watcher)))
             (wire-flush wire)))))))
 
@@ -197,6 +197,7 @@
   (sb-ext:atomic-update (server-pending-watchers server) (lambda (all) (remove watcher all)))
   (setf (watcher-session watcher) session)
   (push watcher (session-watchers session))
+  (mapc #'pane-poke (session-panes session))
   ;; a fit that changed the size has already told everybody, this one included;
   ;; only a fit that changed nothing leaves it to be said here
   (setf (watcher-rung watcher) (loop :for pane :in (session-panes session) :sum (pane-rang pane)))

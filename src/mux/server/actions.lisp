@@ -322,7 +322,7 @@ new window when it is :new. Answers the pane."
                                            :directory (or directory (pane-directory focus)))))
                        (change-window session w
                                       (lambda (w) (setf (window-layout w) (layout-insert (window-layout w) focus :across it))))
-                       (pane-start it :environment (pane-environment session it) :woken (session-woken session) :look (session-look session))
+                       (session-start-pane session it)
                        it))
                     (t
                      ;; beside the focus, the way a split puts one, but running
@@ -335,7 +335,7 @@ new window when it is :new. Answers the pane."
                        (setf (session-layout session)
                              (layout-insert (session-layout session) focus :across it))
                        (session-compose session)
-                       (pane-start it :environment (pane-environment session it) :woken (session-woken session) :look (session-look session))
+                       (session-start-pane session it)
                        it)))
                  (session-focus (add-session server command :name name
                                              :directory directory)))))

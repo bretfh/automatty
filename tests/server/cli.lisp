@@ -83,7 +83,7 @@
   (with-stepped-server (server path)
     (let* ((session (mux:add-session server
                                      (format nil "printf '\\033[?2004h'; stty -echo; cat -v")
-                                     :name "work" :rows 6 :cols 60))
+                                     :name "work" :rows 12 :cols 60))
            (pane (mux:session-focus session))
            (wire (wire-to path)))
       (step-until server (lambda () (mux::with-term (term pane) (term:term-bracketed-paste term))))

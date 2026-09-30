@@ -46,7 +46,7 @@ server's notes for whoever attaches first."
            (dolist (session sessions)
              (session-compose session)
              (dolist (pane (session-panes session))
-               (pane-start pane :environment (pane-environment session pane) :woken (session-woken session) :look (session-look session))))
+               (session-start-pane session pane)))
            (sb-ext:atomic-update (server-sessions server) (lambda (all) (append all sessions)))
            (setf (server-had-sessions server) (or (server-had-sessions server) (and sessions t))
                  (server-tree-saved server) (encode-tree server))

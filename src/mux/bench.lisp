@@ -197,7 +197,7 @@
                (flet ((step-once ()
                         (let ((then (monotonic-ns)))
                           (setf *bench-waited* 0)
-                          (server-step server :most 5)
+                          (server-step server :most 1)
                           (vector-push-extend (- (monotonic-ns) then *bench-waited*) step-ns))
                         (incf (run-frames run) (raw-drain (wire-fd client) buffer))
                         (raw-drain (wire-fd typist) buffer)))
@@ -377,7 +377,7 @@ step_p50_ms,step_p99_ms,step_max_ms,key_p50_ms,key_p99_ms,key_max_ms,keys_lost,d
              (loop
                (let ((then (monotonic-ns)))
                  (setf *bench-waited* 0)
-                 (server-step server :most 5)
+                 (server-step server :most 1)
                  (vector-push-extend (- (monotonic-ns) then *bench-waited*) steps))
                (raw-drain (wire-fd client) buffer)
                (raw-drain (wire-fd typist) buffer)
