@@ -69,8 +69,9 @@
     (flet ((at (ns) (when (and ns (or (null due) (< ns due))) (setf due ns))))
       (when (and session (session-panes session) (watcher-interactive watcher))
         (at (watcher-clocked watcher))
-        (when (or (watcher-owed-p watcher)
-                  (not (equal (panes-shown session) (watcher-drawn watcher))))
+        (when (and (zerop (wire-pending (watcher-wire watcher)))
+                   (or (watcher-owed-p watcher)
+                       (not (equal (panes-shown session) (watcher-drawn watcher)))))
           (at (frame-due-at watcher (* (server-interval server) 1000000))))))
     due))
 
