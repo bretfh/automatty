@@ -168,10 +168,9 @@
   "Take WATCHER off whatever session it was on."
   (let ((session (watcher-session watcher)))
     (when session
-      (setf (session-watchers session)
-            (remove watcher (session-watchers session))
-            (session-readers session) (remove watcher (session-readers session))
-            (watcher-session watcher) nil)
+      (change-session session (lambda (s) (setf (state-watchers s) (remove watcher (state-watchers s)))))
+      (sb-ext:atomic-update (session-readers session) (lambda (all) (remove watcher all)))
+      (setf (watcher-session watcher) nil)
       (session-fit session))
     session))
 
@@ -196,7 +195,7 @@
   (leave-session watcher)
   (sb-ext:atomic-update (server-pending-watchers server) (lambda (all) (remove watcher all)))
   (setf (watcher-session watcher) session)
-  (push watcher (session-watchers session))
+  (change-session session (lambda (s) (push watcher (state-watchers s))))
   (mapc #'pane-poke (session-panes session))
   ;; a fit that changed the size has already told everybody, this one included;
   ;; only a fit that changed nothing leaves it to be said here

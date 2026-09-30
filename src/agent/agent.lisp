@@ -67,11 +67,13 @@
                                        :programs programs :paths paths))
 
 (defun said-event (agent event)
-  (setf (agent-events agent) (append (agent-events agent) (list event))))
+  (loop :for had := (slot-value agent 'events)
+        :until (eq had (sb-ext:compare-and-swap (slot-value agent 'events) had (append had (list event))))))
 
 (defun agent-take-events (agent)
-  (prog1 (agent-events agent)
-    (setf (agent-events agent) nil)))
+  (loop :for had := (slot-value agent 'events)
+        :until (eq had (sb-ext:compare-and-swap (slot-value agent 'events) had nil))
+        :finally (return had)))
 
 (defun begin-turn (agent)
   (setf (agent-in-turn agent) t

@@ -393,8 +393,6 @@ WATCHER when it could not be."
   "Whether WATCHER is reading its pane back, which the bar says for everybody."
   (let ((session (watcher-session watcher)))
     (when session
-      (setf (session-readers session)
-            (if readingp
-                (adjoin watcher (session-readers session))
-                (remove watcher (session-readers session))))
+      (sb-ext:atomic-update (session-readers session)
+                            (lambda (all) (if readingp (adjoin watcher all) (remove watcher all))))
       (dolist (w (session-watchers session)) (draw-again w)))))
