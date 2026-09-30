@@ -167,7 +167,7 @@
                                 (mux:wire-flush wire)
                                 (hear :ran)
                                 (is-true (step-until server (lambda ()
-                                                              (search "hello" (term:term-dump-to-string (mux:pane-term pane)))))
+                                                              (search "hello" (mux::with-term (term pane) (term:term-dump-to-string term)))))
                                          "the keys did not reach the pane")
                                 (mux:wire-send wire (list :run "agent read" (list "0:1.1" "3")))
                                 (mux:wire-flush wire)
@@ -193,7 +193,7 @@
                                                               (eq :idle (agent:agent-state (mux:pane-agent pane))))))
                                 (is (equal (list :agent-prompted "0" id t) (subseq (hear :agent-prompted) 0 4)))
                                 (is-true (step-until server (lambda ()
-                                                              (search "more" (term:term-dump-to-string (mux:pane-term pane)))))
+                                                              (search "more" (mux::with-term (term pane) (term:term-dump-to-string term)))))
                                          "the prompt did not reach the pane")
                                 (mux:wire-close wire))))))
 
@@ -572,7 +572,7 @@ not the one clicked on: ~S" (seen seer))
                                        "the pane that was kept stopped taking keys: ~S" (seen seer)))))
 
 (test an-answer-is-an-action-the-reader-knows-and-it-is-confirmed-on-the-screen
-  (let ((agent:*readers* nil))
+  (with-readers
     (agent:register-reader
      '(probe :programs ("probe") :title "^probe$" :versions ("1.0")
              :screens ((:asking :widget :choice :question "(?i)proceed\\?" :means :blocked
@@ -614,7 +614,7 @@ not the one clicked on: ~S" (seen seer))
             (mux:wire-close wire)))))))
 
 (test readers-loaded-into-a-running-server-are-taken-up-by-its-panes
-  (let ((agent:*readers* nil))
+  (with-readers
     (with-stepped-server (server path)
       (let* ((session (mux:add-session server "printf '\\033]0;latecomer\\007'; exec cat" :rows 6 :cols 20))
              (pane (first (mux:session-panes session)))
@@ -641,16 +641,16 @@ not the one clicked on: ~S" (seen seer))
       (with-stepped-server (server path)
                           (let* ((one (mux:add-session server "seq 1 3000; sleep 30" :name "one" :rows 10 :cols 20))
                                  (two (mux:add-session server "seq 1 3000; sleep 30" :name "two" :rows 10 :cols 20))
-                                 (terms (mapcar (lambda (s) (mux:pane-term (first (mux:session-panes s))))
+                                 (panes (mapcar (lambda (s) (first (mux:session-panes s)))
                                                 (list one two))))
                             (is-true (step-until server (lambda ()
-                                                          (every (lambda (term) (search "3000" (term:term-dump-to-string term)))
-                                                                 terms))))
+                                                          (every (lambda (pane) (search "3000" (dumped pane)))
+                                                                 panes))))
                             (let ((mux:+scrollback-budget+ 2000))
                               (is (<= (mux::trim-scrollback server) 2000))
-                              (dolist (term terms)
-                                (is (<= (term:term-scrollback-size term) 1000))
-                                (is (search "3000" (term:term-dump-to-string term))))))))
+                              (dolist (pane panes)
+                                (is (<= (mux::with-term (term pane) (term:term-scrollback-size term)) 1000))
+                                (is (search "3000" (dumped pane))))))))
 
 (test a-session-whose-program-cannot-start-is-said-to-whoever-asked-and-not-kept
       (with-stepped-server (server path)
@@ -687,13 +687,14 @@ not the one clicked on: ~S" (seen seer))
 
 (test what-a-program-is-not-reading-yet-waits-for-it-without-holding-the-server
       (with-session (session pane server "stty raw -echo; echo ready; sleep 1; head -c 200000 | wc -c")
-        (is-true (step-until server (lambda () (search "ready" (term:term-dump-to-string (mux:pane-term pane))))))
+        (is-true (step-until server (lambda () (search "ready" (mux::with-term (term pane) (term:term-dump-to-string term))))))
         (let ((start (get-internal-real-time)))
           (mux::pane-write pane (make-string 200000 :initial-element #\x))
           (is (< (- (get-internal-real-time) start) (floor internal-time-units-per-second 10))
               "writing to a program that was not reading waited for it")
-          (is-true (mux::pane-owing-p pane) "the terminal took all of it at once"))
-        (is-true (step-until server (lambda () (search "200000" (term:term-dump-to-string (mux:pane-term pane))))
+          (is-true (step-until server (lambda () (mux::pane-owing-p pane)) 1)
+                   "the terminal took all of it at once"))
+        (is-true (step-until server (lambda () (search "200000" (mux::with-term (term pane) (term:term-dump-to-string term))))
                              10)
                  "what was owed never all reached the program")
         (is-false (mux::pane-owing-p pane))))

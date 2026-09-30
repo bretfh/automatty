@@ -5,7 +5,7 @@
 
 (defun pane (said &key (rows 3) (cols 8))
   (let ((pane (mux:make-pane "true" :rows rows :cols cols)))
-    (term:term-process-output (mux:pane-term pane) said)
+    (mux::with-term (term pane) (term:term-process-output term said))
     pane))
 
 (defun laid (tree screen)
@@ -91,7 +91,7 @@
          (screen (tty:make-screen :width 44 :height 5))
          (tree (mux::layout-tree layout two)))
     (agent:agent-hear (mux:pane-agent two) :blocked)
-    (agent:agent-look (mux:pane-agent two) (mux:pane-term two) 0 nil)
+    (mux::with-term (term two) (agent:agent-look (mux:pane-agent two) term 0 nil))
     (setf tree (mux::layout-tree layout two))
     (laid tree screen)
     (destructuring-bind (frame-one frame-two) (atty/ui:parts tree)
@@ -189,7 +189,7 @@ but the last ROWS of them are behind the screen."
          (screen (tty:make-screen :width 8 :height 3)))
     (mux::pane-scroll-settle pane)
     (mux::pane-scroll-to pane 4)
-    (term:term-process-output (mux:pane-term pane) (format nil "~C~%ten~C~%eleven" #\Return #\Return))
+    (mux::with-term (term pane) (term:term-process-output term (format nil "~C~%ten~C~%eleven" #\Return #\Return)))
     (mux::pane-scroll-settle pane)
     (is (eql 6 (mux::pane-scrolled pane)) "two more rows went off the top")
     (laid v screen)
@@ -198,14 +198,14 @@ but the last ROWS of them are behind the screen."
 (test a-pane-at-the-foot-stays-at-the-foot
   (let ((pane (pane-with-history 10)))
     (mux::pane-scroll-settle pane)
-    (term:term-process-output (mux:pane-term pane) (format nil "~C~%ten" #\Return))
+    (mux::with-term (term pane) (term:term-process-output term (format nil "~C~%ten" #\Return)))
     (mux::pane-scroll-settle pane)
     (is (eql 0 (mux::pane-scrolled pane)))))
 
 (test a-program-with-the-whole-screen-has-nothing-behind-it
   (let ((pane (pane-with-history 10)))
     (mux::pane-scroll-to pane 4)
-    (term:term-process-output (mux:pane-term pane) (format nil "~C[?1049h" #\Escape))
+    (mux::with-term (term pane) (term:term-process-output term (format nil "~C[?1049h" #\Escape)))
     (mux::pane-scroll-settle pane)
     (is (eql 0 (mux::pane-history pane)))
     (is (eql 0 (mux::pane-scrolled pane)))))

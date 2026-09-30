@@ -29,7 +29,7 @@ so most of them are behind the screen."
 
 (defun rows-behind (pane)
   "Every scrollback row of PANE as (text . fg-of-first-cell), oldest first."
-  (let ((term (mux:pane-term pane)))
+  (mux::with-term (term pane)
     (loop :for i :below (term:term-scrollback-size term)
           :for row := (term:term-scrollback-row term i)
           :collect (cons (string-right-trim " " (term:row-chars row))
@@ -51,7 +51,7 @@ so most of them are behind the screen."
         (is (term:face-equal red (term:row-face back 4)))))))
 
 (defun shown-row (pane y)
-  (string-right-trim " " (term:term-dump-row-string (mux:pane-term pane) y)))
+  (string-right-trim " " (mux::with-term (term pane) (term:term-dump-row-string term y))))
 
 (test a-pane-comes-back-showing-what-it-showed-with-the-rule-under-it
   (with-state-home (dir)
@@ -62,7 +62,7 @@ so most of them are behind the screen."
       (setf form (mux:encode-pane pane now))
       (let ((back (mux:decode-pane form now)))
         (is (eql (mux:pane-id pane) (mux:pane-id back)))
-        (is (eql 12 (term:term-width (mux:pane-term back))))
+        (is (eql 12 (mux::with-term (term back) (term:term-width term))))
         (let ((rows (rows-behind back)))
           ;; nine were behind; the three shown and the rule are four lines on
           ;; a screen of three, so two more went behind on the way
@@ -74,15 +74,15 @@ so most of them are behind the screen."
         (is (equal "line 11" (shown-row back 0)) "the last line shown is not still shown")
         (is (search "restored" (shown-row back 1)) "no rule under it: ~S" (shown-row back 1))
         (is (equal "" (shown-row back 2)) "the program's first line has nowhere clean to go")
-        (is (eql 2 (term:term-cursor-y (mux:pane-term back))))
-        (is (eql 0 (term:term-cursor-x (mux:pane-term back))))
+        (is (eql 2 (mux::with-term (term back) (term:term-cursor-y term))))
+        (is (eql 0 (mux::with-term (term back) (term:term-cursor-x term))))
         (is (eql 0 (mux::pane-scrolled back)))
-        (is (eql (term:term-scrollback-pushed (mux:pane-term back))
+        (is (eql (mux::with-term (term back) (term:term-scrollback-pushed term))
                  (mux::pane-pushed-seen back)))))))
 
 (test a-pane-on-the-alt-screen-saves-its-main-screen-and-what-was-over-it
   (let ((pane (coloured-pane 5 :rows 3 :cols 8)))
-    (term:term-process-output (mux:pane-term pane) (format nil "~C[?1049hfull scr" #\Escape))
+    (mux::with-term (term pane) (term:term-process-output term (format nil "~C[?1049hfull scr" #\Escape)))
     (let* ((form (mux:encode-pane pane 100))
            (screen (getf (nthcdr 2 form) :screen))
            (over (getf (nthcdr 2 form) :over)))
@@ -206,8 +206,8 @@ it, a zoom in the third. Answers the first session."
       (let ((server (mux:make-server path)))
         (unwind-protect
              (let ((one (server-with-windows server)))
-               (term:term-process-output (mux:pane-term (mux:session-focus one))
-                                         (format nil "typed here~C~%and more" #\Return))
+               (mux::with-term (term (mux:session-focus one)) (term:term-process-output term
+                                         (format nil "typed here~C~%and more" #\Return)))
                (setf ids (mapcar #'mux:pane-id (mux:session-panes one)))
                (mux:save-all server))
           (mux:server-close server)))
@@ -222,7 +222,7 @@ it, a zoom in the third. Answers the first session."
                  (is (>= mux::*panes-made* (reduce #'max ids)))
                  (is (eql 2 (mux:window-number one (mux:session-window one))))
                  (let* ((pane (mux:session-focus one))
-                        (dump (term:term-dump-to-string (mux:pane-term pane)))
+                        (dump (mux::with-term (term pane) (term:term-dump-to-string term)))
                         (behind (mapcar #'car (rows-behind pane))))
                    ;; a pane three rows tall: the first line has gone behind
                    ;; by the time the rule is under the last

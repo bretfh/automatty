@@ -19,7 +19,7 @@
   (let* ((pane (find-pane server name id))
          (agent (and pane (pane-agent pane)))
          (reader (and agent (agent:agent-reader agent)))
-         (seen (and reader (agent:observe reader (pane-term pane))))
+         (seen (and reader (with-term (term pane) (agent:observe reader term))))
          (keys (and seen (agent:action-keys reader seen action argument))))
     (cond
      ((null pane) (send-message watcher (list :agent-acted name id action :gone)))
@@ -40,7 +40,7 @@
       (let ((deadline (+ (floor (monotonic-ns) 1000000) +action-timeout+
                          (* +enter-delay+ (length keys)))))
         (labels ((check ()
-                        (let ((now-seen (agent:observe reader (pane-term pane))))
+                        (let ((now-seen (with-term (term pane) (agent:observe reader term))))
                           (cond ((not (equal now-seen seen))
                                  (send-message watcher (list :agent-acted name id action :done
                                                              (getf now-seen :screen))))
@@ -67,7 +67,7 @@ that has since gone would land in whatever is there now. Answers t, or
 :gone, :not-blocked or :no-such-option."
   (let* ((pane (find-pane server name id))
          (agent (and pane (pane-agent pane)))
-         (asks (and pane (agent:agent-asks agent (pane-term pane))))
+         (asks (and pane (with-term (term pane) (agent:agent-asks agent term))))
          (outcome (cond ((null pane) :gone)
                         ((not (eq :blocked (agent:agent-state agent))) :not-blocked)
                         ((and asks (not (assoc n (getf asks :options)))) :no-such-option)
@@ -79,7 +79,7 @@ that has since gone would land in whatever is there now. Answers t, or
                      (if (eq outcome t) t :refused)))
     (when (eq outcome t)
       (let* ((reader (agent:agent-reader agent))
-             (seen (and reader (agent:observe reader (pane-term pane))))
+             (seen (and reader (with-term (term pane) (agent:observe reader term))))
              (keys (or (and seen (agent:action-keys reader seen :choose n))
                        (list (princ-to-string n)))))
         (loop :for chunk :in keys
@@ -139,16 +139,16 @@ it back when it already has it."
 
 (defun pane-row-count (pane)
   "How many rows PANE has all told: what is kept behind the screen and the screen."
-  (+ (pane-history pane) (term:term-height (pane-term pane))))
+  (+ (pane-history pane) (pane-height pane)))
 
 (defun pane-row-text (pane a)
   "Row A of PANE as a string, oldest kept row first, then the screen's."
-  (let* ((term (pane-term pane))
-         (kept (pane-history pane)))
-    (cond ((< a 0) "")
-          ((< a kept) (or (term:term-scrollback-row-string term a) ""))
-          ((< a (pane-row-count pane)) (term:term-dump-row-string term (- a kept)))
-          (t ""))))
+  (with-term (term pane)
+    (let ((kept (pane-history pane)))
+      (cond ((< a 0) "")
+            ((< a kept) (or (term:term-scrollback-row-string term a) ""))
+            ((< a (pane-row-count pane)) (term:term-dump-row-string term (- a kept)))
+            (t "")))))
 
 (declaim (ftype (function (pane) integer) pane-top-row))
 (defun pane-top-row (pane)
@@ -157,7 +157,7 @@ it back when it already has it."
 
 (defun pane-scroll-to-row (pane a)
   "Scroll PANE so row A is on the screen, near the middle."
-  (let ((height (term:term-height (pane-term pane))))
+  (let ((height (pane-height pane)))
     (pane-scroll-to pane (- (pane-history pane) a (- (floor height 2))))))
 
 (defun search-hits (pane query)
@@ -227,7 +227,7 @@ end of what is shown now, or the screen when nothing was marked."
          (pane (and session (session-focus session))))
     (when pane
       (let ((top (pane-top-row pane))
-            (height (term:term-height (pane-term pane))))
+            (height (pane-height pane)))
         (ecase (if (consp what) (first what) what)
                (:line
                 ;; (:line row): that one row, as it is
@@ -254,7 +254,7 @@ end of what is shown now, or the screen when nothing was marked."
   (let ((pane (find-pane server name id)))
     (show-note watcher (format nil "~A:~D" name id)
                (format nil "~{~A~%~}"
-                       (last (and pane (agent:last-lines (pane-term pane) 500))
+                       (last (and pane (with-term (term pane) (agent:last-lines term 500)))
                              (max 1 (- (watcher-rows watcher) 3))))
                :face :accent)))
 
@@ -264,7 +264,7 @@ entered a moment later. Refused, and answers :blocked, while it is asking
 something: a prompt then would be taken for the answer."
   (cond
    ((or (eq :blocked (agent:agent-state (pane-agent pane)))
-        (agent:screen-blocked-p (pane-term pane)))
+        (with-term (term pane) (agent:screen-blocked-p term)))
     (pane-push-log pane (now-ms) actor :prompt (summarize-text text) :refused)
     :blocked)
    (t (pane-push-log pane (now-ms) actor :prompt (summarize-text text))
@@ -275,7 +275,7 @@ something: a prompt then would be taken for the answer."
       ;; asked for, and decline to act on it: the field test saw exactly that.
       ;; More than one line is pasted, since a newline typed would send the
       ;; first line on its own.
-      (pane-write pane (if (and (term:term-bracketed-paste (pane-term pane))
+      (pane-write pane (if (and (with-term (term pane) (term:term-bracketed-paste term))
                                 (or (find-if (lambda (c) (member c '(#\Newline #\Return))) text)
                                     (and (agent:agent-reader (pane-agent pane))
                                          (not (agent:agent-submits-typed-p (pane-agent pane))))))
@@ -317,8 +317,8 @@ new window when it is :new. Answers the pane."
                      (let* ((w (session-nth-window session window))
                             (focus (window-focus w))
                             (it (make-pane command
-                                           :rows (term:term-height (pane-term focus))
-                                           :cols (term:term-width (pane-term focus))
+                                           :rows (pane-height focus)
+                                           :cols (pane-width focus)
                                            :directory (or directory (pane-directory focus)))))
                        (change-window session w
                                       (lambda (w) (setf (window-layout w) (layout-insert (window-layout w) focus :across it))))
@@ -329,8 +329,8 @@ new window when it is :new. Answers the pane."
                      ;; what it was asked to; the focus stays where somebody put it
                      (let* ((focus (session-focus session))
                             (it (make-pane command
-                                           :rows (term:term-height (pane-term focus))
-                                           :cols (term:term-width (pane-term focus))
+                                           :rows (pane-height focus)
+                                           :cols (pane-width focus)
                                            :directory (or directory (pane-directory focus)))))
                        (setf (session-layout session)
                              (layout-insert (session-layout session) focus :across it))

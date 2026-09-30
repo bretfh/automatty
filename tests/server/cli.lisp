@@ -86,13 +86,13 @@
                                      :name "work" :rows 6 :cols 60))
            (pane (mux:session-focus session))
            (wire (wire-to path)))
-      (step-until server (lambda () (term:term-bracketed-paste (mux:pane-term pane))))
+      (step-until server (lambda () (mux::with-term (term pane) (term:term-bracketed-paste term))))
       (say-to wire (list :agent-prompt "work" (mux:pane-id pane) "hello there"))
       (heard-from server wire :agent-prompted)
       (is-true (step-until server (lambda () (search "hello there"
-                                                     (term:term-dump-to-string (mux:pane-term pane))))))
-      (is (null (search "200~" (term:term-dump-to-string (mux:pane-term pane))))
-          "one line was pasted: ~S" (term:term-dump-to-string (mux:pane-term pane)))
+                                                     (mux::with-term (term pane) (term:term-dump-to-string term))))))
+      (is (null (search "200~" (mux::with-term (term pane) (term:term-dump-to-string term))))
+          "one line was pasted: ~S" (mux::with-term (term pane) (term:term-dump-to-string term)))
       (mux:wire-close wire))))
 
 (test bracketed-paste-follows-the-focused-pane-to-the-host
@@ -108,7 +108,7 @@
            (wire (wire-to path))
            (heard (heard-tags server wire)))
       (mux:session-add-window session "cat" nil nil)
-      (is-true (step-until server (lambda () (term:term-bracketed-paste (mux:pane-term a)))))
+      (is-true (step-until server (lambda () (mux::with-term (term a) (term:term-bracketed-paste term)))))
       (say-to wire (list :want "work") (list :attach 6 30 t))
       (funcall heard :hello)
       (is (equal (list :bracketed-paste t) (funcall heard :bracketed-paste))
@@ -121,7 +121,7 @@
       (is (equal (list :bracketed-paste t) (funcall heard :bracketed-paste)))
       ;; A turns it back off without the focus moving
       (say-to wire (list :keys (format nil "go~%")))
-      (is-true (step-until server (lambda () (not (term:term-bracketed-paste (mux:pane-term a))))))
+      (is-true (step-until server (lambda () (not (mux::with-term (term a) (term:term-bracketed-paste term))))))
       (is (equal (list :bracketed-paste nil) (funcall heard :bracketed-paste)))
       (mux:wire-close wire))))
 
@@ -133,8 +133,7 @@
       (say-to wire (list :want "work") (list :attach 10 30 t))
       (heard-from server wire :hello)
       (say-to wire (list :keys (format nil "hello~%")))
-      (is-true (step-until server (lambda () (search "hello" (term:term-dump-to-string
-                                                              (mux:pane-term pane))))))
+      (is-true (step-until server (lambda () (search "hello" (dumped pane)))))
       (is (null (find :bracketed-paste (heard-back wire) :key #'first))
           "a plain pane never asked for it; the host should never hear of it")
       (mux:wire-close wire))))

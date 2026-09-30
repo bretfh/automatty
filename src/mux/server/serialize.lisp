@@ -179,8 +179,8 @@ moment said as how long ago it was: the clock means nothing to another process."
 (defun encode-pane (pane now)
   "PANE as it goes to disk: what it ran and where, what it was called, its
 log, and every row it holds, oldest first, with the faces said once."
-  (let* ((term (pane-term pane))
-         (agent (pane-agent pane))
+  (with-term (term pane)
+   (let* ((agent (pane-agent pane))
          (faces (make-hash-table :test 'equal))
          (table (make-array 8 :adjustable t :fill-pointer 1 :initial-element nil))
          (kept (term:term-scrollback-size term))
@@ -215,7 +215,7 @@ log, and every row it holds, oldest first, with the faces said once."
           :behind behind
           :screen shown
           :over over
-          :modes (encode-modes (term:term-modes term)))))
+          :modes (encode-modes (term:term-modes term))))))
 
 (defun encode-modes (modes)
   (loop :for (key value) :on modes :by #'cddr
@@ -381,7 +381,7 @@ it could not be as it was."
   (let ((pane (make-pane (default-shell) :id id :rows rows :cols cols)))
     (write-rows-to-term (pane-term pane)
                (list (divider-row cols (format nil "restored; what it held is ~A" why))))
-    (setf (pane-pushed-seen pane) (term:term-scrollback-pushed (pane-term pane)))
+    (setf (pane-pushed-seen pane) (with-term (term pane) (term:term-scrollback-pushed term)))
     pane))
 
 ;;; The tree as data, and back.

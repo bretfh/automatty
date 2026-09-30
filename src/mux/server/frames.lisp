@@ -157,9 +157,9 @@ between them."
 (declaim (ftype (function (session pane t) list) frame-corners))
 (defun frame-corners (session pane focusp)
   "What PANE's header says at its left and right, and its footer."
+  (with-term (term pane)
   (let* ((agent (pane-agent pane))
          (state (agent:agent-state agent))
-         (term (pane-term pane))
          (now (now-ms))
          (asks (agent:agent-asks agent term))
          (width (term:term-width term))
@@ -224,4 +224,4 @@ between them."
                                              :face :state-blocked)
                               (atty/ui:label ""))
                           (pane-position pane))))
-          (t (pane-position pane))))))
+          (t (pane-position pane)))))))

@@ -20,14 +20,14 @@ while is drawn from.")
 (defun pane-activity (pane)
   "One line of what PANE is doing: what its agent says, or else, for a program
 nobody recognised, what is running in front, or the last thing on its screen."
-  (let ((agent (pane-agent pane))
-        (term (pane-term pane)))
-    (or (agent:agent-doing agent term)
-        (let ((front (first (pane-programs pane))))
-          (and front (not (member (program-name front) +shells+ :test #'string=))
-               front))
-        (let ((lines (agent:screen-lines term)))
-          (and lines (string-trim " " (first (last lines))))))))
+  (with-term (term pane)
+    (let ((agent (pane-agent pane)))
+      (or (agent:agent-doing agent term)
+          (let ((front (first (pane-programs pane))))
+            (and front (not (member (program-name front) +shells+ :test #'string=))
+                 front))
+          (let ((lines (agent:screen-lines term)))
+            (and lines (string-trim " " (first (last lines)))))))))
 
 (defun pane-driver (pane)
   "The pane whose agent verbs last acted on PANE, as its address, when the last
@@ -53,7 +53,7 @@ thing that acted on it was one."
           :known (agent:agent-known-p agent)
           :for (agent:agent-for agent now)
           :since-clock (agent:agent-since-clock agent)
-          :asks (agent:agent-asks agent (pane-term pane))
+          :asks (with-term (term pane) (agent:agent-asks agent term))
           :doing (pane-activity pane)
           :history (loop :for (ms state) :in (agent:agent-history agent)
                          :for age := (- now ms)
@@ -94,8 +94,8 @@ thing that acted on it was one."
 
 (defun pane-last-rows (pane n)
   "The last N rows of PANE's screen that have anything on them, as a screen."
-  (let* ((term (pane-term pane))
-         (w (term:term-width term))
+  (with-term (term pane)
+   (let* ((w (term:term-width term))
          (h (term:term-height term))
          (bottom (or (loop :for y :from (1- h) :downto 0
                            :unless (blank-row-p term y) :return y)
@@ -107,7 +107,7 @@ thing that acted on it was one."
       (let ((from (term:term-grid-row term (+ top i)))
             (into (tty:screen-row screen i)))
         (replace (term:row-chars into) (term:row-chars from))
-        (replace (term:row-faces into) (term:row-faces from))))))
+        (replace (term:row-faces into) (term:row-faces from)))))))
 
 ;;; Finding in a pane's history, and copying lines out of it. Rows are numbered
 ;;; from the oldest kept, so a hit has one address however far the pane is
@@ -175,15 +175,14 @@ the greyed suggestion in a prompt box is not something anybody typed."
 (defun pane-info (pane)
   "What PANE is running and how it was started: what its kind was decided from."
   (let* ((agent (pane-agent pane))
-         (reader (agent:agent-reader agent))
-         (term (pane-term pane)))
+         (reader (agent:agent-reader agent)))
     (list :kind (pane-kind pane)
           :programs (pane-programs pane)
           :group (pane-group pane)
           :command (pane-command pane)
           :directory (pane-directory pane)
           :pid (and (plusp (pane-pid pane)) (pane-pid pane))
-          :size (list (term:term-width term) (term:term-height term))
+          :size (list (pane-width pane) (pane-height pane))
           :version (agent:agent-version agent)
           :reader (and reader (agent:reader-name reader)))))
 

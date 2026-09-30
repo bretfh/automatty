@@ -241,7 +241,7 @@
                                                            (vector-push-extend (- now then) done)
                                                            t))
                                                        left))
-                                 (cond ((and sent-at (= want (term:term-cursor-x (pane-term typed))))
+                                 (cond ((and sent-at (= want (with-term (term typed) (term:term-cursor-x term))))
                                         (vector-push-extend (- now sent-at) key-ns)
                                         (setf sent-at nil
                                               next-key (+ now (* +bench-probe-gap+ 1000000))))
@@ -382,7 +382,7 @@ step_p50_ms,step_p99_ms,step_max_ms,key_p50_ms,key_p99_ms,key_max_ms,keys_lost,d
                (raw-drain (wire-fd client) buffer)
                (raw-drain (wire-fd typist) buffer)
                (let ((now (monotonic-ns)))
-                 (cond ((and sent-at (= want (term:term-cursor-x (pane-term typed))))
+                 (cond ((and sent-at (= want (with-term (term typed) (term:term-cursor-x term))))
                         (vector-push-extend (- now sent-at) keys)
                         (setf sent-at nil next-key (+ now 25000000)))
                        ((and (null sent-at) (>= now next-key))

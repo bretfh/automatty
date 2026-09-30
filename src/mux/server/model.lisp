@@ -350,6 +350,7 @@ on it are the whole of who may."
 brings back from disk is put in place first, so nobody sees half of it."
   (let ((server (%make-server :path path :born (monotonic-ns)
                               :waiting (tty:make-waiting 16))))
+    (tty:open-wake)
     (when listening (server-listen server))
     server))
 
@@ -385,7 +386,8 @@ becomes, rather than letting them go.")
     (dolist (pane (session-panes session))
       (if (and *handing-over* (server-successor server)
                (pane-started pane) (pane-running pane))
-          (push (list (pane-id pane) (pane-fd pane) (pane-pid pane)) *handoff*)
+          (progn (pane-stop pane)
+                 (push (list (pane-id pane) (pane-fd pane) (pane-pid pane)) *handoff*))
           (pane-close pane))))
   (setf (server-sessions server) nil
         (server-pending-watchers server) nil)

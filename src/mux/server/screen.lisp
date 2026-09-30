@@ -2,9 +2,6 @@
 
 (in-package #:atty)
 
-(defun session-pane-term (session)
-  (pane-term (session-focus session)))
-
 (defun session-reset-shadows (session)
   "The session is a different size. Nobody watching knows what is on their own
 screen any more, so every shadow goes and everybody is told the new size."
@@ -111,27 +108,29 @@ under it."
     (let ((pane (view-pane v))
           (rows (max 1 (atty/ui:height v)))
           (cols (max 1 (atty/ui:width v))))
-      (unless (and (= rows (term:term-height (pane-term pane)))
-                   (= cols (term:term-width (pane-term pane))))
+      (unless (and (= rows (pane-height pane))
+                   (= cols (pane-width pane)))
         (pane-resize pane rows cols)))))
 
 (defun place-cursor (session tree)
   "The cursor sits where the pane it belongs to says, moved to where that pane
 was put."
   (let* ((screen (session-screen session))
-         (v (view-of tree (session-focus session)))
-         (term (session-pane-term session)))
-    (setf (tty:screen-cursor-x screen)
-          (min (+ (if v (atty/ui:left v) 0) (term:term-cursor-x term))
-               (1- (tty:screen-width screen)))
-          (tty:screen-cursor-y screen)
-          (min (+ (if v (atty/ui:top v) 0) (term:term-cursor-y term))
-               (1- (tty:screen-height screen)))
-          ;; a pane being read back is not showing the line the cursor is on
-          (tty:screen-cursor-visible screen)
-          (and (zerop (pane-scrolled (session-focus session)))
-               (term:term-cursor-visible term))
-          (tty:screen-cursor-style screen) (term:term-cursor-style term))))
+         (v (view-of tree (session-focus session))))
+    (multiple-value-bind (x y visible style)
+        (with-term (term (session-focus session))
+          (values (term:term-cursor-x term) (term:term-cursor-y term)
+                  (term:term-cursor-visible term) (term:term-cursor-style term)))
+      (setf (tty:screen-cursor-x screen)
+            (min (+ (if v (atty/ui:left v) 0) x)
+                 (1- (tty:screen-width screen)))
+            (tty:screen-cursor-y screen)
+            (min (+ (if v (atty/ui:top v) 0) y)
+                 (1- (tty:screen-height screen)))
+            ;; a pane being read back is not showing the line the cursor is on
+            (tty:screen-cursor-visible screen)
+            (and (zerop (pane-scrolled (session-focus session))) visible)
+            (tty:screen-cursor-style screen) style))))
 
 (declaim (ftype (function (session) tty:screen) session-compose))
 (defun session-compose (session)

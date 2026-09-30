@@ -44,7 +44,7 @@ landed on a rule, does nothing."
   "Read PANE back by AMOUNT: a number of rows, further back when it is more than
 nought, or :page-up, :page-down, :half-up, :half-down, :top or :bottom."
   (when pane
-    (let ((rows (term:term-height (pane-term pane))))
+    (let ((rows (pane-height pane)))
       (case amount
         (:top (pane-scroll-to pane (pane-history pane)))
         (:bottom (pane-scroll-to pane 0))
@@ -59,15 +59,15 @@ nought, or :page-up, :page-down, :half-up, :half-down, :top or :bottom."
 it is in the pane's own rows and columns. Answers whether it wanted to know."
   (let* ((view (and (session-geometry session)
                     (view-of (session-geometry session) pane)))
-         (term (pane-term pane))
          (said (and view
                     (zerop (pane-scrolled pane))
-                    (apply #'term:mouse-report term kind
-                           (max 0 (min (1- (term:term-width term))
-                                       (- x (atty/ui:left view))))
-                           (max 0 (min (1- (term:term-height term))
-                                       (- y (atty/ui:top view))))
-                           keys))))
+                    (with-term (term pane)
+                      (apply #'term:mouse-report term kind
+                             (max 0 (min (1- (term:term-width term))
+                                         (- x (atty/ui:left view))))
+                             (max 0 (min (1- (term:term-height term))
+                                         (- y (atty/ui:top view))))
+                             keys)))))
     (when said
       (pane-write pane said)
       t)))
@@ -82,7 +82,6 @@ its pane read back. With shift held it is always the pane that is read back,
 and so it is over the scrollbar, which is nobody's but the multiplexer's."
   (multiple-value-bind (pane hit) (pane-at session x y)
     (let* ((pane (or pane (session-focus session)))
-           (term (and pane (pane-term pane)))
            (sideways (member way '(:left :right)))
            (rows (if (eq way :up) +wheel-rows+ (- +wheel-rows+))))
       (when pane
@@ -99,9 +98,10 @@ and so it is over the scrollbar, which is nobody's but the multiplexer's."
                 (send-mouse-to-program session pane :wheel x y :wheel way
                                   :meta (and (member :meta mods) t)
                                   :ctrl (and (member :ctrl mods) t))))
-          ((term:term-in-alt-screen term)
-           (let ((key (term:key-event-to-escape-sequence
-                       term (list (if (eq way :up) :up :down)))))
+          ((with-term (term pane) (term:term-in-alt-screen term))
+           (let ((key (with-term (term pane)
+                        (term:key-event-to-escape-sequence
+                         term (list (if (eq way :up) :up :down))))))
              (dotimes (i +wheel-rows+) (pane-write pane key))))
           (t (pane-scroll-by pane rows)))))))
 
@@ -148,7 +148,7 @@ the release, wherever the pointer went in between."
                 ((nil))
                 (:thumb
                  (multiple-value-bind (from track) (scrollbar-track hit)
-                   (let ((top (scrollbar-thumb track (term:term-height (pane-term pane))
+                   (let ((top (scrollbar-thumb track (pane-height pane)
                                                (pane-history pane) (pane-scrolled pane))))
                      (setf (session-held session)
                            (list :thumb pane (- y from top))))))

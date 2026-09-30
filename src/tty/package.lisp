@@ -29,6 +29,8 @@
    #:hear-the-end
    #:wake-fd
    #:drain-wake
+   #:wake
+   #:open-wake
    #:stop-hearing-the-end
    #:+blanked+
    #:with-host

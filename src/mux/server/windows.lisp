@@ -15,11 +15,10 @@ COMMAND, or what the focus runs, where the focus is. It is the one shown,
 unless SHOW says not: a program spawning into a window of its own should not
 take whoever is attached away from what they were looking at."
   (let* ((focus (session-focus session))
-         (term (and focus (pane-term focus)))
          (pane (make-pane (or command (and focus (pane-command focus))
                               (server-command (session-server session)))
-                          :rows (if term (term:term-height term) (session-rows session))
-                          :cols (if term (term:term-width term) (session-cols session))
+                          :rows (if focus (pane-height focus) (session-rows session))
+                          :cols (if focus (pane-width focus) (session-cols session))
                           :directory (or directory (and focus (pane-directory focus)))))
          (window (%make-window :layout pane :focus pane))
          (current (session-window session)))
@@ -130,10 +129,9 @@ many of them are asking, and whether it is the one shown."
 (defun session-split (session way)
   "Another pane beside the one that has the cursor, running what that one runs."
   (let* ((focus (session-focus session))
-         (term (pane-term focus))
          (new (make-pane (pane-command focus)
-                         :rows (term:term-height term)
-                         :cols (term:term-width term)
+                         :rows (pane-height focus)
+                         :cols (pane-width focus)
                          :directory (pane-directory focus))))
     (change-window session (session-window session)
                    (lambda (w)

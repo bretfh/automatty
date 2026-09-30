@@ -26,7 +26,7 @@
     (let* ((session (mux:add-session server "printf 'one\\n\\033[31mtwo\\033[0m\\n'; sleep 30"
                                      :name "work" :rows 14 :cols 20))
            (pane (mux:session-focus session)))
-      (step-until server (lambda () (search "two" (term:term-dump-to-string (mux:pane-term pane)))))
+      (step-until server (lambda () (search "two" (mux::with-term (term pane) (term:term-dump-to-string term)))))
       (let ((screen (mux::pane-last-rows pane 2)))
         ;; three columns of the twenty are the frame's and the scrollbar's
         (is (eql 17 (tty:screen-width screen)))
@@ -51,8 +51,7 @@
       (let ((entry (first (mux::pane-log pane))))
         (is (eq :answer (third entry)))
         (is (equal '(:pane "todo:4") (second entry))))
-      (is-true (step-until server (lambda () (search "1" (term:term-dump-to-string
-                                                          (mux:pane-term pane)))))
+      (is-true (step-until server (lambda () (search "1" (dumped pane))))
                "the answer was not typed")
       (is (eql 1 (nth-value 1 (run-by-name server wire "agent answer" '("work:9999" "1")))))
       (mux:wire-close wire))))

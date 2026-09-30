@@ -38,9 +38,7 @@
         (say-to wire (list :open "here" "pwd -P; sleep 30" dir 10 60 t))
         (is-true (step-until server (lambda ()
                                       (let ((s (mux:session-named server "here")))
-                                        (and s (search dir (term:term-dump-to-string
-                                                            (mux:pane-term
-                                                             (mux:session-focus s)))))))))
+                                        (and s (search dir (dumped (mux:session-focus s))))))))
         (mux:wire-close wire)))))
 
 (test stopping-one-session-leaves-the-others-and-moves-whoever-watched-it

@@ -64,7 +64,12 @@
   (decoder (term:make-decoder))
   (outbox nil :type (or null (simple-array (unsigned-byte 8) (*))))
   (out-start 0 :type fixnum)
-  (out-end 0 :type fixnum))
+  (out-end 0 :type fixnum)
+  (thread nil)
+  (inbox nil)
+  (wake nil)
+  (stopping nil)
+  (ended nil))
 
 (defun pane-roll-pulse (pane now state)
   "Bring PANE's pulse up to NOW, in milliseconds: a fresh cell for every
@@ -194,7 +199,12 @@ made now takes the next."
 (defun pane-start (pane &key environment)
   "Run the pane's program on a terminal of its own, the size the pane is now."
   (unless (or (pane-started pane) (pane-failed pane))
-    (let ((term (pane-term pane)))
+    (pane-open pane environment)
+    (when (pane-started pane) (pane-run pane)))
+  pane)
+
+(defun pane-open (pane environment)
+  (let ((term (pane-term pane)))
       (handler-case
           (multiple-value-bind (fd pid)
               (pty:spawn-pty-process (pane-command pane)
@@ -207,7 +217,112 @@ made now takes the next."
         (error (e)
           (setf (pane-running pane) nil
                 (pane-failed pane) (format nil "~A could not start: ~A" (pane-command pane) e))))))
-  pane)
+
+(defun open-wake-pipe ()
+  (multiple-value-bind (in out) (sb-posix:pipe)
+    (dolist (fd (list in out))
+      (pty:nonblocking (pty:close-on-exec fd)))
+    (cons in out)))
+
+(defun close-wake-pipe (wake)
+  (when wake
+    (ignore-errors (sb-posix:close (car wake)))
+    (ignore-errors (sb-posix:close (cdr wake)))))
+
+(defvar *poke-octet* (make-array 1 :element-type '(unsigned-byte 8) :initial-element 1))
+
+(defun pane-poke (pane)
+  (let ((wake (pane-wake pane)))
+    (when wake
+      (sb-sys:with-pinned-objects (*poke-octet*)
+        (sb-unix:unix-write (cdr wake) *poke-octet* 0 1)))))
+
+(defun pane-post (pane job)
+  (sb-ext:atomic-push job (pane-inbox pane))
+  (pane-poke pane))
+
+(defun pane-thread-p (pane)
+  (let ((thread (pane-thread pane)))
+    (and thread (not (eq thread sb-thread:*current-thread*)) (sb-thread:thread-alive-p thread))))
+
+(declaim (ftype (function (pane function &key (:wait t)) t) on-pane))
+(defun on-pane (pane job &key (wait t))
+  (cond ((not (pane-thread-p pane)) (funcall job))
+        ((not wait) (pane-post pane job) nil)
+        (t (let ((done (sb-thread:make-semaphore))
+                 (said nil)
+                 (broke nil))
+             (pane-post pane (lambda ()
+                               (unwind-protect
+                                    (handler-case (setf said (multiple-value-list (funcall job)))
+                                      (serious-condition (c) (setf broke c)))
+                                 (sb-thread:signal-semaphore done))))
+             (loop :until (sb-thread:wait-on-semaphore done :timeout 1)
+                   :unless (pane-thread-p pane)
+                     :do (return (setf said (multiple-value-list (funcall job)))))
+             (when broke (error broke))
+             (values-list said)))))
+
+(defmacro with-term ((term pane) &body body)
+  (let ((it (gensym "PANE")))
+    `(let ((,it ,pane))
+       (on-pane ,it (lambda () (let ((,term (pane-term ,it))) ,@body))))))
+
+(defun pane-jobs (pane)
+  (let ((jobs (loop :for had := (pane-inbox pane)
+                    :until (eq had (sb-ext:compare-and-swap (pane-inbox pane) had nil))
+                    :finally (return had))))
+    (dolist (job (reverse jobs))
+      (funcall job))))
+
+(defun pane-run (pane)
+  (setf (pane-wake pane) (open-wake-pipe)
+        (pane-stopping pane) nil
+        (pane-thread pane)
+        (sb-thread:make-thread
+         (lambda ()
+           (let ((*drain-octets* nil)
+                 (*drain-chars* (make-string 0))
+                 (w (tty:make-waiting 2))
+                 (drained (make-array 64 :element-type '(unsigned-byte 8))))
+             (unwind-protect
+                  (loop :until (pane-stopping pane)
+                        :do (tty:waiting-clear w)
+                            (tty:waiting-add w (pane-fd pane)
+                                             (if (pane-owing-p pane)
+                                                 (logior sb-unix:pollin sb-unix:pollout)
+                                                 sb-unix:pollin))
+                            (tty:waiting-add w (car (pane-wake pane)))
+                            (tty:wait-on w 1000)
+                            (when (tty:readable-p (tty:waiting-back w 1))
+                              (sb-sys:with-pinned-objects (drained)
+                                (loop :while (let ((n (sb-unix:unix-read (car (pane-wake pane))
+                                                                         (sb-sys:vector-sap drained) 64)))
+                                               (and n (plusp n))))))
+                            (pane-jobs pane)
+                            (let ((back (tty:waiting-back w 0)))
+                              (when (and (pane-owing-p pane) (tty:writable-p back))
+                                (pane-flush pane))
+                              (when (tty:readable-p back)
+                                (unless (pane-drain pane)
+                                  (setf (pane-ended pane) t)
+                                  (tty:wake)
+                                  (return))
+                                (setf (pane-moved-at pane) (now-ms))
+                                (tty:wake))))
+               (pane-jobs pane)
+               (tty:free-waiting w))))
+         :name (format nil "atty pane ~D" (pane-id pane)))))
+
+(defun pane-stop (pane)
+  (let ((thread (pane-thread pane)))
+    (when (and thread (not (eq thread sb-thread:*current-thread*)))
+      (setf (pane-stopping pane) t)
+      (pane-poke pane)
+      (sb-thread:join-thread thread :default nil :timeout 5))
+    (setf (pane-thread pane) nil)
+    (close-wake-pipe (pane-wake pane))
+    (setf (pane-wake pane) nil)))
 
 (defvar *drain-octets* nil)
 (defvar *drain-chars* (make-string 0))
@@ -242,21 +357,26 @@ comes straight back, so one pane writing without pause cannot starve the rest."
 ;;; It is the pane's and not the client's, the way the focus and the zoom are:
 ;;; everybody attached is looking at the same pane.
 
+(defun pane-height (pane) (with-term (term pane) (term:term-height term)))
+(defun pane-width (pane) (with-term (term pane) (term:term-width term)))
+
 (defun pane-history (pane)
   "How many rows there are behind PANE's screen to scroll back into. A program
 that has the whole screen to itself has none: what it draws never scrolls off."
-  (let ((term (pane-term pane)))
+  (with-term (term pane)
     (if (term:term-in-alt-screen term) 0 (term:term-scrollback-size term))))
 
 (defun pane-scroll-to (pane back)
   "Show PANE from BACK rows behind its screen, or as near as there is. Answers
 whether that moved it."
-  (let ((back (max 0 (min (pane-history pane) back))))
-    (unless (= back (pane-scrolled pane))
-      (setf (pane-scrolled pane) back
-            (pane-scrolled-at pane) (now-ms)
-            (pane-dirty pane) t)
-      t)))
+  (on-pane pane
+           (lambda ()
+             (let ((back (max 0 (min (pane-history pane) back))))
+               (unless (= back (pane-scrolled pane))
+                 (setf (pane-scrolled pane) back
+                       (pane-scrolled-at pane) (now-ms)
+                       (pane-dirty pane) t)
+                 t)))))
 
 (defun pane-scroll-by (pane rows)
   "ROWS further back, or nearer when it is negative."
@@ -310,23 +430,28 @@ program has taken the whole screen is back at it."
 (defun pane-write (pane said)
   (when (and (pane-running pane) (pane-started pane))
     (setf (pane-typed-at pane) (now-ms))
-    (ignore-errors
-     (let* ((octets (sb-ext:string-to-octets said :external-format :latin-1))
-            (end (length octets))
-            (sent (if (pane-owing-p pane)
-                      0
-                      (pty:pty-write-some (pane-fd pane) octets 0 end))))
-       (when (< sent end)
-         (pane-owe pane octets sent end))))))
+    (on-pane pane (lambda () (pane-send pane said)) :wait nil)))
+
+(defun pane-send (pane said)
+  (ignore-errors
+   (let* ((octets (sb-ext:string-to-octets said :external-format :latin-1))
+          (end (length octets))
+          (sent (if (pane-owing-p pane)
+                    0
+                    (pty:pty-write-some (pane-fd pane) octets 0 end))))
+     (when (< sent end)
+       (pane-owe pane octets sent end)))))
 
 (defun pane-resize (pane rows cols)
-  (term:term-resize (pane-term pane) cols rows)
-  (ignore-errors (pty:pty-set-size (pane-fd pane) rows cols))
-  (setf (pane-scrolled pane) (min (pane-scrolled pane) (pane-history pane))
-        (pane-dirty pane) t)
+  (on-pane pane (lambda ()
+                  (term:term-resize (pane-term pane) cols rows)
+                  (ignore-errors (pty:pty-set-size (pane-fd pane) rows cols))
+                  (setf (pane-scrolled pane) (min (pane-scrolled pane) (pane-history pane))
+                        (pane-dirty pane) t)))
   pane)
 
 (defun pane-close (pane)
+  (pane-stop pane)
   (setf (pane-running pane) nil)
   (when (pane-started pane)
     (ignore-errors (pty:pty-close (pane-fd pane)))

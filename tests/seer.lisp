@@ -371,8 +371,13 @@ built from ROWS, with ROWS what the overlays are told of its panes."
     (let ((mux:*client* watcher)) (mux:draw-overlay b screen))
     (values (format nil "~{~A~%~}" (loop :for y :below rows :collect (shown screen y))) screen)))
 
+(defmacro with-readers (&body body)
+  `(let ((was agent:*readers*))
+     (unwind-protect (progn (setf agent:*readers* nil) ,@body)
+       (setf agent:*readers* was))))
+
 (defun dumped (pane)
-  (term:term-dump-to-string (mux:pane-term pane)))
+  (mux::with-term (term pane) (term:term-dump-to-string term)))
 
 (defmacro with-session ((session pane server command &key (rows 15) (cols 30)) &body body)
   "One session of one pane running COMMAND on a server stepped by hand, laid

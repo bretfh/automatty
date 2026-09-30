@@ -77,7 +77,7 @@
         (now (now-ms)))
     (if (null pane)
         (values nil nil nil)
-        (multiple-value-bind (seen rows) (agent:agent-explain (pane-agent pane) (pane-term pane))
+        (multiple-value-bind (seen rows) (with-term (term pane) (agent:agent-explain (pane-agent pane) term))
           (values (list (agent:agent-state (pane-agent pane)) seen rows)
                   (pane-info pane)
                   (mapcar (lambda (e) (encode-log-entry e now))

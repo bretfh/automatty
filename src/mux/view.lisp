@@ -72,7 +72,7 @@ one found changed."
   (let* ((pane (view-pane w))
          (top (atty/ui:top w)) (left (atty/ui:left w))
          (height (atty/ui:height w)) (width (atty/ui:width w)))
-    (atty/cells:blit m (pane-term pane) left top width height (pane-scrolled pane))
+    (with-term (term pane) (atty/cells:blit m term left top width height (pane-scrolled pane)))
     (ground-blanks m left top width height (pane-ground (view-focus-p w)))
     ;; what a find found, and what is being selected, over the top: a hit is
     ;; lit where it is, the one gone to brightest, and selected rows are shaded
@@ -130,11 +130,11 @@ widgets already use, just answering with itself rather than an action to run."
     (- (pane-history pane) (pane-scrolled pane))))
 
 (defmethod rail-extent-of ((r scrollbar))
-  (term:term-height (pane-term (view-pane r))))
+  (pane-height (view-pane r)))
 
 (defmethod rail-total-of ((r scrollbar))
   (let ((pane (view-pane r)))
-    (+ (pane-history pane) (term:term-height (pane-term pane)))))
+    (+ (pane-history pane) (pane-height pane))))
 
 (defmethod rail-thumb-face ((r scrollbar))
   (if (plusp (pane-scrolled (view-pane r))) :scroll-thumb-back :scroll-thumb))

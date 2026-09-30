@@ -141,14 +141,14 @@
          (pane (address-pane (first words)))
          (n (or (and (second words) (parse-integer (second words) :junk-allowed t)) 24)))
     (dolist (line (if (flag-p args "--plain")
-                      (plain-lines (pane-term pane) n)
-                      (agent:last-lines (pane-term pane) n)))
+                      (with-term (term pane) (plain-lines term n))
+                      (with-term (term pane) (agent:last-lines term n))))
       (format t "~&~A~%" line))))
 
 (defcommand (agent-explain :unlisted) (address)
   "which rule says what the pane is doing"
   (let ((pane (address-pane address)))
-    (multiple-value-bind (seen rows) (agent:agent-explain (pane-agent pane) (pane-term pane))
+    (multiple-value-bind (seen rows) (with-term (term pane) (agent:agent-explain (pane-agent pane) term))
       (format t "~&~(~A~); the screen says ~(~A~)~%" (agent:agent-state (pane-agent pane)) seen)
       (dolist (row rows)
         (destructuring-bind (id widget means won found) row
@@ -172,7 +172,7 @@
 
 (defcommand (agent-snapshot :unlisted) (address)
   "the pane's screen, cells and faces, as data"
-  (agent:write-snapshot (agent:snapshot (pane-term (address-pane address))) *standard-output*))
+  (agent:write-snapshot (with-term (term (address-pane address)) (agent:snapshot term)) *standard-output*))
 
 (defcommand (agent-say :unlisted) (address keys)
   "raw keys into the pane, \\r for enter"
@@ -194,7 +194,7 @@
   (let* ((pane (address-pane address))
          (agent (pane-agent pane))
          (reader (agent:agent-reader agent))
-         (seen (and reader (agent:observe reader (pane-term pane))))
+         (seen (and reader (with-term (term pane) (agent:observe reader term))))
          (kind (agent:agent-kind agent)))
     (format t "~&~A~@[ ~A~]~:[, with no reader of its own for this version~;~]  ~(~A~)~%"
             kind (agent:agent-version agent)
