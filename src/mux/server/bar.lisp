@@ -76,7 +76,7 @@ asking. The one shown is a pill on the ground of the panes. A click shows it."
          (panes (window-panes window))
          (asking (count :blocked panes :key (lambda (p) (agent:agent-state (pane-agent p)))))
          (worst (window-worst window))
-         (shown (eq window (session-window session)))
+         (shown (same-window-p window (session-window session)))
          ;; an unnamed window goes by its first pane, which does not change
          ;; as the focus moves about in it, and by what somebody called it or
          ;; what it runs, never the title its program set

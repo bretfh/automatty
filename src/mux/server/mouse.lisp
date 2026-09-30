@@ -13,8 +13,7 @@ landed on a rule, does nothing."
     (cond
       ((and (typep hit 'bar-button) (eq (bar-button-runs hit) :cycle-search-kind))
        (setf (session-field-kind session)
-             (mod (1+ (session-field-kind session)) (length +palette-prefixes+)))
-       (dolist (w (session-watchers session)) (setf (watcher-behind w) t)))
+             (mod (1+ (session-field-kind session)) (length +palette-prefixes+))))
       ((typep hit 'bar-button)
        (let ((runs (bar-button-runs hit)))
          (if (functionp runs)

@@ -236,8 +236,7 @@ watching blocked windows)."
 (defcommand (toggle-scrollbars :group scrolling) ()
   "the scrollbar column off or on, for the programs"
   (let ((session (here)))
-    (setf (session-scrollbars-p session) (not (session-scrollbars-p session)))
-    (dolist (w (session-watchers session)) (setf (watcher-behind w) t))))
+    (setf (session-scrollbars-p session) (not (session-scrollbars-p session)))))
 
 (defcommand (reload-init :group asking) ()
   "have the server read the init file again"

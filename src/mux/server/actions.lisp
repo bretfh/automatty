@@ -135,8 +135,7 @@ it back when it already has it."
          (pane (and session (session-focus session))))
     (when pane
       (setf (session-zoomed session)
-            (if (eq pane (session-zoomed session)) nil pane))
-      (dolist (w (session-watchers session)) (setf (watcher-behind w) t)))))
+            (if (eq pane (session-zoomed session)) nil pane)))))
 
 (defun pane-row-count (pane)
   "How many rows PANE has all told: what is kept behind the screen and the screen."
@@ -313,7 +312,7 @@ new window when it is :new. Answers the pane."
                     ((eq window :new)
                      (window-focus (session-add-window session command directory nil)))
                     ((and (integerp window) (session-nth-window session window)
-                          (not (eq (session-nth-window session window) (session-window session))))
+                          (not (same-window-p (session-nth-window session window) (session-window session))))
                      ;; beside the focus of that window, without showing it
                      (let* ((w (session-nth-window session window))
                             (focus (window-focus w))
@@ -321,7 +320,8 @@ new window when it is :new. Answers the pane."
                                            :rows (term:term-height (pane-term focus))
                                            :cols (term:term-width (pane-term focus))
                                            :directory (or directory (pane-directory focus)))))
-                       (setf (window-layout w) (layout-insert (window-layout w) focus :across it))
+                       (change-window session w
+                                      (lambda (w) (setf (window-layout w) (layout-insert (window-layout w) focus :across it))))
                        (pane-start it :environment (pane-environment session it))
                        it))
                     (t
@@ -340,7 +340,6 @@ new window when it is :new. Answers the pane."
                  (session-focus (add-session server command :name name
                                              :directory directory)))))
     (when label (setf (pane-label pane) label))
-    (dolist (w (session-watchers (session-named server name))) (setf (watcher-behind w) t))
     pane))
 
 (defun go-to (watcher name &optional n)

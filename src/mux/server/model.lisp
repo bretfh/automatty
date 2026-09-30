@@ -39,6 +39,7 @@ command line."
   (shadow nil)
   (told nil)
   (behind t :type boolean)
+  (seen -1 :type fixnum)
   (sent 0 :type fixnum)
   (interactive nil :type boolean)
   (id (incf *watcher-count*) :type fixnum)
@@ -64,31 +65,108 @@ command line."
 ;;; windows in order and shows one of them, the way tmux does, and a client on
 ;;; the session sees whichever window it is showing.
 
+(defvar *windows-made* (list 0))
+
 (defstruct (window (:constructor %make-window))
+  (id (sb-ext:atomic-incf (car *windows-made*)) :type fixnum)
   (label nil)
   (layout nil)
   (focus nil)
   (zoomed nil))
 
-(defstruct (session (:constructor %make-session))
+(defstruct (session-state (:conc-name state-) (:copier copy-state))
   (name "0")
-  (socket nil)
   (windows nil)
   (window nil)
-  (screen nil)
-  (geometry nil)
-  (composed-at 0 :type integer)
   (bar-p t)
   (rail-p t)
   (field-kind 0 :type fixnum)
-  (watchers nil)
-  (clocked 0 :type integer)
+  (scrollbars-p t)
   (rows 24 :type fixnum)
   (cols 80 :type fixnum)
-  (scrollbars-p t)
+  (watchers nil)
+  (version 0 :type fixnum))
+
+(defstruct (session (:constructor %new-session))
+  (now (make-session-state))
+  (socket nil)
+  (screen nil)
+  (geometry nil)
+  (composed-at 0 :type integer)
+  (clocked 0 :type integer)
   (held nil)
   (readers nil)
   (server nil))
+
+(defun %make-session (&key (name "0") windows window (bar-p t) (rail-p t) (field-kind 0)
+                        (scrollbars-p t) (rows 24) (cols 80) watchers
+                        socket screen geometry held readers server)
+  (%new-session :now (make-session-state :name name :windows windows
+                                           :window (or window (first windows))
+                                           :bar-p bar-p :rail-p rail-p :field-kind field-kind
+                                           :scrollbars-p scrollbars-p :rows rows :cols cols
+                                           :watchers watchers)
+                :socket socket :screen screen :geometry geometry
+                :held held :readers readers :server server))
+
+(declaim (ftype (function (session function) session-state) change-session))
+(defun change-session (session change)
+  (loop
+    (let* ((was (session-now session))
+           (now (copy-state was)))
+      (funcall change now)
+      (setf (state-version now) (1+ (state-version was)))
+      (when (eq was (sb-ext:compare-and-swap (session-now session) was now))
+        (return now)))))
+
+(defun session-version (session) (state-version (session-now session)))
+
+(macrolet ((kept (name slot)
+             `(progn
+                (defun ,name (session) (,slot (session-now session)))
+                (defun (setf ,name) (new session)
+                  (change-session session (lambda (s) (setf (,slot s) new)))
+                  new))))
+  (kept session-name state-name)
+  (kept session-windows state-windows)
+  (kept session-bar-p state-bar-p)
+  (kept session-rail-p state-rail-p)
+  (kept session-field-kind state-field-kind)
+  (kept session-scrollbars-p state-scrollbars-p)
+  (kept session-rows state-rows)
+  (kept session-cols state-cols)
+  (kept session-watchers state-watchers))
+
+(defun same-window-p (a b)
+  (and a b (= (window-id a) (window-id b))))
+
+(defun session-window (session) (state-window (session-now session)))
+(defun (setf session-window) (window session)
+  (change-session session
+                  (lambda (s)
+                    (setf (state-window s)
+                          (find (window-id window) (state-windows s) :key #'window-id))))
+  window)
+
+(defun window-now (session window)
+  (and window (find (window-id window) (session-windows session) :key #'window-id)))
+
+(declaim (ftype (function (session window function) session-state) change-window))
+(defun change-window (session window change)
+  (let ((id (window-id window)))
+    (change-session session
+                    (lambda (s)
+                      (let ((windows (mapcar (lambda (w)
+                                               (if (= id (window-id w))
+                                                   (let ((new (copy-window w)))
+                                                     (funcall change new)
+                                                     new)
+                                                   w))
+                                             (state-windows s))))
+                        (setf (state-windows s) windows
+                              (state-window s) (and (state-window s)
+                                                    (find (window-id (state-window s)) windows
+                                                          :key #'window-id))))))))
 
 ;;; The layout, the focus and the zoom are the current window's. They read and
 ;;; set as they always did, so everything that works on what is on screen
@@ -96,19 +174,22 @@ command line."
 
 (defun session-layout (session) (window-layout (session-window session)))
 (defun (setf session-layout) (new session)
-  (setf (window-layout (session-window session)) new))
+  (change-window session (session-window session) (lambda (w) (setf (window-layout w) new)))
+  new)
 (defun session-focus (session) (window-focus (session-window session)))
 (defun (setf session-focus) (new session)
-  (setf (window-focus (session-window session)) new))
+  (change-window session (session-window session) (lambda (w) (setf (window-focus w) new)))
+  new)
 (defun session-zoomed (session) (window-zoomed (session-window session)))
 (defun (setf session-zoomed) (new session)
-  (setf (window-zoomed (session-window session)) new))
+  (change-window session (session-window session) (lambda (w) (setf (window-zoomed w) new)))
+  new)
 
 (defun window-panes (window) (layout-panes (window-layout window)))
 
 (defun window-number (session window)
   "Which window WINDOW is in SESSION, counting from 1, as the bar and an address say it."
-  (let ((at (position window (session-windows session))))
+  (let ((at (position (window-id window) (session-windows session) :key #'window-id)))
     (and at (1+ at))))
 
 (defun window-of (session pane)

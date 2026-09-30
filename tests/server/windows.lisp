@@ -30,7 +30,7 @@
   (with-session (session pane server "cat")
     (let* ((second (mux:session-add-window session "cat"))
            (beside (mux::session-split session :across)))
-      (is (eql 2 (length (mux:window-panes second))))
+      (is (eql 2 (length (mux:window-panes (mux::window-now session second)))))
       (is (eql 1 (length (mux:window-panes (first (mux:session-windows session))))))
       (is (eql 2 (mux:pane-number session beside)))
       (is (equal "work:2.2" (mux:pane-address-of session beside)))

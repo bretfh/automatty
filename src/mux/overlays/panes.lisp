@@ -79,7 +79,7 @@ program. Not its title: a shell's title is a path nobody wants forty of."
                :for n :from 1
                :collect (list n (window-label w) (encode-layout (window-layout w))
                               (and (window-focus w) (pane-id (window-focus w)))
-                              (eq w (session-window it)))))))
+                              (same-window-p w (session-window it)))))))
 
 (defun panes-in-tree (tree)
   (cond ((null tree) nil)

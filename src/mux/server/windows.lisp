@@ -5,10 +5,9 @@
 (defun session-show-window (session window)
   "WINDOW is the one SESSION shows. Everybody watching is redrawn, and the
 panes are fitted to the room when it is next composed."
-  (unless (eq window (session-window session))
+  (unless (same-window-p window (session-window session))
     (setf (session-window session) window)
-    (dolist (pane (window-panes window)) (setf (pane-dirty pane) t))
-    (dolist (w (session-watchers session)) (setf (watcher-behind w) t))))
+    (dolist (pane (window-panes window)) (setf (pane-dirty pane) t))))
 
 (defun session-add-window (session &optional command directory (show t))
   "Another window in SESSION, after the current one, with one pane running
@@ -23,14 +22,19 @@ take whoever is attached away from what they were looking at."
                           :cols (if term (term:term-width term) (session-cols session))
                           :directory (or directory (and focus (pane-directory focus)))))
          (window (%make-window :layout pane :focus pane))
-         (at (position (session-window session) (session-windows session))))
-    (setf (session-windows session)
-          (append (subseq (session-windows session) 0 (1+ (or at -1)))
-                  (list window)
-                  (subseq (session-windows session) (1+ (or at -1)))))
-    (if show
-        (progn (session-show-window session window) (session-compose session))
-        (dolist (w (session-watchers session)) (setf (watcher-behind w) t)))
+         (current (session-window session)))
+    (change-session session
+                    (lambda (s)
+                      (let* ((windows (state-windows s))
+                             (at (and current (position (window-id current) windows
+                                                        :key #'window-id))))
+                        (setf (state-windows s)
+                              (append (subseq windows 0 (1+ (or at -1)))
+                                      (list window)
+                                      (subseq windows (1+ (or at -1))))))))
+    (when show
+      (session-show-window session window)
+      (session-compose session))
     (pane-start pane :environment (pane-environment session pane))
     (run-hook 'pane-started session pane)
     window))
@@ -47,7 +51,7 @@ take whoever is attached away from what they were looking at."
 (defun session-cycle-window (session by)
   "The window BY after the current one, round the end."
   (let* ((windows (session-windows session))
-         (at (position (session-window session) windows)))
+         (at (position (window-id (session-window session)) windows :key #'window-id)))
     (when (rest windows)
       (session-show-window session (nth (mod (+ at by) (length windows)) windows)))
     (session-window session)))
@@ -56,13 +60,18 @@ take whoever is attached away from what they were looking at."
   "WINDOW is gone from SESSION; if it was shown, the one before it is, or the
 one after. The last window stays, empty, which is a session that is over."
   (let* ((windows (session-windows session))
-         (at (position window windows))
-         (left (remove window windows)))
+         (at (position (window-id window) windows :key #'window-id))
+         (left (remove (window-id window) windows :key #'window-id)))
     (when (and at left)
-      (setf (session-windows session) left)
-      (when (eq window (session-window session))
-        (session-show-window session (nth (min at (1- (length left))) left))))
-    (dolist (w (session-watchers session)) (setf (watcher-behind w) t))
+      (let ((shown (same-window-p window (session-window session))))
+        (change-session session (lambda (s)
+                                  (setf (state-windows s) left)
+                                  (unless shown
+                                    (setf (state-window s)
+                                          (find (window-id (state-window s)) left
+                                                :key #'window-id)))))
+        (when shown
+          (session-show-window session (nth (min at (1- (length left))) left)))))
     left))
 
 (defun session-close-window (session window)
@@ -95,8 +104,8 @@ Answers t, or :empty or :taken."
       outcome)))
 
 (defun session-rename-window (session window label)
-  (setf (window-label window) (and label (plusp (length label)) label))
-  (dolist (w (session-watchers session)) (setf (watcher-behind w) t)))
+  (change-window session window
+                 (lambda (w) (setf (window-label w) (and label (plusp (length label)) label)))))
 
 (defun window-display-name (session window)
   "What to call WINDOW: its name, else its number."
@@ -116,7 +125,7 @@ many of them are asking, and whether it is the one shown."
         :collect (list n (window-label w) (length (window-panes w))
                        (count :blocked (window-panes w)
                               :key (lambda (p) (agent:agent-state (pane-agent p))))
-                       (eq w (session-window session)))))
+                       (same-window-p w (session-window session)))))
 
 (defun session-split (session way)
   "Another pane beside the one that has the cursor, running what that one runs."
@@ -126,12 +135,12 @@ many of them are asking, and whether it is the one shown."
                          :rows (term:term-height term)
                          :cols (term:term-width term)
                          :directory (pane-directory focus))))
-    (setf (session-layout session)
-          (layout-insert (session-layout session) focus way new)
-          (session-focus session) new)
+    (change-window session (session-window session)
+                   (lambda (w)
+                     (setf (window-layout w) (layout-insert (window-layout w) focus way new)
+                           (window-focus w) new)))
     (session-compose session)
     (pane-start new :environment (pane-environment session new))
-    (dolist (w (session-watchers session)) (setf (watcher-behind w) t))
     (run-hook 'pane-started session new)
     new))
 
@@ -145,19 +154,20 @@ nothing in it goes too, unless it is the last: an empty last window is a
 session that is over."
   (let ((window (window-of session pane)))
     (unless window (return-from session-close-pane (session-panes session)))
-    (setf (window-layout window) (layout-remove (window-layout window) pane))
-    (when (eq pane (window-zoomed window))
-      (setf (window-zoomed window) nil))
+    (change-window session window
+                   (lambda (w)
+                     (setf (window-layout w) (layout-remove (window-layout w) pane))
+                     (when (eq pane (window-zoomed w))
+                       (setf (window-zoomed w) nil))
+                     (when (eq pane (window-focus w))
+                       (setf (window-focus w) (first (window-panes w))))))
     (when (eq pane (second (session-held session)))
       (setf (session-held session) nil))
     (pane-close pane)
     (run-hook 'pane-ended session pane)
-    (let ((left (window-panes window)))
-      (when (eq (window-focus window) pane)
-        (setf (window-focus window) (first left)))
-      (when (and (null left) (rest (session-windows session)))
-        (session-remove-window session window))
-      (dolist (w (session-watchers session)) (setf (watcher-behind w) t))
+    (let ((now (window-now session window)))
+      (when (and now (null (window-panes now)) (rest (session-windows session)))
+        (session-remove-window session now))
       (session-panes session))))
 
 (defun session-delete-other-panes (session pane)
@@ -165,7 +175,7 @@ session that is over."
   (let ((window (window-of session pane)))
     (dolist (other (remove pane (window-panes window)))
       (session-close-pane session other))
-    (window-panes window)))
+    (window-panes (window-now session window))))
 
 (defun session-focus-pane (session pane)
   "PANE has the focus. A zoom was of the pane that had it, and goes with it, the
@@ -173,10 +183,11 @@ way it does in every multiplexer: the one just chosen is to be seen in its place
   (let ((window (window-of session pane)))
     (when window (session-show-window session window)))
   (unless (eq pane (session-focus session))
-    (setf (session-focus session) pane)
-    (unless (eq pane (session-zoomed session))
-      (setf (session-zoomed session) nil))
-    (dolist (w (session-watchers session)) (setf (watcher-behind w) t))))
+    (change-window session (session-window session)
+                   (lambda (w)
+                     (setf (window-focus w) pane)
+                     (unless (eq pane (window-zoomed w))
+                       (setf (window-zoomed w) nil))))))
 
 (defun session-focus-next (session)
   (let* ((panes (window-panes (session-window session)))
