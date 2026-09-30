@@ -66,6 +66,8 @@
   (out-start 0 :type fixnum)
   (out-end 0 :type fixnum)
   (thread nil)
+  (woken nil)
+  (shown nil)
   (inbox nil)
   (wake nil)
   (stopping nil)
@@ -196,8 +198,9 @@ made now takes the next."
             ((null reader)
              (pane-look-later pane (+ (pane-programs-at pane) +program-poll-interval+))))))))
 
-(defun pane-start (pane &key environment)
+(defun pane-start (pane &key environment woken)
   "Run the pane's program on a terminal of its own, the size the pane is now."
+  (when woken (setf (pane-woken pane) woken))
   (unless (or (pane-started pane) (pane-failed pane))
     (pane-open pane environment)
     (when (pane-started pane) (pane-run pane)))
@@ -223,6 +226,12 @@ made now takes the next."
     (dolist (fd (list in out))
       (pty:nonblocking (pty:close-on-exec fd)))
     (cons in out)))
+
+(defun drain-wake-pipe (wake)
+  (let ((octets (make-array 64 :element-type '(unsigned-byte 8))))
+    (sb-sys:with-pinned-objects (octets)
+      (loop :while (let ((n (sb-unix:unix-read (car wake) (sb-sys:vector-sap octets) 64)))
+                     (and n (plusp n)))))))
 
 (defun close-wake-pipe (wake)
   (when wake
@@ -268,6 +277,36 @@ made now takes the next."
     `(let ((,it ,pane))
        (on-pane ,it (lambda () (let ((,term (pane-term ,it))) ,@body))))))
 
+(defstruct (shown (:constructor %make-shown)) screen (history 0 :type fixnum) (paste nil))
+
+(defun pane-show (pane)
+  (let* ((term (pane-term pane))
+         (w (term:term-width term))
+         (h (term:term-height term))
+         (screen (tty:make-screen :width w :height h)))
+    (atty/cells:blit (atty/cells:make-cells (tty:screen-grid screen) w h) term 0 0 w h
+                     (pane-scrolled pane))
+    (setf (tty:screen-cursor-x screen) (term:term-cursor-x term)
+          (tty:screen-cursor-y screen) (term:term-cursor-y term)
+          (tty:screen-cursor-visible screen) (and (term:term-cursor-visible term) t)
+          (tty:screen-cursor-style screen) (term:term-cursor-style term)
+          (pane-shown pane) (%make-shown :screen screen
+                                         :history (if (term:term-in-alt-screen term)
+                                                      0
+                                                      (term:term-scrollback-size term))
+                                         :paste (and (term:term-bracketed-paste term) t)))))
+
+(defun pane-pastes-p (pane)
+  (let ((shown (pane-shown-now pane)))
+    (if shown (shown-paste shown) (and (term:term-bracketed-paste (pane-term pane)) t))))
+
+(defun pane-tell (pane)
+  (let ((woken (pane-woken pane)))
+    (if woken (funcall woken) (tty:wake))))
+
+(defun pane-shown-now (pane)
+  (and (pane-thread-p pane) (pane-shown pane)))
+
 (defun pane-jobs (pane)
   (let ((jobs (loop :for had := (pane-inbox pane)
                     :until (eq had (sb-ext:compare-and-swap (pane-inbox pane) had nil))
@@ -281,10 +320,10 @@ made now takes the next."
         (pane-thread pane)
         (sb-thread:make-thread
          (lambda ()
+           (pane-show pane)
            (let ((*drain-octets* nil)
                  (*drain-chars* (make-string 0))
-                 (w (tty:make-waiting 2))
-                 (drained (make-array 64 :element-type '(unsigned-byte 8))))
+                 (w (tty:make-waiting 2)))
              (unwind-protect
                   (loop :until (pane-stopping pane)
                         :do (tty:waiting-clear w)
@@ -295,10 +334,7 @@ made now takes the next."
                             (tty:waiting-add w (car (pane-wake pane)))
                             (tty:wait-on w 1000)
                             (when (tty:readable-p (tty:waiting-back w 1))
-                              (sb-sys:with-pinned-objects (drained)
-                                (loop :while (let ((n (sb-unix:unix-read (car (pane-wake pane))
-                                                                         (sb-sys:vector-sap drained) 64)))
-                                               (and n (plusp n))))))
+                              (drain-wake-pipe (pane-wake pane)))
                             (pane-jobs pane)
                             (let ((back (tty:waiting-back w 0)))
                               (when (and (pane-owing-p pane) (tty:writable-p back))
@@ -306,10 +342,12 @@ made now takes the next."
                               (when (tty:readable-p back)
                                 (unless (pane-drain pane)
                                   (setf (pane-ended pane) t)
-                                  (tty:wake)
+                                  (pane-tell pane)
                                   (return))
                                 (setf (pane-moved-at pane) (now-ms))
-                                (tty:wake))))
+                                (pane-show pane)
+                                (setf (pane-dirty pane) t)
+                                (pane-tell pane))))
                (pane-jobs pane)
                (tty:free-waiting w))))
          :name (format nil "atty pane ~D" (pane-id pane)))))
@@ -357,14 +395,22 @@ comes straight back, so one pane writing without pause cannot starve the rest."
 ;;; It is the pane's and not the client's, the way the focus and the zoom are:
 ;;; everybody attached is looking at the same pane.
 
-(defun pane-height (pane) (with-term (term pane) (term:term-height term)))
-(defun pane-width (pane) (with-term (term pane) (term:term-width term)))
+(defun pane-height (pane)
+  (let ((shown (pane-shown-now pane)))
+    (if shown (tty:screen-height (shown-screen shown)) (term:term-height (pane-term pane)))))
+
+(defun pane-width (pane)
+  (let ((shown (pane-shown-now pane)))
+    (if shown (tty:screen-width (shown-screen shown)) (term:term-width (pane-term pane)))))
 
 (defun pane-history (pane)
   "How many rows there are behind PANE's screen to scroll back into. A program
 that has the whole screen to itself has none: what it draws never scrolls off."
-  (with-term (term pane)
-    (if (term:term-in-alt-screen term) 0 (term:term-scrollback-size term))))
+  (let ((shown (pane-shown-now pane)))
+    (if shown
+        (shown-history shown)
+        (let ((term (pane-term pane)))
+          (if (term:term-in-alt-screen term) 0 (term:term-scrollback-size term))))))
 
 (defun pane-scroll-to (pane back)
   "Show PANE from BACK rows behind its screen, or as near as there is. Answers
@@ -376,6 +422,7 @@ whether that moved it."
                  (setf (pane-scrolled pane) back
                        (pane-scrolled-at pane) (now-ms)
                        (pane-dirty pane) t)
+                 (when (pane-thread pane) (pane-show pane))
                  t)))))
 
 (defun pane-scroll-by (pane rows)
@@ -447,7 +494,8 @@ program has taken the whole screen is back at it."
                   (term:term-resize (pane-term pane) cols rows)
                   (ignore-errors (pty:pty-set-size (pane-fd pane) rows cols))
                   (setf (pane-scrolled pane) (min (pane-scrolled pane) (pane-history pane))
-                        (pane-dirty pane) t)))
+                        (pane-dirty pane) t)
+                  (when (pane-thread pane) (pane-show pane))))
   pane)
 
 (defun pane-close (pane)

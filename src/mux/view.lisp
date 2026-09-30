@@ -65,6 +65,18 @@ one found changed."
                               (when (or (null was) (null (term:face-bg was)))
                                 (setf (term:row-face row x) (grounded was))))))))))
 
+(defun paint-shown (m screen left top width height)
+  (let* ((grid (atty/cells:cells-grid m))
+         (rows (min (tty:screen-height screen) height (- (atty/cells:cells-rows m) top)))
+         (cols (min (tty:screen-width screen) width (- (atty/cells:cells-cols m) left))))
+    (dotimes (y rows)
+      (let ((from (tty:screen-row screen y))
+            (into (svref grid (+ top y))))
+        (replace (term:row-chars into) (term:row-chars from) :start1 left :end2 cols)
+        (replace (term:row-faces into) (term:row-faces from) :start1 left :end2 cols)))
+    (when (< cols width)
+      (atty/cells:fill-rect m (+ left cols) top (- width cols) rows (term:make-face)))))
+
 (defun selection-face ()
   (term:make-face :bg (atty/ui:unhex (atty/ui:color 'atty/ui::bg-active))))
 
@@ -72,7 +84,10 @@ one found changed."
   (let* ((pane (view-pane w))
          (top (atty/ui:top w)) (left (atty/ui:left w))
          (height (atty/ui:height w)) (width (atty/ui:width w)))
-    (with-term (term pane) (atty/cells:blit m term left top width height (pane-scrolled pane)))
+    (let ((shown (pane-shown-now pane)))
+      (if shown
+          (paint-shown m (shown-screen shown) left top width height)
+          (atty/cells:blit m (pane-term pane) left top width height (pane-scrolled pane))))
     (ground-blanks m left top width height (pane-ground (view-focus-p w)))
     ;; what a find found, and what is being selected, over the top: a hit is
     ;; lit where it is, the one gone to brightest, and selected rows are shaded

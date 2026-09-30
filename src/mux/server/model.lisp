@@ -241,6 +241,7 @@ since what is open may show how long ago things were.")
   (polled-panes (make-array 16 :adjustable t :fill-pointer 0))
   (polled-sessions (make-array 16 :adjustable t :fill-pointer 0))
   (polled-watchers (make-array 8 :adjustable t :fill-pointer 0))
+  (wake nil)
   (running t :type boolean))
 
 (defparameter +first-session-timeout+ 10000000000
@@ -349,8 +350,8 @@ on it are the whole of who may."
   "A server on PATH. With LISTENING nil it is not yet reachable: what it
 brings back from disk is put in place first, so nobody sees half of it."
   (let ((server (%make-server :path path :born (monotonic-ns)
-                              :waiting (tty:make-waiting 16))))
-    (tty:open-wake)
+                              :waiting (tty:make-waiting 16)
+                              :wake (open-wake-pipe))))
     (when listening (server-listen server))
     server))
 
@@ -392,7 +393,19 @@ becomes, rather than letting them go.")
   (setf (server-sessions server) nil
         (server-pending-watchers server) nil)
   (tty:free-waiting (server-waiting server))
-  (setf (server-running server) nil))
+  (close-wake-pipe (server-wake server))
+  (setf (server-wake server) nil
+        (server-running server) nil))
+
+(defun server-poke (server)
+  (let ((wake (server-wake server)))
+    (when wake
+      (sb-sys:with-pinned-objects (*poke-octet*)
+        (sb-unix:unix-write (cdr wake) *poke-octet* 0 1)))))
+
+(defun session-woken (session)
+  (let ((server (session-server session)))
+    (if server (lambda () (server-poke server)) #'tty:wake)))
 
 (defun pane-environment (session pane)
   "What a program is told about where it is: its address as it starts. A pane
@@ -413,7 +426,7 @@ either."
                                  :screen (tty:make-screen :width cols
                                                           :height rows))))
     (session-compose session)
-    (pane-start pane :environment (pane-environment session pane))
+    (pane-start pane :environment (pane-environment session pane) :woken (session-woken session))
     (when (pane-failed pane)
       (error "~A" (pane-failed pane)))
     (setf (server-sessions server) (append (server-sessions server) (list session))
