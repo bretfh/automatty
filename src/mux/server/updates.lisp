@@ -91,6 +91,23 @@ thing that acted on it was one."
 (defun blank-row-p (term y)
   (zerop (length (string-right-trim " " (term:term-dump-row-string term y)))))
 
+(defun screen-last-rows (screen n)
+  (let* ((w (tty:screen-width screen))
+         (h (tty:screen-height screen))
+         (bottom (or (loop :for y :from (1- h) :downto 0
+                           :unless (every (lambda (ch) (char= ch #\Space))
+                                          (term:row-chars (tty:screen-row screen y)))
+                             :return y)
+                     0))
+         (top (max 0 (- bottom (1- (max 1 n)))))
+         (count (1+ (- bottom top)))
+         (into (tty:make-screen :width w :height count)))
+    (dotimes (i count into)
+      (let ((from (tty:screen-row screen (+ top i)))
+            (row (tty:screen-row into i)))
+        (replace (term:row-chars row) (term:row-chars from))
+        (replace (term:row-faces row) (term:row-faces from))))))
+
 (defun pane-last-rows (pane n)
   "The last N rows of PANE's screen that have anything on them, as a screen."
   (with-term (term pane)

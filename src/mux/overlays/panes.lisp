@@ -108,4 +108,7 @@ program. Not its title: a shell's title is a path nobody wants forty of."
   "The last rows of the pane KEY names that have anything on them."
   (let* ((server (watcher-server watcher))
          (pane (and server (find-pane server (car key) (cdr key)))))
-    (and pane (pane-last-rows pane +pane-screen-rows+))))
+    (and pane (let ((shown (pane-shown-now pane)))
+                (if shown
+                    (screen-last-rows (shown-screen shown) +pane-screen-rows+)
+                    (pane-last-rows pane +pane-screen-rows+))))))

@@ -443,12 +443,17 @@ either."
   (list (format nil "ATTY_PANE=~A" (pane-address-of session pane))
         (format nil "ATTY_SOCKET=~A" (or (session-socket session) ""))))
 
+(defun server-overlaid-p (server)
+  (loop :for s :in (server-sessions server)
+        :thereis (some #'watcher-overlays (session-watchers s))))
+
 (defun session-start-pane (session pane)
   (let ((server (session-server session)))
     (pane-start pane :environment (pane-environment session pane)
                      :woken (session-woken session)
                      :look (session-look session)
-                     :watched (lambda () (session-watchers session))
+                     :watched (lambda () (or (session-watchers session)
+                                             (and server (server-overlaid-p server))))
                      :urgent (lambda () (pane-urgent-p session pane (now-ms)))
                      :gap (if server (* (server-interval server) 1000000) 0))))
 

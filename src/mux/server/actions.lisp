@@ -163,10 +163,11 @@ it back when it already has it."
 (defun search-hits (pane query)
   "Every row of PANE with QUERY in it, oldest first: (row start end)."
   (let ((q (string-downcase query)))
-    (loop :for a :below (pane-row-count pane)
-          :for text := (string-downcase (pane-row-text pane a))
-          :for at := (and (plusp (length q)) (search q text))
-          :when at :collect (list a at (+ at (length q))))))
+    (on-pane pane (lambda ()
+                    (loop :for a :below (pane-row-count pane)
+                          :for text := (string-downcase (pane-row-text pane a))
+                          :for at := (and (plusp (length q)) (search q text))
+                          :when at :collect (list a at (+ at (length q))))))))
 
 (defun search-pane (server watcher name id query way)
   "Find QUERY in the pane called NAME:ID, or the focus's when they are nil.
@@ -211,9 +212,11 @@ watcher is told how many there are and which this is."
             (let* ((n (length hits))
                    (from (max 0 (- (or at 0) 100)))
                    (to (min n (+ (or at 0) 100)))
-                   (said (loop :for h :in (subseq hits from to)
-                               :collect (list (first h) (second h) (third h)
-                                              (string-right-trim " " (pane-row-text pane (first h)))))))
+                   (said (on-pane pane
+                                  (lambda ()
+                                    (loop :for h :in (subseq hits from to)
+                                          :collect (list (first h) (second h) (third h)
+                                                         (string-right-trim " " (pane-row-text pane (first h)))))))))
               (found-in-pane watcher n said (and at (- at from))))))))))
 
 (defun pane-session (server pane)
@@ -239,8 +242,10 @@ end of what is shown now, or the screen when nothing was marked."
                        (to (+ (max mark top) height)))
                   (copied watcher
                           (format nil "~{~A~^~%~}"
-                                  (loop :for a :from from :below (min to (pane-row-count pane))
-                                        :collect (string-right-trim " " (pane-row-text pane a)))))
+                                  (on-pane pane
+                                           (lambda ()
+                                             (loop :for a :from from :below (min to (pane-row-count pane))
+                                                   :collect (string-right-trim " " (pane-row-text pane a)))))))
                   (setf (pane-selecting pane) nil (pane-dirty pane) t))))
         (dolist (w (session-watchers session)) (draw-again w))))))
 
