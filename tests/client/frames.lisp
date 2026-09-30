@@ -66,10 +66,12 @@
       (is-true (step-until server (lambda () (mux:session-watchers here))))
       (let ((w (first (mux:session-watchers here))))
         (mux:run-command "goto blocked pane" w)
-        (is (mux:session-watchers there) "the client was not taken to the blocked pane")
+        (is-true (step-until server (lambda () (mux:session-watchers there)))
+                 "the client was not taken to the blocked pane")
         (mux::pane-hear (mux:session-focus there) :idle)
         (step-until server (lambda () (eq :idle (agent:agent-state
                                                  (mux:pane-agent (mux:session-focus there))))))
         (mux:run-command "goto blocked pane" w)
+        (is-true (step-until server (lambda () (mux:watcher-overlays w))))
         (is (equal '("nothing needs you") (mux::note-lines (first (mux:watcher-overlays w))))))
       (mux:wire-close wire))))

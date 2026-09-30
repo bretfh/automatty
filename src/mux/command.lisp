@@ -76,9 +76,11 @@ the server down."
 
 (defun run-command (name &optional (client *client*) arguments)
   "Run the command called NAME for CLIENT with ARGUMENTS."
-  (let ((does (gethash name *commands*))
-        (*client* client))
-    (when does (apply #'call-guarded does name arguments))))
+  (if (and client (watcher-elsewhere-p client))
+      (on-watcher client (lambda () (run-command name client arguments)))
+      (let ((does (gethash name *commands*))
+            (*client* client))
+        (when does (apply #'call-guarded does name arguments)))))
 
 (setf atty/mode:*run* (lambda (does) (call-guarded does (or (atty/mode:pending) "that key"))))
 

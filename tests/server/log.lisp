@@ -195,8 +195,11 @@
       (is-true (step-until server (lambda () (mux:session-watchers session))))
       (let ((w (first (mux:session-watchers session))))
         (mux:run-command "rename pane" w)
+        (is-true (step-until server (lambda () (mux:watcher-overlays w))))
         (is (equal "pane work:1.1" (mux::entry-of-what (first (mux:watcher-overlays w)))))
         (is (equal "arch" (mux::entry-of-text (first (mux:watcher-overlays w)))))
         (mux:run-command "rename window" w)
-        (is (equal "window work › 1" (mux::entry-of-what (first (mux:watcher-overlays w))))))
+        (is-true (step-until server (lambda ()
+                                      (equal "window work › 1"
+                                             (mux::entry-of-what (first (mux:watcher-overlays w))))))))
       (mux:wire-close wire))))

@@ -234,4 +234,4 @@ session's."
                                         socket)
                                        socket))))
         (sb-ext:atomic-push watcher (server-pending-watchers server))
-        watcher))))
+        (watcher-start server watcher)))))

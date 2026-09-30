@@ -6,13 +6,14 @@
 (in-suite server-actions)
 
 (test finding-in-a-pane-scrolls-to-the-hit-and-counts-them-and-lines-can-be-copied
-  (with-session (session pane server "cat" :rows 14 :cols 70)
+  (with-session (session pane server "stty -echo; echo ready; exec cat" :rows 14 :cols 70)
     (let ((wire (wire-to (mux::server-path server))))
       (say-to wire (list :want "work") (list :attach 14 70 t))
       (heard-from server wire :hello)
+      (is-true (step-until server (lambda () (search "ready" (dumped pane)))))
       ;; forty numbered lines, so most are behind the screen
       (say-to wire (list :keys (format nil "~{line-~D~%~}" (loop :for i :from 1 :to 40 :collect i))))
-      (is-true (step-until server (lambda () (> (mux::pane-history pane) 30))))
+      (is-true (step-until server (lambda () (search "line-40" (dumped pane)))))
       (let ((w (first (mux:session-watchers session))))
         (flet ((find-it (query way)
                  (mux::search-pane server w nil nil query way)

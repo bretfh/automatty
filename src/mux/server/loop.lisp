@@ -74,26 +74,12 @@ it was the last are they told WHY and let go."
               (destructuring-bind (kind n what) event
                                   (declare (ignore kind))
                                   (send-message w (list :agent-turn (session-name session) (pane-id pane) n what))))))))
-    (let* ((focus (session-focus session))
-           (want (and focus (pane-pastes-p focus))))
-      (dolist (w (session-watchers session))
-        (when (and (watcher-interactive w) (wire-open (watcher-wire w))
-                   (not (eq want (watcher-bracketed-sent w))))
-          (send-message w (list :bracketed-paste want))
-          (setf (watcher-bracketed-sent w) want))))
     changed))
 
 (defun watcher-owed-p (watcher)
   (or (watcher-behind watcher)
       (let ((session (watcher-session watcher)))
         (and session (/= (watcher-seen watcher) (session-version session))))))
-
-(defun session-due-p (session)
-  "Whether anybody watching SESSION is owed a frame."
-  (let ((panes (session-panes session)))
-    (some (lambda (c) (and (watcher-interactive c)
-                           (or (watcher-owed-p c) (watcher-panes-moved c) (some #'pane-dirty panes))))
-          (session-watchers session))))
 
 (declaim (ftype (function (watcher integer) integer) frame-due-at))
 (defun frame-due-at (watcher gap)
@@ -103,50 +89,6 @@ it has typed since, so what it typed is seen as soon as it is echoed."
     (if (> (* (watcher-typed-at watcher) 1000000) sent)
         sent
         (+ sent gap))))
-
-(declaim (ftype (function (list integer) (or null integer)) earliest-frame))
-(defun earliest-frame (sessions gap)
-  "When the first watcher that is owed a frame and can take one may be sent it,
-or nothing when nobody is."
-  (let ((earliest nil))
-    (dolist (session sessions earliest)
-      (let ((dirty (some #'pane-dirty (session-panes session))))
-        (dolist (w (session-watchers session))
-          (when (and (watcher-interactive w)
-                     (or dirty (watcher-owed-p w) (watcher-panes-moved w))
-                     (wire-open (watcher-wire w))
-                     (zerop (wire-pending (watcher-wire w))))
-            (let ((at (frame-due-at w gap)))
-              (when (or (null earliest) (< at earliest))
-                (setf earliest at)))))))))
-
-(defun session-render (session gap)
-  "Draw SESSION for whoever is behind and has waited GAP, each as it last saw it."
-  (let ((panes (session-panes session))
-        (drawn nil)
-        (then (monotonic-ns)))
-    (when (some #'pane-dirty panes)
-      (dolist (watcher (session-watchers session))
-        (setf (watcher-panes-moved watcher) t))
-      (dolist (pane panes) (setf (pane-dirty pane) nil)))
-    (dolist (watcher (session-watchers session))
-      (when (and (or (watcher-owed-p watcher) (watcher-panes-moved watcher))
-                 (watcher-interactive watcher)
-                 (wire-open (watcher-wire watcher))
-                 (zerop (wire-pending (watcher-wire watcher)))
-                 (>= then (frame-due-at watcher gap)))
-        (or (and (not (watcher-owed-p watcher)) (session-repaint session watcher))
-            (session-compose session watcher))
-        (setf drawn t)
-        (watcher-frame session watcher)
-        (setf (watcher-sent watcher) then
-              (watcher-behind watcher) nil
-              (watcher-panes-moved watcher) nil
-              (watcher-seen watcher) (session-version session))
-        (wire-flush (watcher-wire watcher))))
-    (when drawn
-      (dolist (pane panes) (setf (pane-rang pane) nil)))
-    drawn))
 
 (defparameter +typed-lately+ 1000)
 
@@ -164,10 +106,8 @@ end of a first session's patience. -1 when nothing is."
     (flet ((at (ns)
              (when (and ns (or (null due) (< ns due)))
                (setf due ns))))
-      (at (earliest-frame sessions gap))
       (loop :for (when . nil) :in (server-tasks server) :do (at when))
       (dolist (session sessions)
-        (at (session-tick-at session))
         (dolist (pane (session-panes session))
           (let ((look (and (not (pane-thread pane)) (pane-look-at pane))))
             (when look (at (* look 1000000))))))
@@ -175,54 +115,23 @@ end of a first session's patience. -1 when nothing is."
         (at (+ (server-born server) +first-session-timeout+))))
     (if due (max 0 (ceiling (- due now) 1000000)) -1)))
 
-(declaim (ftype (function (server list integer (or null integer)) (values t fixnum fixnum fixnum))
+(declaim (ftype (function (server list integer (or null integer)) (values t fixnum fixnum))
                 poll-descriptors))
 (defun poll-descriptors (server sessions interval most)
-  "Wait until something needs the server: a client at the socket, a pane
-with output, a wire to read or flush, or something due, or MOST milliseconds
-when that is sooner. Answers the poll set,
-where the socket is in it and where the panes begin; the panes and the
-watchers polled are in the server's polled vectors, in the order they were
-added."
-  (let ((w (tty:waiting-clear (server-waiting server)))
-        (panes (server-polled-panes server))
-        (owners (server-polled-sessions server))
-        (watchers (server-polled-watchers server)))
-    (setf (fill-pointer panes) 0 (fill-pointer owners) 0 (fill-pointer watchers) 0)
+  "Wait until something needs the server: a client at the socket, a pane or a
+client calling on it, or something due, or MOST milliseconds when that is
+sooner. Answers the poll set, where the socket is in it, and how many came back."
+  (let ((w (tty:waiting-clear (server-waiting server))))
     (let* ((listening (tty:waiting-add w (server-fd server)))
            (woken (tty:waiting-add w (or (tty:wake-fd) -1)))
-           (poked (tty:waiting-add w (if (server-wake server) (car (server-wake server)) -1)))
-           (first-pane (1+ poked)))
-      (flet ((add (c)
-               (vector-push-extend c watchers)
-               (tty:waiting-add w (wire-fd (watcher-wire c))
-                                (if (plusp (wire-pending (watcher-wire c)))
-                                    (logior sb-unix:pollin sb-unix:pollout)
-                                    sb-unix:pollin))))
-        (mapc #'add (server-pending-watchers server))
-        (dolist (session sessions)
-          (mapc #'add (session-watchers session))))
+           (poked (tty:waiting-add w (if (server-wake server) (car (server-wake server)) -1))))
       (let* ((due (wake-in server sessions (monotonic-ns) (* interval 1000000)))
              (ready (tty:wait-on w (if (and most (or (minusp due) (< most due))) most due))))
         (when (tty:readable-p (tty:waiting-back w woken))
           (tty:drain-wake))
         (when (and (server-wake server) (tty:readable-p (tty:waiting-back w poked)))
           (drain-wake-pipe (server-wake server)))
-        (values w listening first-pane (or ready 0))))))
-
-(defun read-clients (server w first-watcher)
-  (loop :for watcher :across (server-polled-watchers server)
-        :for n :from first-watcher
-        :do (let ((back (tty:waiting-back w n)))
-              (if (wire-open (watcher-wire watcher))
-                  (progn
-                    (when (tty:writable-p back)
-                      (wire-flush (watcher-wire watcher)))
-                    (when (tty:readable-p back)
-                      (read-messages server watcher))
-                    (when (and (tty:gone-p back) (wire-open (watcher-wire watcher)))
-                      (drop-watcher server watcher)))
-                  (drop-watcher server watcher)))))
+        (values w listening (or ready 0))))))
 
 (defun close-ended-panes (server)
   (dolist (session (server-sessions server))
@@ -230,7 +139,7 @@ added."
       (when (pane-ended pane)
         (session-close-pane session pane)))))
 
-(defun step-sessions (server sessions gap)
+(defun step-sessions (server sessions)
   (dolist (session sessions)
     (dolist (pane (session-panes session))
       (when (pane-failed pane)
@@ -242,33 +151,20 @@ added."
                       :finally (return had))))
     (dolist (session sessions)
       (if (session-panes session)
-          (progn (session-observe session (monotonic-ns) looked)
-                 (session-render session gap))
+          (session-observe session (monotonic-ns) looked)
           (end-session server session :done)))))
 
 (defun server-step (server &key (interval *interval*) most)
-  (let ((sessions (server-sessions server))
-        (gap (* interval 1000000)))
-    (multiple-value-bind (w listening first-pane ready) (poll-descriptors server sessions interval most)
-      (let ((first-watcher (+ first-pane (length (server-polled-panes server)))))
-        (when (plusp ready) (stir server))
-        (run-due-tasks server (monotonic-ns))
-        (dolist (session sessions) (session-tick session (monotonic-ns)))
-        (when (tty:readable-p (tty:waiting-back w listening))
-          (accept-watcher server))
-        (read-clients server w first-watcher)
-        (close-ended-panes server)
-        (step-sessions server sessions gap)
-        (dolist (session (server-sessions server))
-          (dolist (watcher (session-watchers session))
-            (when (and (wire-open (watcher-wire watcher))
-                       (plusp (wire-pending (watcher-wire watcher))))
-              (wire-flush (watcher-wire watcher)))))
-        (dolist (watcher (server-pending-watchers server))
-          (when (and (wire-open (watcher-wire watcher))
-                     (plusp (wire-pending (watcher-wire watcher))))
-            (wire-flush (watcher-wire watcher))))
-        server))))
+  (setf (server-interval server) interval)
+  (let ((sessions (server-sessions server)))
+    (multiple-value-bind (w listening ready) (poll-descriptors server sessions interval most)
+      (when (plusp ready) (stir server))
+      (run-due-tasks server (monotonic-ns))
+      (when (tty:readable-p (tty:waiting-back w listening))
+        (accept-watcher server))
+      (close-ended-panes server)
+      (step-sessions server sessions)
+      server)))
 
 (defun trim-scrollback (server)
   (let* ((now (now-ms))
@@ -314,8 +210,6 @@ happened since or anything is still owed."
   "Something happened: see to the scrollback and the saves a tick from now."
   (setf (server-stirred server) t)
   (tend-later server))
-
-(defparameter +max-faults+ 10)
 
 (defun report-error (e)
   (format *error-output* "~&atty: ~A~%" e)

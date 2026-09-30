@@ -153,11 +153,18 @@ arrived yet is kept until it has."
   (let* ((session (watcher-session watcher))
          (pane (and session (session-focus session))))
     (when pane
-      (setf (watcher-typed-at watcher) (now-ms))
-      (when (watcher-following watcher) (stop-following (session-server session) watcher))
-      (pane-push-log pane (now-ms) (actor-of watcher) :keys (length text))
-      (pane-scroll-to pane 0)
-      (pane-write pane text))))
+      (let ((now (now-ms))
+            (actor (actor-of watcher)))
+        (setf (watcher-typed-at watcher) now)
+        (when (watcher-following watcher) (stop-following (session-server session) watcher))
+        (when (and (pane-running pane) (pane-started pane))
+          (setf (pane-typed-at pane) now))
+        (on-pane pane (lambda ()
+                        (pane-note-log pane now actor :keys (length text) t)
+                        (pane-scroll-to pane 0)
+                        (when (and (pane-running pane) (pane-started pane))
+                          (pane-send pane text)))
+                 :wait nil)))))
 
 (defun handle-input (watcher said)
   "Pass what was typed to the pane, byte for byte, until the one byte that says

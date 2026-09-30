@@ -41,7 +41,8 @@
     (mux::scroll-pane pane :top)
     (is (eql (mux::pane-history pane) (mux::pane-scrolled pane)))
     (mux::handle-message (mux::session-server session) (mux::%make-watcher :session session) (list :keys "x"))
-    (is (eql 0 (mux::pane-scrolled pane)) "typing did not bring it back to live")))
+    (is-true (step-until server (lambda () (eql 0 (mux::pane-scrolled pane))))
+             "typing did not bring it back to live")))
 
 (test the-wheel-over-a-program-that-asked-for-the-mouse-is-that-programs
   (with-session (session pane server
