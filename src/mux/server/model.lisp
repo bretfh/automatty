@@ -48,6 +48,8 @@ command line."
   (tty nil)
   (since 0 :type integer)
   (typed-at 0 :type integer)
+  (keyed-at 0 :type integer)
+  (answered 0 :type integer)
   (following nil)                       ; the id of the watcher this one goes where
   (bracketed-sent nil)
   (mode 'pane-mode)

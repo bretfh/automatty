@@ -155,7 +155,8 @@ arrived yet is kept until it has."
     (when pane
       (let ((now (now-ms))
             (actor (actor-of watcher)))
-        (setf (watcher-typed-at watcher) now)
+        (setf (watcher-typed-at watcher) now
+              (watcher-keyed-at watcher) (monotonic-ns))
         (when (watcher-following watcher) (stop-following (session-server session) watcher))
         (when (and (pane-running pane) (pane-started pane))
           (setf (pane-typed-at pane) now))

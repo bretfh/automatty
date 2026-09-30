@@ -86,7 +86,7 @@ it was the last are they told WHY and let go."
   "When WATCHER may be sent its next frame: GAP after the last, or at once when
 it has typed since, so what it typed is seen as soon as it is echoed."
   (let ((sent (watcher-sent watcher)))
-    (if (> (* (watcher-typed-at watcher) 1000000) sent)
+    (if (> (watcher-keyed-at watcher) (watcher-answered watcher))
         sent
         (+ sent gap))))
 

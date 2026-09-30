@@ -92,7 +92,9 @@
             (setf (watcher-bracketed-sent watcher) want)))
         (let ((owed (watcher-owed-p watcher))
               (version (session-version session))
-              (shown (panes-shown session)))
+              (shown (panes-shown session))
+              (echo (let ((focus (session-focus session)))
+                      (and focus (pane-shown-now focus)))))
           (when (and (or owed (not (equal shown (watcher-drawn watcher))))
                      (zerop (wire-pending wire))
                      (>= now (frame-due-at watcher (* (server-interval server) 1000000))))
@@ -103,6 +105,8 @@
                   (watcher-behind watcher) nil
                   (watcher-seen watcher) version
                   (watcher-drawn watcher) shown)
+            (when (or (null echo) (>= (shown-at echo) (watcher-keyed-at watcher)))
+              (setf (watcher-answered watcher) (watcher-keyed-at watcher)))
             (wire-flush wire)))))))
 
 (defun watcher-turn (server watcher w)

@@ -289,7 +289,7 @@ made now takes the next."
     `(let ((,it ,pane))
        (on-pane ,it (lambda () (let ((,term (pane-term ,it))) ,@body))))))
 
-(defstruct (shown (:constructor %make-shown)) screen (history 0 :type fixnum) (paste nil))
+(defstruct (shown (:constructor %make-shown)) screen (history 0 :type fixnum) (paste nil) (at 0 :type integer))
 
 (defun pane-show (pane)
   (let* ((term (pane-term pane))
@@ -303,6 +303,7 @@ made now takes the next."
           (tty:screen-cursor-visible screen) (and (term:term-cursor-visible term) t)
           (tty:screen-cursor-style screen) (term:term-cursor-style term)
           (pane-shown pane) (%make-shown :screen screen
+                                         :at (monotonic-ns)
                                          :history (if (term:term-in-alt-screen term)
                                                       0
                                                       (term:term-scrollback-size term))
