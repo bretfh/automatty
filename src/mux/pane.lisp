@@ -130,7 +130,7 @@ cell and STATE kept in it when it is worse than what was."
          (at (pane-pulse-at pane))
          (gap (if (or (minusp at) (>= at cell)) 0 (min +pulse-cells+ (- cell at)))))
     (pulse-with (append (nthcdr gap cells) (loop :repeat gap :collect (cons 0 (pane-pulse-state pane))))
-                (pane-output pane)
+                0
                 (and (agent:agent-reader agent) (agent:agent-state agent)))))
 
 (defun pane-push-event (pane now kind actor &optional text)
