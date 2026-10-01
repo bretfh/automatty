@@ -244,8 +244,9 @@ made now takes the next."
         (pane-watched pane) watched
         (pane-urgent pane) urgent)
   (unless (or (pane-started pane) (pane-failed pane))
-    (pane-open pane environment)
-    (when (pane-started pane) (pane-run pane)))
+    (pane-open pane environment))
+  (when (and (pane-started pane) (pane-running pane) (null (pane-thread pane)))
+    (pane-run pane))
   pane)
 
 (defun pane-open (pane environment)
