@@ -28,7 +28,6 @@
    #:pane-fd
    #:pane-pid
    #:pane-running
-   #:pane-dirty
    #:pane-drain
    #:pane-write
    #:pane-resize

@@ -44,7 +44,6 @@
   (pid -1 :type fixnum)
   (running t :type boolean)
   (failed nil)
-  (dirty t :type boolean)
   (rang 0 :type fixnum)
   (named nil)
   (label nil)
@@ -113,17 +112,26 @@ cell and STATE kept in it when it is worse than what was."
                                         (loop :repeat gap :collect (cons 0 (pane-pulse-state pane))))
               (pane-pulse-at pane) cell)))
     (setf (pane-pulse-state pane) state)
-    (let ((newest (car (last (pane-pulse pane)))))
-      (incf (car newest) (pane-output pane))
-      (setf (pane-output pane) 0)
-      (when (< (state-rank-of state) (state-rank-of (cdr newest)))
-        (setf (cdr newest) state)))
+    (setf (pane-pulse pane) (pulse-with (pane-pulse pane) (pane-output pane) state)
+          (pane-output pane) 0)
     (pane-pulse pane)))
+
+(defun pulse-with (cells output state)
+  (let ((newest (car (last cells))))
+    (append (butlast cells)
+            (list (cons (+ (car newest) output)
+                        (if (< (state-rank-of state) (state-rank-of (cdr newest))) state (cdr newest)))))))
 
 (declaim (ftype (function (pane integer) list) pane-pulse-now))
 (defun pane-pulse-now (pane now)
-  (let ((agent (pane-agent pane)))
-    (pane-roll-pulse pane now (and (agent:agent-reader agent) (agent:agent-state agent)))))
+  (let* ((agent (pane-agent pane))
+         (cells (pane-pulse pane))
+         (cell (floor now +pulse-interval+))
+         (at (pane-pulse-at pane))
+         (gap (if (or (minusp at) (>= at cell)) 0 (min +pulse-cells+ (- cell at)))))
+    (pulse-with (append (nthcdr gap cells) (loop :repeat gap :collect (cons 0 (pane-pulse-state pane))))
+                (pane-output pane)
+                (and (agent:agent-reader agent) (agent:agent-state agent)))))
 
 (defun pane-push-event (pane now kind actor &optional text)
   "Put in PANE's events that KIND happened at NOW, done by WHO when somebody
@@ -185,8 +193,10 @@ made now takes the next."
 (declaim (ftype (function (pane keyword) t) pane-hear))
 (defun pane-hear (pane state)
   "What PANE's program says it is doing, looked at on the next step."
-  (agent:agent-hear (pane-agent pane) state)
-  (pane-look-soon pane))
+  (on-pane pane (lambda ()
+                  (agent:agent-hear (pane-agent pane) state)
+                  (pane-look-soon pane))
+           :wait nil))
 
 (declaim (ftype (function (pane integer) boolean) pane-due-p))
 (defun pane-due-p (pane now)
@@ -439,7 +449,6 @@ made now takes the next."
                        (if (pane-watched-p pane)
                            (progn (setf (pane-changed pane) nil)
                                   (pane-show pane)
-                                  (setf (pane-dirty pane) t)
                                   (pane-tell pane))
                            (pane-show-history pane)))
                      (let ((look (pane-look pane))
@@ -483,8 +492,7 @@ comes straight back, so one pane writing without pause cannot starve the rest."
            (pane-scroll-settle pane)
            (setf (pane-kept pane) (term:term-scrollback-size (pane-term pane)))
            (incf (pane-output pane) n)
-           (decf most n)
-           (setf (pane-dirty pane) t))))))
+           (decf most n))))))
 
 ;;; How far back a pane is being read. Nought is the screen as the program has
 ;;; it now; anything more is that many rows up into what has scrolled off it.
@@ -516,14 +524,13 @@ whether that moved it."
              (let ((back (max 0 (min (pane-history pane) back))))
                (unless (= back (pane-scrolled pane))
                  (setf (pane-scrolled pane) back
-                       (pane-scrolled-at pane) (now-ms)
-                       (pane-dirty pane) t)
+                       (pane-scrolled-at pane) (now-ms))
                  (when (pane-thread pane) (pane-show pane))
                  t)))))
 
 (defun pane-scroll-by (pane rows)
   "ROWS further back, or nearer when it is negative."
-  (pane-scroll-to pane (+ (pane-scrolled pane) rows)))
+  (on-pane pane (lambda () (pane-scroll-to pane (+ (pane-scrolled pane) rows)))))
 
 (defun pane-scroll-settle (pane)
   "The program wrote something. A pane being read back stays on the rows it was
@@ -572,7 +579,6 @@ program has taken the whole screen is back at it."
 (declaim (ftype (function (pane string) t) pane-write))
 (defun pane-write (pane said)
   (when (and (pane-running pane) (pane-started pane))
-    (setf (pane-typed-at pane) (now-ms))
     (on-pane pane (lambda () (pane-send pane said)) :wait nil)))
 
 (defun pane-send (pane said)
@@ -582,7 +588,8 @@ program has taken the whole screen is back at it."
           (sent (if (pane-owing-p pane)
                     0
                     (pty:pty-write-some (pane-fd pane) octets 0 end))))
-     (setf (pane-written-at pane) (monotonic-ns))
+     (setf (pane-written-at pane) (monotonic-ns)
+           (pane-typed-at pane) (now-ms))
      (when (< sent end)
        (pane-owe pane octets sent end)))))
 
@@ -590,8 +597,7 @@ program has taken the whole screen is back at it."
   (on-pane pane (lambda ()
                   (term:term-resize (pane-term pane) cols rows)
                   (ignore-errors (pty:pty-set-size (pane-fd pane) rows cols))
-                  (setf (pane-scrolled pane) (min (pane-scrolled pane) (pane-history pane))
-                        (pane-dirty pane) t)
+                  (setf (pane-scrolled pane) (min (pane-scrolled pane) (pane-history pane)))
                   (when (pane-thread pane) (pane-show pane))))
   pane)
 
@@ -642,9 +648,9 @@ entry that grows."
     (if (and newest (eq verb :keys) (eq (third newest) :keys)
              (equal (second newest) actor)
              (<= (- now (first newest)) +key-run-gap+))
-        (setf (first newest) now
-              (fourth newest) (+ (fourth newest) summary)
-              (sixth newest) (get-universal-time)
+        (setf (pane-log pane) (cons (list now actor verb (+ (fourth newest) summary) (fifth newest)
+                                          (get-universal-time))
+                                    (rest (pane-log pane)))
               (pane-touched pane) now)
         (progn
           (push (list now actor verb summary outcome (get-universal-time)) (pane-log pane))

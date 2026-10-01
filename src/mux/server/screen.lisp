@@ -7,7 +7,6 @@
 screen any more, so every shadow goes and everybody is told the new size."
   (let ((rows (session-rows session))
         (cols (session-cols session)))
-    (dolist (pane (session-panes session)) (setf (pane-dirty pane) t))
     (dolist (w (session-watchers session))
       (on-watcher w (let ((w w))
                       (lambda ()

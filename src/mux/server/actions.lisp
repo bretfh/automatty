@@ -29,8 +29,9 @@
                                   (and seen (agent:offered reader seen)) (getf seen :screen))))
      (t
       (when (eq action :submit)
-        (agent:agent-prompted agent (floor (monotonic-ns) 1000000))
-        (pane-look-soon pane))
+        (on-pane pane (lambda ()
+                        (agent:agent-prompted agent (floor (monotonic-ns) 1000000))
+                        (pane-look-soon pane))))
       (loop :for chunk :in keys
             :for at :from 0 :by +enter-delay+
             :do (let ((chunk chunk))
@@ -177,27 +178,26 @@ watcher is told how many there are and which this is."
   (let ((pane (or (and name (find-pane server name id))
                   (and (watcher-session watcher) (session-focus (watcher-session watcher))))))
     (when pane
-      (let ((find (pane-find pane)))
-        (ecase (if (consp way) (first way) way)
-               (:clear (setf (pane-find pane) nil (pane-selecting pane) nil (pane-dirty pane) t))
-               (:here
-                (let ((hits (search-hits pane query)))
-                  (setf (pane-find pane)
-                        (and hits (list :query query :hits hits :at (1- (length hits))))
-                        (pane-dirty pane) t)
-                  (when (and (null hits) (plusp (length query)))
-                    (setf (pane-find pane) (list :query query :hits nil :at nil)))))
-               ((:next :back)
-                (when (and find (getf find :hits))
-                  (let* ((n (length (getf find :hits)))
-                         (at (getf find :at))
-                         (to (+ at (if (eq way :next) -1 1))))
-                    (setf (getf (pane-find pane) :at) (mod to n)
-                          (pane-dirty pane) t))))
-               (:row
-                ;; (:row n): the hit on row n, when there is one
-                (let ((to (and find (position (second way) (getf find :hits) :key #'first))))
-                  (when to (setf (getf (pane-find pane) :at) to (pane-dirty pane) t)))))
+      (on-pane pane
+               (lambda ()
+                 (let ((find (pane-find pane)))
+                   (flet ((at (n) (list :query (getf find :query) :hits (getf find :hits) :at n)))
+                     (ecase (if (consp way) (first way) way)
+                       (:clear (setf (pane-find pane) nil (pane-selecting pane) nil))
+                       (:here
+                        (let ((hits (search-hits pane query)))
+                          (setf (pane-find pane)
+                                (cond (hits (list :query query :hits hits :at (1- (length hits))))
+                                      ((plusp (length query)) (list :query query :hits nil :at nil))))))
+                       ((:next :back)
+                        (when (and find (getf find :hits))
+                          (let* ((n (length (getf find :hits)))
+                                 (to (+ (getf find :at) (if (eq way :next) -1 1))))
+                            (setf (pane-find pane) (at (mod to n))))))
+                       (:row
+                        ;; (:row n): the hit on row n, when there is one
+                        (let ((to (and find (position (second way) (getf find :hits) :key #'first))))
+                          (when to (setf (pane-find pane) (at to))))))))))
         (let* ((find (pane-find pane))
                (hits (getf find :hits))
                (at (getf find :at))
@@ -217,7 +217,7 @@ watcher is told how many there are and which this is."
                                     (loop :for h :in (subseq hits from to)
                                           :collect (list (first h) (second h) (third h)
                                                          (string-right-trim " " (pane-row-text pane (first h)))))))))
-              (found-in-pane watcher n said (and at (- at from))))))))))
+              (found-in-pane watcher n said (and at (- at from)))))))))
 
 (defun pane-session (server pane)
   (find-if (lambda (s) (member pane (session-panes s))) (server-sessions server)))
@@ -235,7 +235,7 @@ end of what is shown now, or the screen when nothing was marked."
                (:line
                 ;; (:line row): that one row, as it is
                 (copied watcher (string-right-trim " " (pane-row-text pane (second what)))))
-               (:start (setf (pane-selecting pane) top (pane-dirty pane) t))
+               (:start (on-pane pane (lambda () (setf (pane-selecting pane) top))))
                (:copy
                 (let* ((mark (or (pane-selecting pane) top))
                        (from (min mark top))
@@ -246,7 +246,7 @@ end of what is shown now, or the screen when nothing was marked."
                                            (lambda ()
                                              (loop :for a :from from :below (min to (pane-row-count pane))
                                                    :collect (string-right-trim " " (pane-row-text pane a)))))))
-                  (setf (pane-selecting pane) nil (pane-dirty pane) t))))
+                  (on-pane pane (lambda () (setf (pane-selecting pane) nil))))))
         (dolist (w (session-watchers session)) (draw-again w))))))
 
 (defun copied (watcher text)
@@ -273,8 +273,9 @@ something: a prompt then would be taken for the answer."
     (pane-push-log pane (now-ms) actor :prompt (summarize-text text) :refused)
     :blocked)
    (t (pane-push-log pane (now-ms) actor :prompt (summarize-text text))
-      (agent:agent-prompted (pane-agent pane) (now-ms))
-      (pane-look-soon pane)
+      (on-pane pane (lambda ()
+                      (agent:agent-prompted (pane-agent pane) (now-ms))
+                      (pane-look-soon pane)))
       ;; one line is typed, the way a person would give it. A coding agent
       ;; can take what arrives as a paste for something pasted in rather than
       ;; asked for, and decline to act on it: the field test saw exactly that.
@@ -296,15 +297,15 @@ something: a prompt then would be taken for the answer."
 pane that is asking something is refused as a prompt to it now would be."
   (case (agent:agent-state (pane-agent pane))
         (:blocked (prompt-pane server pane text actor))
-        (:working (setf (pane-pending-prompt pane) (list text actor)) :queued)
+        (:working (on-pane pane (lambda () (setf (pane-pending-prompt pane) (list text actor)))) :queued)
         (t (prompt-pane server pane text actor))))
 
 (defun send-pending-prompt (server pane)
   "PANE has gone idle: what was queued for it goes now."
-  (let ((queued (pane-pending-prompt pane)))
-    (when (and queued (eq :idle (agent:agent-state (pane-agent pane))))
-      (setf (pane-pending-prompt pane) nil)
-      (prompt-pane server pane (first queued) (second queued)))))
+  (when (eq :idle (agent:agent-state (pane-agent pane)))
+    (let ((queued (on-pane pane (lambda () (shiftf (pane-pending-prompt pane) nil)))))
+      (when queued
+        (prompt-pane server pane (first queued) (second queued))))))
 
 (defun spawn-pane (server name command directory label &optional window)
   "A pane running COMMAND in the session called NAME, beside the one with the
@@ -344,7 +345,7 @@ new window when it is :new. Answers the pane."
                        it)))
                  (session-focus (add-session server command :name name
                                              :directory directory)))))
-    (when label (setf (pane-label pane) label))
+    (when label (on-pane pane (lambda () (setf (pane-label pane) label))))
     pane))
 
 (defun go-to (watcher name &optional n)
@@ -360,10 +361,11 @@ new window when it is :new. Answers the pane."
 (defun name-pane (server name id label)
   (let ((pane (find-pane server name id)))
     (when pane
-      (setf (pane-label pane) (and (stringp label)
-                                   (plusp (length (string-trim " " label)))
-                                   (string-trim " " label))
-            (pane-touched pane) (now-ms))
+      (on-pane pane (lambda ()
+                      (setf (pane-label pane) (and (stringp label)
+                                                   (plusp (length (string-trim " " label)))
+                                                   (string-trim " " label))
+                            (pane-touched pane) (now-ms))))
       (dolist (w (session-watchers (session-named server name)))
         (draw-again w)))
     pane))

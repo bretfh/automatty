@@ -158,8 +158,6 @@ arrived yet is kept until it has."
         (setf (watcher-typed-at watcher) now
               (watcher-keyed-at watcher) (monotonic-ns))
         (when (watcher-following watcher) (stop-following (session-server session) watcher))
-        (when (and (pane-running pane) (pane-started pane))
-          (setf (pane-typed-at pane) now))
         (on-pane pane (lambda ()
                         (pane-note-log pane now actor :keys (length text) t)
                         (pane-scroll-to pane 0)

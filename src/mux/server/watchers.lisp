@@ -99,11 +99,11 @@
           (when (and (or owed (not (equal shown (watcher-drawn watcher))))
                      (zerop (wire-pending wire))
                      (>= now (frame-due-at watcher (* (server-interval server) 1000000))))
+            (setf (watcher-behind watcher) nil)
             (or (and (not owed) (session-repaint session watcher))
                 (session-compose session watcher))
             (watcher-frame session watcher)
             (setf (watcher-sent watcher) now
-                  (watcher-behind watcher) nil
                   (watcher-seen watcher) version
                   (watcher-drawn watcher) shown)
             (when (or (null echo) (>= (shown-echoed echo) (watcher-keyed-at watcher)))

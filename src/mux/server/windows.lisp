@@ -6,8 +6,7 @@
   "WINDOW is the one SESSION shows. Everybody watching is redrawn, and the
 panes are fitted to the room when it is next composed."
   (unless (same-window-p window (session-window session))
-    (setf (session-window session) window)
-    (dolist (pane (window-panes window)) (setf (pane-dirty pane) t))))
+    (setf (session-window session) window)))
 
 (defun session-add-window (session &optional command directory (show t))
   "Another window in SESSION, after the current one, with one pane running
@@ -162,8 +161,10 @@ session that is over."
                      (when (eq pane (window-focus w))
                        (setf (window-focus w) (first (window-panes w))))))
     (dolist (w (session-watchers session))
-      (when (eq pane (second (watcher-held w)))
-        (setf (watcher-held w) nil)))
+      (on-watcher w (let ((w w))
+                      (lambda ()
+                        (when (eq pane (second (watcher-held w)))
+                          (setf (watcher-held w) nil))))))
     (pane-close pane)
     (run-hook 'pane-ended session pane)
     (let ((now (window-now session window)))
