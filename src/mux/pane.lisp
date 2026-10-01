@@ -445,7 +445,7 @@ made now takes the next."
                          (unless (eq drained :later)
                            (setf (pane-changed pane) t
                                  (pane-echoed pane) (pane-written-at pane)
-                                 (pane-moved-at pane) (now-ms)))))
+                                 (pane-moved-at pane) (max (now-ms) (1+ (pane-looked-at pane)))))))
                      (when (and (pane-changed pane) (>= (monotonic-ns) (pane-show-due pane)))
                        (if (pane-watched-p pane)
                            (progn (setf (pane-changed pane) nil)
