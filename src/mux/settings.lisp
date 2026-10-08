@@ -145,6 +145,17 @@ the saved pane and answers a command."
              (error "~S is not :shell, :same or a function" value))
            value))
 
+(defsetting +restore-programs+ :full-screen
+  "What a restored shell does with the program that was in front of it:
+:full-screen starts again one that had the whole screen, or that a resume
+command picks up, and types any other at the prompt for Enter to run; :all
+starts every one again; :typed starts none; a function is given the saved pane
+and answers the command and whether to enter it."
+  :check (lambda (value)
+           (unless (or (member value '(:full-screen :all :typed)) (functionp value))
+             (error "~S is not :full-screen, :all, :typed or a function" value))
+           value))
+
 (defsetting +resume-commands+ '(("claude" . "claude --continue"))
   "For a program a restored shell stands in for, the command that picks its
 work up again, said on the rule under what it showed: (\"claude\" . \"claude

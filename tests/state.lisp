@@ -112,7 +112,7 @@ so most of them are behind the screen."
       (is (eql 49500 (first (first (mux::pane-log back)))))
       (is (eql 49000 (first (second (mux::pane-log back))))))))
 
-(test a-claude-pane-comes-back-as-a-shell-and-says-so-unless-asked-otherwise
+(test a-claude-pane-comes-back-as-a-shell-that-picks-claude-up-unless-asked-otherwise
   (with-setting-kept (:restore-command)
     (let* ((pane (mux:make-pane "claude" :rows 3 :cols 100))
            (form (progn (setf (mux::pane-pending-prompt pane) '("go on" (:cli)))
@@ -120,11 +120,10 @@ so most of them are behind the screen."
       (mux:configure :restore-command :shell)
       (let ((back (mux:decode-pane form 200)))
         (is (mux::shell-command-p (mux:pane-command back)))
-        (is (null (mux::pane-pending-prompt back)) "a shell was handed claude's prompt")
-        (is (eq :restored (third (first (mux::pane-log back)))))
-        (is (equal '(:atty) (second (first (mux::pane-log back)))))
-        (is (search "was: claude" (shown-row back 0)) "~S" (shown-row back 0))
-        (is (search "claude --continue picks it up" (shown-row back 0)) "~S" (shown-row back 0)))
+        (is (equal '("claude --continue" t) (mux::pane-typed back)))
+        (is (equal '("go on" (:cli)) (mux::pane-pending-prompt back)))
+        (is (null (mux::pane-log back)))
+        (is (search "claude --continue started again" (shown-row back 0)) "~S" (shown-row back 0)))
       (mux:configure :restore-command :same)
       (let ((back (mux:decode-pane form 200)))
         (is (equal "claude" (mux:pane-command back)))
@@ -132,6 +131,152 @@ so most of them are behind the screen."
         (is (null (mux::pane-log back))))
       (mux:configure :restore-command (lambda (form) (declare (ignore form)) "sh -c true"))
       (is (equal "sh -c true" (mux:pane-command (mux:decode-pane form 200)))))))
+
+(defun pane-in-front-of (words &key alt (directory "/tmp") (cols 60))
+  "A shell pane saved with WORDS in front of it, on the alt screen when ALT."
+  (let ((pane (coloured-pane 4 :rows 3 :cols cols)))
+    (when alt
+      (mux::with-term (term pane)
+        (term:term-process-output term (format nil "~C[?1049hfull scr" #\Escape))))
+    (setf (mux::pane-front pane) (list :words words :directory directory)
+          (mux::pane-here pane) "/tmp")
+    (mux:encode-pane pane 100)))
+
+(test what-was-in-front-and-where-the-shell-was-are-saved
+  (let ((form (pane-in-front-of '("vim" "my notes.org") :alt t)))
+    (is (equal "/tmp" (getf (nthcdr 2 form) :here)))
+    (is (equal '(:alt t :words ("vim" "my notes.org") :directory "/tmp") (getf (nthcdr 2 form) :front)))))
+
+(test what-was-in-front-is-kept-through-a-restore-until-it-runs-again
+  (with-setting-kept (:restore-programs)
+    (mux:configure :restore-programs :full-screen)
+    (let* ((once (mux:decode-pane (pane-in-front-of '("vim" "x") :alt t) 200))
+           (form (mux:encode-pane once 300))
+           (twice (mux:decode-pane form 400)))
+      (is (equal '("vim" "x") (getf (getf (nthcdr 2 form) :front) :words)) "~S" (getf (nthcdr 2 form) :front))
+      (is (equal '("vim x" t) (mux::pane-typed twice)))
+      (setf (mux::pane-kept-front twice) nil)
+      (is (null (getf (nthcdr 2 (mux:encode-pane twice 500)) :front))))))
+
+(test a-pane-saved-before-fronts-were-brings-back-what-its-programs-say
+  (with-setting-kept (:restore-programs)
+    (mux:configure :restore-programs :full-screen)
+    (let* ((form (mux:encode-pane (coloured-pane 4 :rows 3 :cols 60) 100))
+           (old (list* (first form) (second form)
+                       :programs '("claude --dangerously-skip-permissions")
+                       (let ((rest (copy-list (nthcdr 2 form))))
+                         (remf rest :front) (remf rest :here) (remf rest :programs) rest)))
+           (back (mux:decode-pane old 200)))
+      (is (equal '("claude --dangerously-skip-permissions --continue" t) (mux::pane-typed back)))
+      (let ((none (list* (first form) (second form)
+                         :programs '("/bin/zsh" "git status")
+                         (let ((rest (copy-list (nthcdr 2 form)))) (remf rest :programs) rest))))
+        (is (null (mux::pane-typed (mux:decode-pane none 200))))))))
+
+(test a-full-screen-program-comes-back-in-front-and-starts-again
+  (with-setting-kept (:restore-programs)
+    (mux:configure :restore-programs :full-screen)
+    (let ((back (mux:decode-pane (pane-in-front-of '("vim" "my notes.org") :alt t :cols 30) 200)))
+      (flet ((cover-row (y) (string-right-trim " " (term:term-dump-row-string (mux::pane-cover back) y)))
+             (say (text) (mux::with-term (term back) (term:term-process-output term text))))
+        (is (equal '("vim 'my notes.org'" t) (mux::pane-typed back)))
+        (is (equal "/tmp" (mux::pane-here back)))
+        (is-false (mux::with-term (term back) (term:term-in-alt-screen term)))
+        (is (equal "full scr" (cover-row 0)) "~S" (cover-row 0))
+        (is (eq t (mux::pane-covered back)))
+        (say (format nil "$ vim~C~C" #\Return #\Newline))
+        (is (equal "full scr" (cover-row 0)))
+        (is (search "full scr" (format nil "~S" (getf (nthcdr 2 (mux:encode-pane back 300)) :over)))
+            "the picture in front was not saved while it was in front")
+        (is (getf (nthcdr 2 (mux:encode-pane back 300)) :alt-screen))
+        (say (format nil "~C[?1049h~C[2J" #\Escape #\Escape))
+        (is-false (mux::pane-drew-over-p back) "a blank alt screen took the picture's place")
+        (say "vim")
+        (is-true (mux::pane-drew-over-p back))
+        (say (format nil "~C[?1049l$ " #\Escape))
+        (is (equal '("$ vim" "$") (list (shown-row back 1) (shown-row back 2)))
+            "~S" (loop :for y :below 3 :collect (shown-row back y)))
+        (is (search "restored" (shown-row back 0)) "~S" (shown-row back 0))))))
+
+(test a-command-that-had-no-screen-of-its-own-is-typed-and-not-entered
+  (with-setting-kept (:restore-programs)
+    (mux:configure :restore-programs :full-screen)
+    (let ((back (mux:decode-pane (pane-in-front-of '("make" "test")) 200)))
+      (is (equal '("make test" nil) (mux::pane-typed back)))
+      (is-false (mux::with-term (term back) (term:term-in-alt-screen term)))
+      (is (null (mux::pane-covered back))))
+    (mux:configure :restore-programs :all)
+    (is (equal '("make test" t) (mux::pane-typed (mux:decode-pane (pane-in-front-of '("make" "test")) 200))))
+    (mux:configure :restore-programs :typed)
+    (is (equal '("vim x" nil)
+               (mux::pane-typed (mux:decode-pane (pane-in-front-of '("vim" "x") :alt t) 200))))))
+
+(test a-program-somewhere-else-is-gone-to-first
+  (with-setting-kept (:restore-programs)
+    (mux:configure :restore-programs :all)
+    (let ((home (namestring (user-homedir-pathname))))
+      (is (equal (list (format nil "cd ~A; ls" (mux::shell-quote home)) t)
+                 (mux::pane-typed (mux:decode-pane (pane-in-front-of '("ls") :directory home) 200)))))))
+
+(test a-resume-command-is-found-by-the-agent-it-was
+  (is (equal "claude --continue" (mux::resume-command "node /usr/lib/cli.js" "claude")))
+  (is (equal "claude --continue" (mux::resume-command "/opt/bin/claude --model x")))
+  (is (null (mux::resume-command "vim"))))
+
+(test claude-comes-back-to-its-own-session-with-the-flags-it-was-started-with
+  (let ((home (format nil "~Aatty-claude-~D/" (uiop:temporary-directory) (random 1000000))))
+    (unwind-protect
+         (progn
+           (ensure-directories-exist (merge-pathnames "projects/-tmp-x/" home))
+           (dolist (id '("abc-1" "abc-2"))
+             (with-open-file (out (merge-pathnames (format nil "projects/-tmp-x/~A.jsonl" id) home)
+                                  :direction :output)
+               (write-line "{}" out)))
+           (sb-posix:setenv "CLAUDE_CONFIG_DIR" home 1)
+           (is (equal "claude --dangerously-skip-permissions --resume abc-1"
+                      (mux::session-command '(:words ("claude" "--dangerously-skip-permissions" "--continue")
+                                              :session "abc-1"))))
+           (is (equal "claude --resume abc-2"
+                      (mux::session-command '(:words ("claude" "--resume" "old" "-c") :session "abc-2"))))
+           (is (equal "claude --dangerously-skip-permissions"
+                      (mux::session-command '(:words ("claude" "--dangerously-skip-permissions")
+                                              :session "never-said-anything")))))
+      (sb-posix:unsetenv "CLAUDE_CONFIG_DIR")
+      (ignore-errors (uiop:delete-directory-tree (pathname home) :validate t))))
+  (is (equal "claude --continue" (mux::session-command '(:words ("claude")))))
+  (is (null (mux::session-command '(:words ("vim" "x"))))))
+
+(test claudes-session-is-read-from-what-it-says-about-itself
+  (let ((home (format nil "~Aatty-claude-~D/" (uiop:temporary-directory) (random 1000000))))
+    (unwind-protect
+         (progn
+           (ensure-directories-exist (merge-pathnames "sessions/" home))
+           (with-open-file (out (merge-pathnames "sessions/4242.json" home) :direction :output)
+             (write-string "{\"pid\":4242,\"sessionId\":\"s-77\",\"cwd\":\"/tmp\"}" out))
+           (sb-posix:setenv "CLAUDE_CONFIG_DIR" home 1)
+           (is (equal "s-77" (mux::claude-session 4242)))
+           (is (equal "s-77" (getf (mux::front-with-session '(:words ("claude") :pid 4242)) :session)))
+           (is (null (getf (mux::front-with-session '(:words ("vim") :pid 4242)) :session))))
+      (sb-posix:unsetenv "CLAUDE_CONFIG_DIR")
+      (ignore-errors (uiop:delete-directory-tree (pathname home) :validate t)))))
+
+(test a-pane-is-saved-at-once-when-what-is-in-front-changes
+  (let ((pane (mux:make-pane "sh")))
+    (setf (mux::pane-saved-at pane) 1000
+          (mux::pane-touched pane) 1500
+          (mux::pane-moved-at pane) 1500)
+    (is (not (mux::save-due-p pane 1600)))
+    (setf (mux::pane-save-soon pane) t)
+    (is (mux::save-due-p pane 1600))))
+
+(test an-old-pane-file-comes-back-as-it-did
+  (let* ((form (mux:encode-pane (coloured-pane 4 :rows 3 :cols 40) 100))
+         (old (cons (first form) (cons (second form)
+                                       (let ((rest (copy-list (nthcdr 2 form))))
+                                         (remf rest :here) (remf rest :front) rest))))
+         (back (mux:decode-pane old 200)))
+    (is (null (mux::pane-typed back)))
+    (is (search "restored" (shown-row back 1)) "~S" (shown-row back 1))))
 
 (defun server-with-windows (server)
   "Two sessions; the first with three windows, the second one shown, splits in

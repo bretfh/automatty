@@ -58,6 +58,13 @@
   (group nil)
   (programs nil)
   (paths nil)
+  (here nil)
+  (front nil)
+  (kept-front nil)
+  (save-soon nil)
+  (typed nil)
+  (cover nil)
+  (covered nil)
   (programs-at 0)
   (group-at 0 :type integer)
   (look-at nil :type (or null integer))
@@ -218,11 +225,27 @@ made now takes the next."
                       (>= (- now (pane-programs-at pane)) +program-poll-interval+)))
              (let* ((running (and group (pty:group-processes group)))
                     (was (program-name (first (pane-programs pane))))
-                    (is (program-name (first (mapcar (lambda (p) (getf p :line)) running)))))
+                    (is (program-name (first (mapcar (lambda (p) (getf p :line)) running))))
+                    (here (pty:process-directory (pane-pid pane)))
+                    (leader (or (find group running :key (lambda (p) (getf p :pid)))
+                                (first running)))
+                    (front (and leader
+                                (not (member (program-name (getf leader :line)) +shells+
+                                             :test #'string=))
+                                (list :words (getf leader :words)
+                                      :directory (getf leader :directory)
+                                      :pid (getf leader :pid)))))
                (setf (pane-group pane) group
                      (pane-programs-at pane) now
                      (pane-programs pane) (mapcar (lambda (p) (getf p :line)) running)
                      (pane-paths pane) (mapcar (lambda (p) (getf p :path)) running))
+               (when front
+                 (setf (pane-kept-front pane) nil))
+               (unless (and (equal here (pane-here pane)) (equal front (pane-front pane)))
+                 (setf (pane-here pane) (or here (pane-here pane))
+                       (pane-front pane) front
+                       (pane-save-soon pane) t
+                       (pane-touched pane) now))
                (unless (string= was is)
                  (setf (pane-titled-at pane) now)
                  (when (and (plusp (length was)) (not (member was +shells+ :test #'string=)))
@@ -235,6 +258,32 @@ made now takes the next."
                                                    :paths (pane-paths pane)))
             ((null reader)
              (pane-look-later pane (+ (pane-programs-at pane) +program-poll-interval+))))))))
+
+(defparameter +cover-patience+ 15000)
+
+(defun pane-uncover (pane now in-front)
+  (let ((covered (pane-covered pane)))
+    (cond ((null covered))
+          ((and in-front (integerp covered))
+           (setf (pane-covered pane) :running))
+          ((or (null (pane-cover pane))
+               (pane-drew-over-p pane)
+               (and (not in-front) (eq covered :running))
+               (and (integerp covered) (>= now covered)))
+           (setf (pane-covered pane) nil
+                 (pane-cover pane) nil)
+           (setf (pane-changed pane) t
+                 (pane-moved-at pane) (max now (1+ (pane-looked-at pane)))))
+          ((integerp covered) (pane-look-later pane covered)))))
+
+(defun pane-type-restored (pane now)
+  (destructuring-bind (&optional text enter) (pane-typed pane)
+    (when (and text (pane-started pane))
+      (setf (pane-typed pane) nil)
+      (when (pane-covered pane)
+        (setf (pane-covered pane) (+ now +cover-patience+))
+        (pane-look-later pane (pane-covered pane)))
+      (pane-send pane (if enter (format nil "~A~C" text #\Return) text)))))
 
 (defun pane-start (pane &key environment woken look watched urgent (gap 0))
   "Run the pane's program on a terminal of its own, the size the pane is now."
@@ -324,13 +373,23 @@ made now takes the next."
 (defstruct (shown (:constructor %make-shown))
   screen (history 0 :type fixnum) (paste nil) (at 0 :type integer) (echoed 0 :type integer))
 
+(defun pane-drew-over-p (pane)
+  (let ((term (pane-term pane)))
+    (and (term:term-in-alt-screen term)
+         (loop :for y :below (term:term-height term)
+               :thereis (notevery (lambda (ch) (char= ch #\Space))
+                                  (term:row-chars (term:term-grid-row term y)))))))
+
 (defun pane-show (pane)
-  (let* ((term (pane-term pane))
+  (when (and (pane-cover pane) (pane-drew-over-p pane))
+    (setf (pane-cover pane) nil
+          (pane-covered pane) nil))
+  (let* ((term (or (pane-cover pane) (pane-term pane)))
          (w (term:term-width term))
          (h (term:term-height term))
          (screen (tty:make-screen :width w :height h)))
     (atty/cells:blit (atty/cells:make-cells (tty:screen-grid screen) w h) term 0 0 w h
-                     (pane-scrolled pane))
+                     (if (pane-cover pane) 0 (pane-scrolled pane)))
     (setf (tty:screen-cursor-x screen) (term:term-cursor-x term)
           (tty:screen-cursor-y screen) (term:term-cursor-y term)
           (tty:screen-cursor-visible screen) (and (term:term-cursor-visible term) t)
@@ -597,6 +656,7 @@ program has taken the whole screen is back at it."
 (defun pane-resize (pane rows cols)
   (on-pane pane (lambda ()
                   (term:term-resize (pane-term pane) cols rows)
+                  (when (pane-cover pane) (term:term-resize (pane-cover pane) cols rows))
                   (ignore-errors (pty:pty-set-size (pane-fd pane) rows cols))
                   (setf (pane-scrolled pane) (min (pane-scrolled pane) (pane-history pane)))
                   (when (pane-thread pane) (pane-show pane))))

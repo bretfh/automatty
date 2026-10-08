@@ -38,6 +38,8 @@ shut to everybody else: a saved screen is somebody's shell history."
 
 (defun handoff-file (dir) (merge-pathnames "handoff.sexp" dir))
 
+(defun pid-file (dir) (merge-pathnames "pid.sexp" dir))
+
 (defun pane-file (dir id) (merge-pathnames (format nil "panes/~D.sexp" id) dir))
 
 (defun pane-files (dir)
@@ -191,19 +193,25 @@ log, and every row it holds, oldest first, with the faces said once."
                       :collect (encode-row (main-row term y) faces table)))
          ;; a full-screen program's screen is what was in front of somebody
          ;; when the server stopped, and the main screen is what was under it
-         (over (and (term:term-in-alt-screen term)
-                    (loop :for y :from 0 :to (last-row-on term)
-                          :collect (encode-row (term:term-grid-row term y) faces table)))))
+         (in-front (or (pane-cover pane) (and (term:term-in-alt-screen term) term)))
+         (over (and in-front
+                    (loop :for y :from 0 :to (last-row-on in-front)
+                          :collect (encode-row (term:term-grid-row in-front y) faces table)))))
     (list :atty-pane +state-version+
           :id (pane-id pane)
           :saved (get-universal-time)
           :command (pane-command pane)
           :directory (pane-directory pane)
+          :here (pane-here pane)
+          :front (if (pane-front pane)
+                     (front-with-session (list* :alt (and in-front t)
+                                                (pane-front pane)))
+                     (pane-kept-front pane))
           :label (pane-label pane)
           :named (pane-named pane)
           :rows (term:term-height term)
           :cols (term:term-width term)
-          :alt-screen (and (term:term-in-alt-screen term) t)
+          :alt-screen (and in-front t)
           :programs (pane-programs pane)
           :title (term:term-title term)
           :queued (pane-pending-prompt pane)
@@ -241,7 +249,7 @@ log, and every row it holds, oldest first, with the faces said once."
 (defun adopt-pane (form now fd pid)
   "The pane FORM saved, around the program still running on FD as PID: its
 screen and its terminal's modes as they were, and nothing started."
-  (destructuring-bind (&key id command directory label named rows cols programs
+  (destructuring-bind (&key id command directory here label named rows cols programs
                             queued told since-clock states log faces behind screen over
                             alt-screen modes &allow-other-keys)
       (nthcdr 2 form)
@@ -257,6 +265,7 @@ screen and its terminal's modes as they were, and nothing started."
       (when modes (setf (term:term-modes term) (decode-modes modes)))
       (setf (pane-fd pane) (pty:nonblocking fd)
             (pane-pid pane) pid
+            (pane-here pane) here
             (pane-pushed-seen pane) (term:term-scrollback-pushed term)
             (pane-label pane) label
             (pane-named pane) named
@@ -284,18 +293,120 @@ screen and its terminal's modes as they were, and nothing started."
           ((and command (shell-command-p command)) command)
           (t (default-shell)))))
 
-(defun resume-command (command)
-  "What picks up the work of a pane that ran COMMAND, when something is known to."
-  (cdr (assoc (program-name command) +resume-commands+ :test #'string=)))
+(defun resume-command (command &optional kind)
+  "What picks up the work of a pane that ran COMMAND, or the agent KIND, when
+something is known to."
+  (cdr (or (assoc (program-name command) +resume-commands+ :test #'string=)
+           (and kind (assoc kind +resume-commands+ :test #'string=)))))
 
-(defun restore-rule-text (saved command directory same)
+(defun shell-quote (word)
+  (if (and (plusp (length word))
+           (every (lambda (c) (or (alphanumericp c) (find c "-_./=:,+@%^"))) word))
+      word
+      (format nil "'~A'" (with-output-to-string (s)
+                           (loop :for c :across word
+                                 :do (if (char= c #\') (write-string "'\\''" s) (write-char c s)))))))
+
+(defun claude-home ()
+  (let ((env (sb-ext:posix-getenv "CLAUDE_CONFIG_DIR")))
+    (uiop:ensure-directory-pathname
+     (if (and env (plusp (length env))) env (merge-pathnames ".claude/" (user-homedir-pathname))))))
+
+(defun claude-session (pid)
+  (let* ((text (ignore-errors
+                (uiop:read-file-string (merge-pathnames (format nil "sessions/~D.json" pid)
+                                                        (claude-home)))))
+         (key "\"sessionId\":\"")
+         (at (and text (search key text)))
+         (from (and at (+ at (length key))))
+         (to (and from (position #\" text :start from))))
+    (and to (subseq text from to))))
+
+(defun front-with-session (front)
+  (let ((pid (getf front :pid)))
+    (if (and pid (string= "claude" (program-name (first (getf front :words)))))
+        (let ((session (claude-session pid)))
+          (if session (list* :session session front) front))
+        front)))
+
+(defun without-resuming (words)
+  (loop :with skip := nil
+        :for word :in words
+        :if skip :do (setf skip nil)
+        :else :if (member word '("-r" "--resume") :test #'string=)
+                :do (setf skip t)
+        :else :unless (or (member word '("-c" "--continue") :test #'string=)
+                          (and (> (length word) 9) (string= "--resume=" word :end2 9)))
+                :collect word))
+
+(defun claude-conversation-p (session)
+  (and (directory (merge-pathnames (format nil "projects/*/~A.jsonl" session) (claude-home))) t))
+
+(defun session-command (front)
+  (destructuring-bind (&key words session &allow-other-keys) front
+    (when (string= "claude" (program-name (first words)))
+      (format nil "~{~A~^ ~}~A"
+              (mapcar #'shell-quote (without-resuming words))
+              (cond ((null session) " --continue")
+                    ((claude-conversation-p session) (format nil " --resume ~A" (shell-quote session)))
+                    (t ""))))))
+
+(defun front-of (form)
+  "What was in front of the shell in the pane FORM saved: its words and where
+it ran. A pane that ran something else, saved before that was looked at, had
+that in front."
+  (destructuring-bind (&key command (front nil saw-front) programs &allow-other-keys) (nthcdr 2 form)
+    (or front
+        (and (not saw-front)
+         (let ((line (find-if (lambda (line) (and (plusp (length (program-name line)))
+                                                 (not (shell-command-p line))))
+                             programs)))
+          (and line (list :words (split-words line)))))
+        (and command (not (shell-command-p command))
+             (list :words (list command))))))
+
+(defun split-words (line)
+  (loop :with at := 0
+        :for start := (position #\Space line :start at :test-not #'char=)
+        :while start
+        :collect (let ((stop (or (position #\Space line :start start) (length line))))
+                   (prog1 (subseq line start stop) (setf at stop)))))
+
+(defun retyped-command (form kind here)
+  "What a restored shell is given to type, from what was in front of it in the
+pane FORM saved, and whether it is entered. Nil when nothing was."
+  (let ((front (front-of form))
+        (policy +restore-programs+))
+    (when front
+      (if (functionp policy)
+          (funcall policy form)
+          (destructuring-bind (&key words directory &allow-other-keys) front
+            (let* ((line (format nil "~{~A~^ ~}" words))
+                   (resume (or (session-command front) (resume-command line kind)))
+                   (text (format nil "~@[cd ~A; ~]~A"
+                                 (and directory (not (equal directory here)) (probe-file directory)
+                                      (shell-quote directory))
+                                 (or resume (format nil "~{~A~^ ~}" (mapcar #'shell-quote words))))))
+              (values text
+                      (case policy
+                        (:all t)
+                        (:typed nil)
+                        (t (or (and resume t)
+                               (and (if (member :alt front)
+                                        (getf front :alt)
+                                        (getf (nthcdr 2 form) :alt-screen))
+                                    t)))))))))))
+
+(defun restore-rule-text (saved command directory same &optional typed entered)
   "What the rule under a restored pane says: when, and when its program is not
 what ran there, what did, where, and what brings it back."
-  (format nil "restored ~A~@[ · was: ~A~]~@[ in ~A~]~@[ · ~A picks it up~]"
+  (format nil "restored ~A~@[ · was: ~A~]~@[ in ~A~]~@[ · ~A picks it up~]~@[ · ~A~]"
           (format-day-time (or saved (get-universal-time)))
-          (and (not same) command)
-          (and (not same) directory (abbreviate-directory directory))
-          (and (not same) (resume-command command))))
+          (and (not same) (not typed) command)
+          (and (not same) (not typed) directory (abbreviate-directory directory))
+          (and (not same) (not typed) (resume-command command))
+          (and typed (format nil (if entered "~A started again" "~A is typed, Enter runs it")
+                             typed))))
 
 (defun divider-row (width text)
   "A row of rule with TEXT set into it, drawn faint: what says where what was
@@ -334,46 +445,60 @@ it could not be as it was."
     (when kept
       (remhash (getf (nthcdr 2 form) :id) *adopted*)
       (return-from decode-pane (adopt-pane form now (first kept) (second kept)))))
-  (destructuring-bind (&key id saved command directory label named rows cols
+  (destructuring-bind (&key id saved command directory here label named rows cols
                             programs title queued told since-clock states log
                             faces behind screen over &allow-other-keys)
       (nthcdr 2 form)
     (let* ((runs (restore-command form))
            (same (equal runs command))
-           (directory (and directory (probe-file directory) directory))
-           (note (and (getf (nthcdr 2 form) :directory) (null directory)
+           (start (find-if (lambda (d) (and d (probe-file d))) (list here directory)))
+           (note (and (or here directory) (null start)
                       (format nil "pane ~D was in ~A, which is gone; it starts at home"
-                              id (getf (nthcdr 2 form) :directory))))
-           (pane (make-pane runs :id id :rows rows :cols cols :directory directory))
+                              id (or here directory))))
+           (pane (make-pane runs :id id :rows rows :cols cols :directory start))
            (term (pane-term pane))
-           (seen (map 'simple-vector #'decode-face faces)))
-      ;; what was behind the screen goes behind it; what was on it goes on
-      ;; it, a full-screen program's screen after that since it was what was
-      ;; in front, with the rule under that and the program's first line
-      ;; under the rule, so it looks the way it did with one line saying what
-      ;; happened
-      (push-rows-to-scrollback term (mapcar (lambda (said) (decode-row said seen)) behind))
-      (write-rows-to-term term (append (mapcar (lambda (said) (decode-row said seen)) screen)
-                              (mapcar (lambda (said) (decode-row said seen)) over)
-                              (list (divider-row cols (restore-rule-text saved command
-                                                                     (getf (nthcdr 2 form) :directory)
-                                                                     same)))))
-      (setf (pane-pushed-seen pane) (term:term-scrollback-pushed term)
-            (pane-label pane) label
-            (pane-named pane) named
-            (pane-programs pane) programs
-            (pane-pending-prompt pane) (and same queued)
-            (pane-log pane) (moments log now)
-            (pane-log-count pane) (length log))
-      (let ((agent (pane-agent pane)))
-        (when told (agent:agent-hear agent told))
-        (setf (agent:agent-history agent) (moments states now)
-              (agent::agent-historied agent) (length states)
-              (agent:agent-since-clock agent) since-clock)
-        (agent:agent-become agent :title (or title named) :command command
-                                  :programs programs))
-      (unless same
-        (pane-push-log pane now '(:atty) :restored (format nil "was: ~A" command)))
+           (seen (map 'simple-vector #'decode-face faces))
+           (agent (pane-agent pane)))
+      (when told (agent:agent-hear agent told))
+      (setf (agent:agent-history agent) (moments states now)
+            (agent::agent-historied agent) (length states)
+            (agent:agent-since-clock agent) since-clock)
+      (agent:agent-become agent :title (or title named) :command command
+                                :programs programs)
+      (multiple-value-bind (typed entered)
+          (and (shell-command-p runs)
+               (retyped-command form (and (agent:agent-reader agent) (agent:agent-kind agent))
+                                start))
+        (flet ((rows-of (said) (mapcar (lambda (r) (decode-row r seen)) said))
+               (rule () (divider-row cols (restore-rule-text saved command directory same
+                                                             typed entered))))
+          ;; what was behind the screen goes behind it; what was on it goes on
+          ;; it with the rule under it. A full-screen program started again
+          ;; has its screen put back in front, as it was, until it draws its
+          ;; own; one that is not has it written under the rest, since it was
+          ;; what was in front
+          (push-rows-to-scrollback term (rows-of behind))
+          (if (and typed entered over)
+              (progn
+                (write-rows-to-term term (append (rows-of screen) (list (rule))))
+                (let ((cover (term:make-term :width cols :height rows :max-scrollback 0)))
+                  (fill-rows cover (rows-of over))
+                  (setf (term:term-cursor-visible cover) nil
+                        (pane-cover pane) cover
+                        (pane-covered pane) t)))
+              (write-rows-to-term term (append (rows-of screen) (rows-of over) (list (rule))))))
+        (setf (pane-pushed-seen pane) (term:term-scrollback-pushed term)
+              (pane-here pane) start
+              (pane-typed pane) (and typed (list typed entered))
+              (pane-kept-front pane) (and typed (front-of form))
+              (pane-label pane) label
+              (pane-named pane) named
+              (pane-programs pane) programs
+              (pane-pending-prompt pane) (and (or same entered) queued)
+              (pane-log pane) (moments log now)
+              (pane-log-count pane) (length log))
+        (unless (or same typed)
+          (pane-push-log pane now '(:atty) :restored (format nil "was: ~A" command))))
       (values pane note))))
 
 (defun make-empty-pane (id rows cols why)

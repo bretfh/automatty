@@ -108,7 +108,7 @@
    #:defsetting #:configure #:setting #:settings #:after-setting
    #:defhook #:add-hook #:remove-hook #:run-hook
    #:+wheel-rows+ #:+max-scrollback+ #:+scrollback-budget+ #:+scrollbars-by-default+ #:+bar-by-default+ #:+rail-by-default+ #:+rail-width+
-   #:+restore-command+ #:+saved-scrollback+ #:+save-quiet-after+ #:+save-at-most-every+
+   #:+restore-command+ #:+restore-programs+ #:+saved-scrollback+ #:+save-quiet-after+ #:+save-at-most-every+
    #:bind-prefix-keys
    #:*init-error* #:load-user-init #:user-init-file #:config-dir #:init-help
    #:*state-home* #:state-dir #:encode-pane #:decode-pane #:encode-tree #:restore-state

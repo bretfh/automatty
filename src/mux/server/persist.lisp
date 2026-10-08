@@ -89,6 +89,7 @@ written."
         t))))
 
 (defun save-pane (server pane now &optional (dir (server-state-dir server)))
+  (setf (pane-save-soon pane) nil)
   (when (write-form-atomically (pane-file dir (pane-id pane)) (encode-pane pane now))
     (setf (pane-saved-at pane) now)
     t))
@@ -101,7 +102,8 @@ written."
 +SAVE-QUIET-AFTER+ or gone unsaved for +SAVE-AT-MOST-EVERY+."
   (let ((changed (pane-changed-at pane)))
     (and (> changed (pane-saved-at pane))
-         (or (>= (- now changed) +save-quiet-after+)
+         (or (pane-save-soon pane)
+             (>= (- now changed) +save-quiet-after+)
              (>= (- now (pane-saved-at pane)) +save-at-most-every+)))))
 
 (defun save-due (server now &optional (dir (server-state-dir server)))
@@ -112,8 +114,9 @@ a save, so no turn of the loop stalls on more than one pane's rows."
                    :append (remove-if-not (lambda (p) (save-due-p p now))
                                           (session-panes session)))))
     (when due
-      (save-pane server (reduce (lambda (a b) (if (<= (pane-saved-at a) (pane-saved-at b)) a b))
-                                due)
+      (save-pane server (or (find-if #'pane-save-soon due)
+                            (reduce (lambda (a b) (if (<= (pane-saved-at a) (pane-saved-at b)) a b))
+                                    due))
                  now dir))))
 
 (defun save-all (server &optional (dir (server-state-dir server)))

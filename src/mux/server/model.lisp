@@ -400,7 +400,9 @@ becomes, rather than letting them go.")
   ;; name is gone, the state is whole
   (when (server-saving server)
     (handler-case (save-all server)
-      (error (e) (report-error e))))
+      (error (e) (report-error e)))
+    (when (eql (server-pid-saved (file-namestring (server-path server))) (sb-posix:getpid))
+      (ignore-errors (delete-file (pid-file (server-state-dir server))))))
   ;; what was already said is still sent: the last thing a server does is often
   ;; answer whoever asked it to stop, and a reply thrown away with the socket
   ;; reads to them as a server that never heard

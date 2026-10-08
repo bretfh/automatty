@@ -513,6 +513,26 @@ have it."
         (let ((n (%proc-pidpath pid (sb-sys:vector-sap room) (length room))))
           (and (plusp n) (sb-ext:octets-to-string room :end n :external-format :utf-8))))))
 
+  (sb-alien:define-alien-routine ("proc_pidinfo" %proc-pidinfo) sb-alien:int
+    (pid sb-alien:int) (flavor sb-alien:int) (arg sb-alien:unsigned-long)
+    (buffer sb-alien:system-area-pointer) (size sb-alien:int))
+
+  (defconstant +proc-pidvnodepathinfo+ 9)
+  (defconstant +vnode-info-size+ 152)
+  (defconstant +path-room+ 1024)
+
+  (defun process-directory (pid)
+    (let ((room (make-array (* 2 (+ +vnode-info-size+ +path-room+))
+                            :element-type '(unsigned-byte 8))))
+      (sb-sys:with-pinned-objects (room)
+        (when (plusp (%proc-pidinfo pid +proc-pidvnodepathinfo+ 0
+                                    (sb-sys:vector-sap room) (length room)))
+          (let ((end (position 0 room :start +vnode-info-size+
+                                      :end (+ +vnode-info-size+ +path-room+))))
+            (and end (> end +vnode-info-size+)
+                 (sb-ext:octets-to-string room :start +vnode-info-size+ :end end
+                                               :external-format :utf-8)))))))
+
   (defun group-members (group)
     (let ((pids (make-array 256 :element-type '(signed-byte 32))))
       (sb-sys:with-pinned-objects (pids)
@@ -564,6 +584,10 @@ have it."
   (defun process-path (pid)
     (ignore-errors (namestring (truename (format nil "/proc/~D/exe" pid)))))
 
+  (defun process-directory (pid)
+    (let ((said (ignore-errors (namestring (truename (format nil "/proc/~D/cwd/" pid))))))
+      (if (and said (> (length said) 1)) (string-right-trim "/" said) said)))
+
   (defun command-line (pid)
     (let ((octets (ignore-errors
                    (with-open-file (in (format nil "/proc/~D/cmdline" pid)
@@ -585,16 +609,27 @@ have it."
 
   (defun process-path (pid)
     (declare (ignore pid))
+    nil)
+
+  (defun process-directory (pid)
+    (declare (ignore pid))
     nil))
+
+(defun process-words (pid)
+  (or (command-line pid)
+      (let ((path (process-path pid)))
+        (and path (list path)))))
 
 (defun group-command-lines (group)
   (loop :for pid :in (and group (group-members group))
-        :for words := (command-line pid)
+        :for words := (process-words pid)
         :when words :collect (format nil "~{~A~^ ~}" words)))
 
 (defun group-processes (group)
   (loop :for pid :in (and group (group-members group))
-        :for words := (command-line pid)
+        :for words := (process-words pid)
         :when words :collect (list :pid pid
                                    :line (format nil "~{~A~^ ~}" words)
-                                   :path (process-path pid))))
+                                   :words words
+                                   :path (process-path pid)
+                                   :directory (process-directory pid))))

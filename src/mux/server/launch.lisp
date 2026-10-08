@@ -37,6 +37,7 @@ aside first. It cannot be done to a server that is running."
   (let ((path (server-socket-path)))
     (when (server-alive-p path)
       (error "a server is running; atty kill-server or atty restart-server first"))
+    (put-down-wedged-server path)
     (ignore-errors (delete-file path))
     (let ((aside (move-state-aside)))
       (when aside (format t "~&what was saved is in ~A~%" aside)))
@@ -96,10 +97,27 @@ become: the same file, unchanged."
                    (not (eql (inode-of me) *self-inode*))))
       (pty:become next (rest sb-ext:*posix-argv*)))))
 
+(defun server-pid-saved (name)
+  (multiple-value-bind (form status) (read-state-file (pid-file (state-dir name)) :atty-pid)
+    (and (eq status :ok) (getf (nthcdr 2 form) :pid))))
+
+(defun put-down-wedged-server (path)
+  (when (socket-listening-p path)
+    (let ((pid (server-pid-saved (file-namestring path))))
+      (when (and pid (/= pid (sb-posix:getpid))
+                 (search "atty" (or (ignore-errors (pty:process-path pid)) ""))
+                 (ignore-errors (pty:pty-kill pid 9)))
+        (loop repeat 500
+              while (ignore-errors (pty:pty-kill pid 0))
+              do (sleep 0.01))
+        (ignore-errors (delete-file path))
+        t))))
+
 (defun ensure-server ()
   "This user's server, started when it is not running."
   (let ((path (server-socket-path)))
     (unless (server-alive-p path)
+      (put-down-wedged-server path)
       (ignore-errors (delete-file path))
       (start-server))
     (unless (server-alive-p path)
@@ -193,7 +211,8 @@ they are told so."
 
 (defun kill-server ()
   "atty kill-server: stop every session, saying what was kept."
-  (if (stop-server (server-socket-path))
+  (if (or (stop-server (server-socket-path))
+          (put-down-wedged-server (server-socket-path)))
       (let ((saved (saved-sessions)))
         (if saved
             (format t "~&stopped every session; ~D saved, atty brings ~:[them~;it~] back~%"

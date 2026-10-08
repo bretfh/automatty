@@ -19,4 +19,5 @@
    #:pty-foreground
    #:group-command-lines
    #:group-processes
-   #:process-path))
+   #:process-path
+   #:process-directory))

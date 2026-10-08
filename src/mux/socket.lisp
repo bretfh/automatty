@@ -91,6 +91,14 @@ screen that never arrives."
 (defun server-alive-p (path &optional (patience 3))
   (and (probe-socket path patience) t))
 
+(defun socket-listening-p (path)
+  (and (probe-file path)
+       (handler-case
+           (let ((socket (make-instance 'sb-bsd-sockets:local-socket :type :stream)))
+             (unwind-protect (progn (sb-bsd-sockets:socket-connect socket path) t)
+               (ignore-errors (sb-bsd-sockets:socket-close socket))))
+         (error () nil))))
+
 (defun other-servers ()
   "Every other socket here that answers, as (name path legacyp). A legacy one is
 a server from before one server held every session: it holds the one session its

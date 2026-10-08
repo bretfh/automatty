@@ -241,16 +241,24 @@ first.
 Everything the server holds goes to =~/.local/state/atty/<server>/= (or under
 =$XDG_STATE_HOME=): the sessions, their windows and the splits in them, and
 what every pane holds, screen and scrollback with their colours, its log, what
-it ran and where. The tree is written whenever it changes, each pane when it
-has been quiet a moment, and everything when the server stops, whether asked
-or by a signal.
+it ran, what was in front of its shell and where each was. The tree is written
+whenever it changes, each pane when it has been quiet a moment or as soon as
+what is in front of it changes, and everything when the server stops, whether
+asked or by a signal. A server killed outright loses only what changed in the
+last moment.
 
 A server started on the same name brings it all back before it answers
 anybody. Each pane shows what it showed, with a rule under it saying when it
-was brought back, and its program starts again under the rule: a shell in the
-directory it was in, and for anything else, an agent say, a shell standing in,
-the rule saying what was running (=(configure :restore-command :same)= restarts
-it instead). Everything that was behind the screen is still behind it.
+was brought back, and a shell starts under the rule in the directory it was
+last in. What was in front of that shell is started again in it, so quitting it
+leaves you at the prompt: a full-screen program, vim or htop say, comes back
+on the screen it had until it draws its own, and an agent with a resume
+command comes back through it, =claude --continue= for claude. Anything else,
+a build say, is typed at the prompt for Enter to run.
+=(configure :restore-programs :all)= starts everything again, =:typed= nothing;
+=(configure :restore-command :same)= restarts a pane that ran something other
+than a shell as itself instead. Everything that was behind the screen is still
+behind it.
 
 #+begin_src sh
 atty restart-server     # stop it and start it from this build, keeping everything; clients wait and come back
