@@ -211,6 +211,12 @@ made now takes the next."
       (let ((at (pane-look-at pane)))
         (and at (<= at now)))))
 
+(defun spawn-wrapper-p (pane process)
+  (let ((words (getf process :words)))
+    (and (eql (getf process :pid) (pane-pid pane))
+         (string= "sh" (program-name (first words)))
+         (equal "-c" (second words)))))
+
 (declaim (ftype (function (pane integer) t) pane-update-programs))
 (defun pane-update-programs (pane now)
   (when (and (pane-started pane) (pane-running pane))
@@ -223,7 +229,8 @@ made now takes the next."
             ((or (not (eql group (pane-group pane)))
                  (and (null reader)
                       (>= (- now (pane-programs-at pane)) +program-poll-interval+)))
-             (let* ((running (and group (pty:group-processes group)))
+             (let* ((running (remove-if (lambda (p) (spawn-wrapper-p pane p))
+                                        (and group (pty:group-processes group))))
                     (was (program-name (first (pane-programs pane))))
                     (is (program-name (first (mapcar (lambda (p) (getf p :line)) running))))
                     (here (pty:process-directory (pane-pid pane)))

@@ -76,12 +76,12 @@
     (prog1 (reverse (seer-heard seer))
       (setf (seer-heard seer) nil))))
 
-(defun seer (path &key (rows 10) (cols 40))
+(defun seer (path &key (rows 10) (cols 40) (takes (tty:takes-of)))
   (multiple-value-bind (master slave-path) (pty:open-pty)
                        (let ((slave (sb-posix:open slave-path sb-posix:o-rdwr)))
                          (pty:pty-set-size master rows cols)
                          (tty:host-raw slave)
-                         (let ((seer (make-seer :client (mux:make-client path :fd slave :to slave)
+                         (let ((seer (make-seer :client (mux:make-client path :fd slave :to slave :takes takes)
                                                 :host (term:make-term :width cols :height rows)
                                                 :master master
                                                 :slave slave)))

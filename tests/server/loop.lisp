@@ -371,7 +371,7 @@
 
 (test a-resize-does-not-leave-the-screen-painted-in-the-bars-colour
       (with-server (path :command "printf 'before\\n'; sleep 30" :rows 10 :cols 40)
-                   (with-seer (seer path :rows 10 :cols 40)
+                   (with-seer (seer path :rows 10 :cols 40 :takes t)
                               (is-true (pump seer :want "before"))
                               (pty:pty-set-size (seer-master seer) 14 50)
                               (term:term-resize (seer-host seer) 50 14)

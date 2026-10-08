@@ -81,7 +81,8 @@
 
 (test an-arrow-of-the-scrollbar-held-goes-on-until-it-is-let-go
   (with-session (session pane server "seq 1 200; sleep 30")
-    (is-true (step-until server (lambda () (search "200" (dumped pane)))))
+    (is-true (step-until server (lambda () (and (search "200" (dumped pane))
+                                                (> (mux::pane-history pane) 180)))))
     (mux::session-compose session)
     (let ((watcher (mux::%make-watcher)))
       (mux::handle-pointer session watcher :press :left 28 3 nil)
@@ -95,7 +96,8 @@
 
 (test the-track-pages-and-the-thumb-drags
   (with-session (session pane server "seq 1 200; sleep 30")
-    (is-true (step-until server (lambda () (search "200" (dumped pane)))))
+    (is-true (step-until server (lambda () (and (search "200" (dumped pane))
+                                                (> (mux::pane-history pane) 180)))))
     (mux::session-compose session)
     (let ((watcher (mux::%make-watcher))
           (bar (mux::pane-scrollbar session pane)))
