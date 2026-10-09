@@ -241,10 +241,9 @@ happens:
 (add-hook 'pane-started (lambda (session pane) ...))
 #+end_src
 
-[[file:examples/init.lisp][examples/init.lisp]] is one to start from: a whole project's session, panes
-and names from one command, a server of its own for work, the tests rerun from
-any pane, every waiting agent answered at once, and a note on attaching when
-something is waiting on you.
+[[file:examples/init.lisp][examples/init.lisp]] is one to start from: two servers and the sessions,
+windows and panes in each, a command that asks for a branch and makes a
+worktree window for it.
 
 A command is called from Lisp, from a key, from =^-b := or by name from a shell,
 dashes for spaces: =atty say-hello=, =atty split-right=. =atty help init= lists
