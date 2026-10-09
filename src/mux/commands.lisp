@@ -165,8 +165,15 @@ windows), the window shown being WATCHER's."
                  (let* ((server (watcher-server w))
                         (it (session-named server session)))
                    (if it
-                       (session-rename server w it typed)
+                       (let ((outcome (session-rename server w it typed)))
+                         (unless (eq outcome t)
+                           (show-note w "name" (rename-refused outcome typed))))
                        (show-note w "name" (format nil "no session is called ~A any more" session)))))))
+
+(defun rename-refused (outcome new)
+  (if (eq outcome :empty)
+      "a session needs a name"
+      (format nil "there is already a session called ~A" (string-trim " " new))))
 
 (defcommand (rename-session :group sessions) (&optional name new)
   "what to call this session; given a session and a name, that is what it is called"
@@ -174,7 +181,8 @@ windows), the window shown being WATCHER's."
       (let* ((server (here-server))
              (it (session-named server name)))
         (unless it (error "nothing is called ~A" name))
-        (when (eq t (session-rename server *client* it new))
+        (let ((outcome (session-rename server *client* it new)))
+          (unless (eq outcome t) (refuse 1 (rename-refused outcome new)))
           (format t "~&~A is now ~A~%" name (string-trim " " new))))
       (when (watcher-session-name *client*)
         (prompt-session-name *client* (watcher-session-name *client*)))))
