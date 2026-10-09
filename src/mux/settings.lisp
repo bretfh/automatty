@@ -240,8 +240,8 @@ says so to the next client to attach. Nil never reaches the network for it."
        ',symbol)))
 
 (defun hook-symbol (name)
-  (or (second (find name *hooks* :key #'first))
-      (error "there is no hook called ~S; there are ~{~(~S~)~^, ~}"
+  (or (second (find name *hooks* :key #'first :test #'string=))
+      (error "there is no hook called ~(~A~); there are ~{~(~A~)~^, ~}"
              name (mapcar #'first *hooks*))))
 
 (defun add-hook (name does)
