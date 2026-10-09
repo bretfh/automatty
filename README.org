@@ -107,6 +107,7 @@ place the dependencies are, so nothing in a home directory reaches a build.
 atty                    # a shell, in a session called 0, made if it isn't there
 atty <name>             # the same, under another name, started where you are
 atty attach [<name>]    # join a session already running
+atty gui [<name>]       # the same as atty <name>, in a window of its own (macOS)
 atty list               # the sessions: windows, panes, what needs you, who is attached
 atty clients            # every terminal attached, and what each is looking at
 atty rename <old> <new> # call a session something else

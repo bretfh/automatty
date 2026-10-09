@@ -58,6 +58,13 @@
                              (:file "catalog")
                              (:file "agent")))
 
+(asdf:defsystem #:atty/objc
+                :description "Talking to Cocoa through objc_msgSend, with no C. SBCL on macOS only"
+                :serial t
+                :pathname "src/objc/"
+                :components ((:file "package")
+                             (:file "objc")))
+
 (asdf:defsystem #:atty
                 :description "A terminal emulator and multiplexer"
                 :author "Bret Horne"
@@ -65,6 +72,7 @@
                 :version "0.0.1"
                 :depends-on (#:libatty #:atty/pty #:atty/tty #:atty/mode #:atty/ui #:atty/cells
                                   #:atty/agent
+                                  (:feature :darwin #:atty/objc)
                                   (:require #:sb-posix)
                                   (:require #:sb-bsd-sockets)
                                   (:require #:sb-sprof))
@@ -102,7 +110,8 @@
                              (:module "client"
                               :components ((:file "client")
                                            (:file "messages")
-                                           (:file "cli")))
+                                           (:file "cli")
+                                           (:file "gui" :if-feature :darwin)))
                              (:file "commands")
                              (:file "agents")
                              (:module "overlays"

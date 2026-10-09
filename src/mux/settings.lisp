@@ -199,6 +199,32 @@ says so to the next client to attach. Nil never reaches the network for it."
 
 (after-setting '+theme+ (lambda (name) (setf (atty/ui:active) name)))
 
+(defun check-string (value)
+  (if (stringp value) value (error "~S is not a string" value)))
+
+(defun check-palette (value)
+  (unless (and (listp value) (= 16 (length value)) (every #'atty/ui:unhex value))
+    (error "the palette is sixteen colours like \"#ff6f6f\"; ~S is not" value))
+  value)
+
+(defsetting +gui-font+ ""
+  "The font atty gui draws with, by name, such as \"Menlo\"; empty is the system's monospaced font."
+  :check #'check-string)
+
+(defsetting +gui-font-size+ 13
+  "How big atty gui draws, in points; ⌘= and ⌘- change it for that window."
+  :check (check-number 6))
+
+(defsetting +gui-palette+
+  '("#232025" "#ff6f6f" "#51b04f" "#c0b24f" "#57b0ff" "#ffaacf" "#6fb3c0" "#efd5c5"
+    "#5b595e" "#f3a0a0" "#a9c99f" "#deb07a" "#80aadf" "#e3b0c0" "#8fcfd0" "#ffffff")
+  "The sixteen colours atty gui shows a program's colours 0 to 15 in."
+  :check #'check-palette)
+
+(defsetting +gui-option-is-meta+ t
+  "Whether ⌥ in atty gui is meta, sending escape before the key, rather than typing the character it makes."
+  :check #'check-boolean)
+
 ;;; Hooks: lists of functions run when something happens. One that comes
 ;;; apart is shown, or said to the log when nobody is looking, and the rest
 ;;; still run: a slip in somebody's init is not a reason for atty to stop.
