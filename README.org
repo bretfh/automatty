@@ -46,7 +46,8 @@ instead of the terminal it is run from, and the release carries it as an app
 too: =atty-<tag>-darwin-arm64-app.zip= unzips to =Atty.app=, which opens a
 window on session 0 with the shell your login gives you. It is the same atty
 inside, so every command works on =Atty.app/Contents/MacOS/atty=. Intel macs
-have no window, only the terminal.
+have no window, only the terminal. Downloaded by a browser it is quarantined like
+the tarball, and =xattr -dr com.apple.quarantine Atty.app= clears it.
 
 A release is built with roswell's build of sbcl (=make sbcl= fetches it into
 =sbcl/=), since atty carries the runtime of the sbcl that built it: brew's or a
