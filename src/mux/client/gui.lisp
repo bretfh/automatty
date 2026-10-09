@@ -237,12 +237,9 @@
 (defun gui-redraw-rows (gui from to)
   (let ((view (gui-view gui)))
     (when view
-      #+arm64
       (objc:send :void view "setNeedsDisplayInRect:"
                  :double 0d0 :double (* from (gui-cell-h gui))
-                 :double (gui-width gui) :double (* (- to from) (gui-cell-h gui)))
-      #-arm64
-      (objc:send :void view "setNeedsDisplay:" :bool 1))))
+                 :double (gui-width gui) :double (* (- to from) (gui-cell-h gui))))))
 
 (defun gui-redraw (gui)
   (gui-redraw-rows gui 0 (tty:screen-height (gui-screen gui))))
@@ -570,3 +567,50 @@
 (defun gui-or-create (&key (name "0") (command (default-shell)))
   (report-exit-reason name (gui-through-restarts (if *fresh-start* (start-fresh-server) (ensure-server))
                                                  :name name :open (list command (cwd) nil))))
+
+(defun in-app-p ()
+  (let ((me (executable-path)))
+    (and me (search ".app/Contents/MacOS/" me) t)))
+
+(defparameter +left-to-the-pane+ '("PWD" "OLDPWD" "SHLVL" "_" "TERM" "COLORTERM"))
+
+(defun login-environment ()
+  (let* ((process (sb-ext:run-program (default-shell)
+                                      (list "-l" "-i" "-c" "printf '\\0atty\\0'; env -0")
+                                      :input nil :output :stream :error nil :wait nil
+                                      :external-format :utf-8))
+         (out (with-output-to-string (s)
+                (let ((buffer (make-string 4096)))
+                  (loop :for n := (read-sequence buffer (sb-ext:process-output process))
+                        :while (plusp n) :do (write-string buffer s :end n))))))
+    (sb-ext:process-wait process)
+    (sb-ext:process-close process)
+    (let ((at (search (format nil "~Catty~C" #\Nul #\Nul) out)))
+      (when at
+        (loop :with start := (+ at 6)
+              :for end := (position #\Nul out :start start)
+              :for entry := (subseq out start (or end (length out)))
+              :for eq := (position #\= entry)
+              :when (and eq (plusp eq))
+                :collect (cons (subseq entry 0 eq) (subseq entry (1+ eq)))
+              :while end
+              :do (setf start (1+ end)))))))
+
+(defun take-login-environment ()
+  (loop :for (name . value) :in (ignore-errors (login-environment))
+        :unless (member name +left-to-the-pane+ :test #'string=)
+          :do (sb-posix:setenv name value 1))
+  (unless (sb-ext:posix-getenv "LANG")
+    (objc:start)
+    (let* ((id (objc:lisp-string (objc:id (objc:id (objc:class-named "NSLocale") "currentLocale")
+                                          "localeIdentifier")))
+           (base (subseq id 0 (position #\@ id))))
+      (sb-posix:setenv "LANG" (format nil "~A.UTF-8" (if (plusp (length base)) base "en_US")) 1)))
+  (let ((home (sb-ext:posix-getenv "HOME")))
+    (when home
+      (ignore-errors (sb-posix:chdir home))
+      (setf *default-pathname-defaults* (pathname (format nil "~A/" (string-right-trim "/" home)))))))
+
+(defun gui-from-app ()
+  (take-login-environment)
+  (gui-or-create))

@@ -1,4 +1,4 @@
-.PHONY: repl check deps sbcl sbcl-bin test test-term run bench latency mux-bench stress eval release clean install uninstall
+.PHONY: repl check deps sbcl sbcl-bin test test-term run bench latency mux-bench stress eval release app clean install uninstall
 
 # Two ways to get what atty needs, and every target works under either. Guix is
 # what it develops against and what plain `make' uses: manifest.scm names the
@@ -130,6 +130,18 @@ release: $(PINNED_SBCL)
 	tar czf dist/atty-$(VERSION)-$(OS)-$(ARCH).tar.gz atty
 	cd dist && $(SHA256) atty-$(VERSION)-$(OS)-$(ARCH).tar.gz > SHA256SUMS
 	@echo "dist/atty-$(VERSION)-$(OS)-$(ARCH).tar.gz"
+	$(if $(filter darwin-arm64,$(OS)-$(ARCH)),$(MAKE) app SBCL_BIN="$(PINNED_SBCL)" FASL_DIR="$(CURDIR)/sbcl/fasl/")
+
+APP_ZIP := atty-$(VERSION)-darwin-arm64-app.zip
+
+app: atty
+	rm -rf dist/Atty.app
+	mkdir -p dist/Atty.app/Contents/MacOS
+	cp atty dist/Atty.app/Contents/MacOS/atty
+	sed 's/VERSION/$(patsubst v%,%,$(VERSION))/' macos/Info.plist > dist/Atty.app/Contents/Info.plist
+	cd dist && ditto -c -k --norsrc --noextattr --keepParent Atty.app $(APP_ZIP) && rm -rf Atty.app
+	cd dist && $(SHA256) $(APP_ZIP) >> SHA256SUMS
+	@echo "dist/$(APP_ZIP)"
 
 # builds atty and puts it on PATH. PREFIX defaults to /usr/local, which usually
 # wants root; PREFIX=$$HOME/.local avoids that if that is already on PATH.

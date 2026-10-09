@@ -41,6 +41,13 @@ on Intel, and any linux with glibc 2.17 or later; on musl (alpine) build it from
 source. A file a browser downloaded on macOS carries a quarantine flag, and
 =xattr -d com.apple.quarantine atty= clears it; one curl fetched carries none.
 
+On a mac with Apple silicon, =atty gui= opens a session in a window of its own
+instead of the terminal it is run from, and the release carries it as an app
+too: =atty-<tag>-darwin-arm64-app.zip= unzips to =Atty.app=, which opens a
+window on session 0 with the shell your login gives you. It is the same atty
+inside, so every command works on =Atty.app/Contents/MacOS/atty=. Intel macs
+have no window, only the terminal.
+
 A release is built with roswell's build of sbcl (=make sbcl= fetches it into
 =sbcl/=), since atty carries the runtime of the sbcl that built it: brew's or a
 distribution's runs only where it was built.

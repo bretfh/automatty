@@ -59,7 +59,7 @@
                              (:file "agent")))
 
 (asdf:defsystem #:atty/objc
-                :description "Talking to Cocoa through objc_msgSend, with no C. SBCL on macOS only"
+                :description "Talking to Cocoa through objc_msgSend, with no C. SBCL on Apple silicon only"
                 :serial t
                 :pathname "src/objc/"
                 :components ((:file "package")
@@ -72,7 +72,7 @@
                 :version "0.0.1"
                 :depends-on (#:libatty #:atty/pty #:atty/tty #:atty/mode #:atty/ui #:atty/cells
                                   #:atty/agent
-                                  (:feature :darwin #:atty/objc)
+                                  (:feature (:and :darwin :arm64) #:atty/objc)
                                   (:require #:sb-posix)
                                   (:require #:sb-bsd-sockets)
                                   (:require #:sb-sprof))
@@ -111,7 +111,7 @@
                               :components ((:file "client")
                                            (:file "messages")
                                            (:file "cli")
-                                           (:file "gui" :if-feature :darwin)))
+                                           (:file "gui" :if-feature (:and :darwin :arm64))))
                              (:file "commands")
                              (:file "agents")
                              (:module "overlays"

@@ -65,10 +65,11 @@ jobs:
         run: |
           cd dist
           rm -f SHA256SUMS
-          sha256sum atty-*.tar.gz > SHA256SUMS
+          sha256sum atty-*.tar.gz atty-*.zip > SHA256SUMS
           cat SHA256SUMS
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/atty-*.tar.gz
+            dist/atty-*.zip
             dist/SHA256SUMS
