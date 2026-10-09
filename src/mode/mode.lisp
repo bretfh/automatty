@@ -1,10 +1,10 @@
 (in-package #:atty/mode)
 
 (defclass mode ()
-  ((keys   :initform (make-hash-table :test 'equal) :reader mode-keys)
+  ((keys   :initform (make-hash-table :test 'equal :synchronized t) :reader mode-keys)
    (values :initform (make-hash-table :test 'eq)    :reader mode-values)))
 
-(defvar *modes* (make-hash-table :test 'eq))
+(defvar *modes* (make-hash-table :test 'eq :synchronized t))
 (defvar *current* nil)
 (defvar *pending* nil)
 
@@ -18,9 +18,10 @@
   (etypecase name
     (symbol (or (gethash name *modes*)
                 (setf (gethash name *modes*) (make-instance name))))
-    (string (loop :for key :being :the :hash-keys :of *modes*
-                  :when (string-equal name (symbol-name key))
-                    :do (return (gethash key *modes*))))))
+    (string (sb-ext:with-locked-hash-table (*modes*)
+              (loop :for key :being :the :hash-keys :of *modes*
+                    :when (string-equal name (symbol-name key))
+                      :do (return (gethash key *modes*)))))))
 
 (defgeneric as-mode (it)
   (:method ((it mode)) it)
@@ -28,7 +29,8 @@
   (:method ((it string)) (mode-named it)))
 
 (defun modes ()
-  (sort (loop :for name :being :the :hash-keys :of *modes* :collect name)
+  (sort (sb-ext:with-locked-hash-table (*modes*)
+          (loop :for name :being :the :hash-keys :of *modes* :collect name))
         #'string< :key #'symbol-name))
 
 (defun global-map () (mode-named 'mode))
@@ -83,8 +85,10 @@ form to evaluate."
     chord))
 
 (defun mode-bindings (it)
-  (loop :for chord :being :the :hash-keys :of (mode-keys (as-mode it)) :using (hash-value does)
-        :collect (cons chord does)))
+  (let ((keys (mode-keys (as-mode it))))
+    (sb-ext:with-locked-hash-table (keys)
+      (loop :for chord :being :the :hash-keys :of keys :using (hash-value does)
+            :collect (cons chord does)))))
 
 (defun set-binding (it chord handler)
   (if handler
@@ -104,14 +108,15 @@ form to evaluate."
 (defun keys-in-force (&optional (it (current-mode)))
   (let ((out nil))
     (dolist (m (reverse (%chain (as-mode it))) out)
-      (maphash (lambda (chord does)
-                 (setf out (cons (cons chord does)
-                                 (remove chord out :key #'car :test #'string=))))
-               (mode-keys m)))))
+      (sb-ext:with-locked-hash-table ((mode-keys m))
+        (maphash (lambda (chord does)
+                   (setf out (cons (cons chord does)
+                                   (remove chord out :key #'car :test #'string=))))
+                 (mode-keys m))))))
 
 (defvar *unbound* nil)
 
-(defvar *run* #'funcall)
+(defvar *run* (lambda (does chord) (declare (ignore chord)) (funcall does)))
 
 (defun pending () (when *pending* (spelled *pending*)))
 
@@ -130,7 +135,7 @@ form to evaluate."
          (does (lookup-key chord it)))
     (cond (does
            (setf *pending* nil)
-           (funcall *run* does)
+           (funcall *run* does chord)
            :taken)
           ((prefixp chord it) (setf *pending* keys) :pending)
           (t (setf *pending* nil)

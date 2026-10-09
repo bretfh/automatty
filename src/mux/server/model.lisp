@@ -30,13 +30,44 @@ command line."
 (defvar *server* nil
   "The server a message is being handled by.")
 
+(defvar *caller* nil
+  "The pane a command run from a command line was run in, as ATTY_PANE says.")
+
+(defvar *caller-directory* nil
+  "Where the command line a command was run from was.")
+
+(defstruct (look (:copier nil))
+  (back 0 :type fixnum)
+  (pushed 0 :type fixnum)
+  (find nil)
+  (selecting nil)
+  (shot nil))
+
+(defstruct (view (:copier nil))
+  (window -1 :type fixnum)
+  (at 0 :type fixnum)
+  (spots nil :type list)
+  (bar-p +bar-by-default+)
+  (rail-p +rail-by-default+)
+  (scrollbars-p +scrollbars-by-default+)
+  (field-kind 0 :type fixnum)
+  (rows 24 :type fixnum)
+  (cols 80 :type fixnum)
+  (looks nil :type list))
+
+(defun view-like (view &key (rows (view-rows view)) (cols (view-cols view)))
+  (make-view :window (view-window view) :at (view-at view) :spots (view-spots view)
+             :bar-p (view-bar-p view) :rail-p (view-rail-p view)
+             :scrollbars-p (view-scrollbars-p view) :field-kind (view-field-kind view)
+             :rows rows :cols cols))
+
 (defstruct (watcher (:constructor %make-watcher))
   (wire nil)
   (socket nil)
   (session nil)
   (wanted-session nil)
-  (rows 24 :type fixnum)
-  (cols 80 :type fixnum)
+  (view (make-view))
+  (fits nil :type list)
   (takes t)
   (shadow nil)
   (told nil)
@@ -76,51 +107,36 @@ command line."
   (reading nil)
   (keys-read nil))
 
-;;; A window is what a session shows at one time: a layout of panes, which of
-;;; them has the focus, and whether one of them is zoomed. A session holds its
-;;; windows in order and shows one of them, the way tmux does, and a client on
-;;; the session sees whichever window it is showing.
+(defun watcher-rows (watcher) (view-rows (watcher-view watcher)))
+(defun watcher-cols (watcher) (view-cols (watcher-view watcher)))
+
+;;; A window is a layout of panes, and a session holds its windows in order.
+;;; Which of them a terminal shows, and which pane in it has the terminal's
+;;; keys, is the terminal's own: its view.
 
 (defvar *windows-made* (list 0))
 
 (defstruct (window (:constructor %make-window))
   (id (sb-ext:atomic-incf (car *windows-made*)) :type fixnum)
   (label nil)
-  (layout nil)
-  (focus nil)
-  (zoomed nil))
+  (layout nil))
 
 (defstruct (session-state (:conc-name state-) (:copier copy-state))
   (name "0")
   (windows nil)
-  (window nil)
-  (bar-p t)
-  (rail-p t)
-  (field-kind 0 :type fixnum)
-  (scrollbars-p t)
-  (rows 24 :type fixnum)
-  (cols 80 :type fixnum)
   (watchers nil)
+  (seeds nil)
   (version 0 :type fixnum))
 
 (defstruct (session (:constructor %new-session))
   (now (make-session-state))
   (socket nil)
-  (screen nil)
-  (geometry nil)
-  (readers nil)
   (server nil))
 
-(defun %make-session (&key (name "0") windows window (bar-p t) (rail-p t) (field-kind 0)
-                        (scrollbars-p t) (rows 24) (cols 80) watchers
-                        socket screen geometry readers server)
+(defun %make-session (&key (name "0") windows watchers seeds socket server)
   (%new-session :now (make-session-state :name name :windows windows
-                                           :window (or window (first windows))
-                                           :bar-p bar-p :rail-p rail-p :field-kind field-kind
-                                           :scrollbars-p scrollbars-p :rows rows :cols cols
-                                           :watchers watchers)
-                :socket socket :screen screen :geometry geometry
-                :readers readers :server server))
+                                         :watchers watchers :seeds seeds)
+                :socket socket :server server))
 
 (declaim (ftype (function (session function) session-state) change-session))
 (defun change-session (session change)
@@ -156,24 +172,11 @@ command line."
                   new))))
   (kept session-name state-name)
   (kept session-windows state-windows)
-  (kept session-bar-p state-bar-p)
-  (kept session-rail-p state-rail-p)
-  (kept session-field-kind state-field-kind)
-  (kept session-scrollbars-p state-scrollbars-p)
-  (kept session-rows state-rows)
-  (kept session-cols state-cols)
-  (kept session-watchers state-watchers))
+  (kept session-watchers state-watchers)
+  (kept session-seeds state-seeds))
 
 (defun same-window-p (a b)
   (and a b (= (window-id a) (window-id b))))
-
-(defun session-window (session) (state-window (session-seen session)))
-(defun (setf session-window) (window session)
-  (change-session session
-                  (lambda (s)
-                    (setf (state-window s)
-                          (find (window-id window) (state-windows s) :key #'window-id))))
-  window)
 
 (defun window-now (session window)
   (and window (find (window-id window) (session-windows session) :key #'window-id)))
@@ -183,34 +186,151 @@ command line."
   (let ((id (window-id window)))
     (change-session session
                     (lambda (s)
-                      (let ((windows (mapcar (lambda (w)
-                                               (if (= id (window-id w))
-                                                   (let ((new (copy-window w)))
-                                                     (funcall change new)
-                                                     new)
-                                                   w))
-                                             (state-windows s))))
-                        (setf (state-windows s) windows
-                              (state-window s) (and (state-window s)
-                                                    (find (window-id (state-window s)) windows
-                                                          :key #'window-id))))))))
+                      (setf (state-windows s)
+                            (mapcar (lambda (w)
+                                      (if (= id (window-id w))
+                                          (let ((new (copy-window w)))
+                                            (funcall change new)
+                                            new)
+                                          w))
+                                    (state-windows s)))))))
 
-;;; The layout, the focus and the zoom are the current window's. They read and
-;;; set as they always did, so everything that works on what is on screen
-;;; works on the window being shown without knowing there are others.
+(defun view-shown-window (session view)
+  (let ((windows (session-windows session)))
+    (and windows
+         (or (find (view-window view) windows :key #'window-id)
+             (nth (min (view-at view) (1- (length windows))) windows)))))
 
-(defun session-layout (session) (window-layout (session-window session)))
-(defun (setf session-layout) (new session)
-  (change-window session (session-window session) (lambda (w) (setf (window-layout w) new)))
-  new)
-(defun session-focus (session) (window-focus (session-window session)))
-(defun (setf session-focus) (new session)
-  (change-window session (session-window session) (lambda (w) (setf (window-focus w) new)))
-  new)
-(defun session-zoomed (session) (window-zoomed (session-window session)))
-(defun (setf session-zoomed) (new session)
-  (change-window session (session-window session) (lambda (w) (setf (window-zoomed w) new)))
-  new)
+(defun view-spot (view window)
+  (cdr (assoc (window-id window) (view-spots view))))
+
+(defun view-focus-in (session view &optional (window (view-shown-window session view)))
+  (when window
+    (let ((panes (window-panes window))
+          (spot (view-spot view window)))
+      (or (and spot (find (car spot) panes)) (first panes)))))
+
+(defun view-zoomed-in (session view &optional (window (view-shown-window session view)))
+  (when window
+    (let ((spot (view-spot view window)))
+      (and spot (cdr spot) (find (cdr spot) (window-panes window))))))
+
+(defun view-place (session view window focus zoomed)
+  (setf (view-window view) (window-id window)
+        (view-at view) (or (position (window-id window) (session-windows session) :key #'window-id) 0)
+        (view-spots view) (acons (window-id window) (cons focus zoomed)
+                                 (remove (window-id window) (view-spots view) :key #'car))))
+
+(defun watcher-window (watcher)
+  (let ((session (watcher-session watcher)))
+    (and session (view-shown-window session (watcher-view watcher)))))
+
+(defun watcher-focus (watcher)
+  (let ((session (watcher-session watcher)))
+    (and session (view-focus-in session (watcher-view watcher)))))
+
+(defun watcher-zoomed (watcher)
+  (let ((session (watcher-session watcher)))
+    (and session (view-zoomed-in session (watcher-view watcher)))))
+
+(defun watcher-layout (watcher)
+  (let ((window (watcher-window watcher)))
+    (and window (window-layout window))))
+
+(defun (setf watcher-window) (window watcher)
+  (let ((session (watcher-session watcher))
+        (view (watcher-view watcher)))
+    (view-place session view window (view-focus-in session view window)
+                (view-zoomed-in session view window))
+    (view-changed watcher)
+    window))
+
+(defun (setf watcher-focus) (pane watcher)
+  (let* ((session (watcher-session watcher))
+         (view (watcher-view watcher))
+         (window (window-of session pane)))
+    (when window
+      (let ((zoomed (view-zoomed-in session view window)))
+        (view-place session view window pane (and (eq zoomed pane) pane)))
+      (view-changed watcher))
+    pane))
+
+(defun (setf watcher-zoomed) (pane watcher)
+  (let* ((session (watcher-session watcher))
+         (view (watcher-view watcher))
+         (window (view-shown-window session view)))
+    (when window
+      (view-place session view window (view-focus-in session view window) pane)
+      (view-changed watcher))
+    pane))
+
+(macrolet ((toggle (name slot)
+             `(progn
+                (defun ,name (watcher) (,slot (watcher-view watcher)))
+                (defun (setf ,name) (new watcher)
+                  (setf (,slot (watcher-view watcher)) new)
+                  (view-changed watcher)
+                  new))))
+  (toggle watcher-bar-p view-bar-p)
+  (toggle watcher-rail-p view-rail-p)
+  (toggle watcher-scrollbars-p view-scrollbars-p)
+  (toggle watcher-field-kind view-field-kind))
+
+(defun view-changed (watcher)
+  (setf (watcher-behind watcher) t)
+  (let ((server (watcher-server watcher)))
+    (when server
+      (let ((now (view-like (watcher-view watcher)))
+            (session (watcher-session watcher)))
+        (dolist (w (followers-of server watcher))
+          (on-watcher w (let ((w w))
+                          (lambda ()
+                            (unless (eq (watcher-session w) session)
+                              (join-session server w session))
+                            (adopt-view w now)))))))))
+
+(defun adopt-view (watcher seed)
+  (let ((view (watcher-view watcher)))
+    (setf (watcher-view watcher) (view-like seed :rows (view-rows view) :cols (view-cols view))
+          (watcher-behind watcher) t)))
+
+(defun view-look (view pane)
+  (or (cdr (assoc pane (view-looks view)))
+      (let ((look (make-look)))
+        (push (cons pane look) (view-looks view))
+        look)))
+
+(declaim (ftype (function (t pane) fixnum) view-back))
+(defun view-back (view pane)
+  (let ((look (and view (cdr (assoc pane (view-looks view))))))
+    (if (or (null look) (zerop (look-back look)))
+        0
+        (let* ((pushed (pane-pushed pane))
+               (back (max 0 (min (pane-history pane)
+                                 (+ (look-back look) (max 0 (- pushed (look-pushed look))))))))
+          (setf (look-back look) back
+                (look-pushed look) pushed)
+          back))))
+
+(defun watcher-look (watcher pane) (view-look (watcher-view watcher) pane))
+
+(defun watcher-back (watcher pane) (view-back (and watcher (watcher-view watcher)) pane))
+
+(defun scroll-to (watcher pane back)
+  (let ((look (watcher-look watcher pane))
+        (was (watcher-back watcher pane))
+        (back (max 0 (min (pane-history pane) back))))
+    (unless (= back was)
+      (setf (look-back look) back
+            (look-pushed look) (pane-pushed pane))
+      (view-changed watcher)
+      t)))
+
+(defun scroll-back-by (watcher pane rows)
+  (scroll-to watcher pane (+ (watcher-back watcher pane) rows)))
+
+(defun top-row (watcher pane)
+  (- (pane-history pane) (watcher-back watcher pane)))
 
 (defun window-panes (window) (layout-panes (window-layout window)))
 
@@ -267,6 +387,7 @@ since what is open may show how long ago things were.")
   (wake nil)
   (interval 8 :type fixnum)
   (changed-panes nil)
+  (thread nil)
   (running t :type boolean))
 
 (defparameter +first-session-timeout+ 10000000000
@@ -345,6 +466,30 @@ a client that may still be on its way."
                    :finally (return (remove-if-not (lambda (it) (<= (car it) now)) had)))))
     (dolist (it (reverse due)) (funcall (cdr it)))))
 
+(defun server-here-p (server)
+  (let ((owner (server-thread server)))
+    (or (null owner)
+        (eq owner sb-thread:*current-thread*)
+        (not (sb-thread:thread-alive-p owner)))))
+
+(defun on-server (server job)
+  (if (or (null server) (server-here-p server))
+      (funcall job)
+      (let ((done (sb-thread:make-semaphore))
+            (claim (list nil))
+            (said nil)
+            (broke nil))
+        (flet ((run ()
+                 (when (null (sb-ext:compare-and-swap (car claim) nil t))
+                   (handler-case (setf said (multiple-value-list (funcall job)))
+                     (serious-condition (c) (setf broke c)))
+                   t)))
+          (schedule-task server 0 (lambda () (run) (sb-thread:signal-semaphore done)))
+          (loop :until (sb-thread:wait-on-semaphore done :timeout 1)
+                :when (and (server-here-p server) (run)) :return nil))
+        (when broke (error broke))
+        (values-list said))))
+
 (defun monotonic-ns ()
   ;; the internal real time is monotonic on every platform sbcl runs on, and
   ;; sb-unix names its clocks differently on each: this asks nothing of them
@@ -391,6 +536,7 @@ becomes, rather than letting them go.")
   "The panes a server keeps running for the build it becomes, as (id fd pid).")
 
 (defun server-close (server)
+  (setf (server-thread server) nil)
   ;; the name goes first. Whatever else takes a while, a shell that will not go
   ;; or a client that will not read, nobody new must be able to reach a server
   ;; that is already leaving.
@@ -420,23 +566,25 @@ becomes, rather than letting them go.")
   (setf (server-sessions server) nil
         (server-pending-watchers server) nil)
   (tty:free-waiting (server-waiting server))
-  (close-wake-pipe (server-wake server))
-  (setf (server-wake server) nil
-        (server-running server) nil))
+  (sb-thread:with-mutex (*wake-lock*)
+    (close-wake-pipe (shiftf (server-wake server) nil)))
+  (setf (server-running server) nil))
 
 (defun server-poke (server)
-  (let ((wake (server-wake server)))
-    (when wake
-      (sb-sys:with-pinned-objects (*poke-octet*)
-        (sb-unix:unix-write (cdr wake) *poke-octet* 0 1)))))
+  (sb-thread:with-mutex (*wake-lock*)
+    (poke-wake-pipe (server-wake server))))
 
-(defun session-woken (session)
+(defun session-woken (session pane)
   (let ((server (session-server session)))
     (lambda (&optional ended)
       (cond ((null server) (tty:wake))
             (ended (server-poke server)))
-      (dolist (w (session-watchers session))
-        (watcher-poke w)))))
+      (if server
+          (dolist (s (server-sessions server))
+            (dolist (w (session-watchers s))
+              (when (watcher-sees-p w pane) (watcher-poke w))))
+          (dolist (w (session-watchers session))
+            (watcher-poke w))))))
 
 (defun pane-environment (session pane)
   "What a program is told about where it is: its address as it starts. A pane
@@ -445,47 +593,44 @@ either."
   (list (format nil "ATTY_PANE=~A" (pane-address-of session pane))
         (format nil "ATTY_SOCKET=~A" (or (session-socket session) ""))))
 
-(defun server-overlaid-p (server)
-  (loop :for s :in (server-sessions server)
-        :thereis (some #'watcher-overlays (session-watchers s))))
+(defun watcher-sees-p (watcher pane)
+  (and (watcher-interactive watcher)
+       (or (assoc pane (watcher-fits watcher))
+           (some #'overlay-shows-panes-p (watcher-overlays watcher)))))
+
+(defun pane-seen-p (server session pane)
+  (if server
+      (loop :for s :in (server-sessions server)
+            :thereis (some (lambda (w) (watcher-sees-p w pane)) (session-watchers s)))
+      (and (session-watchers session) t)))
 
 (defun session-start-pane (session pane)
   (let ((server (session-server session)))
     (pane-start pane :environment (pane-environment session pane)
-                     :woken (session-woken session)
+                     :woken (session-woken session pane)
                      :look (session-look session)
-                     :watched (lambda () (or (session-watchers session)
-                                             (and server (server-overlaid-p server))))
+                     :watched (lambda () (pane-seen-p server session pane))
                      :urgent (lambda () (pane-urgent-p session pane (now-ms)))
                      :gap (if server (* (server-interval server) 1000000) 0))))
 
 (defun add-session (server command &key (name "0") (rows 24) (cols 80) directory)
-  (let* ((pane (make-pane command :rows rows :cols cols :directory directory))
-         (window (%make-window :layout pane :focus pane))
-         (session (%make-session :name name :rows rows :cols cols
-                                 :socket (server-path server)
-                                 :bar-p +bar-by-default+
-                                 :rail-p +rail-by-default+
-                                 :scrollbars-p +scrollbars-by-default+
-                                 :windows (list window) :window window :server server
-                                 :screen (tty:make-screen :width cols
-                                                          :height rows))))
-    (session-compose session)
-    (session-start-pane session pane)
-    (when (pane-failed pane)
-      (error "~A" (pane-failed pane)))
-    (let ((had (loop :for all := (server-sessions server)
-                     :for had := (find name all :key #'session-name :test #'equal)
-                     :until (or had (eq all (sb-ext:compare-and-swap (server-sessions server)
-                                                                     all (append all (list session)))))
-                     :finally (return had))))
-      (if had
-          (progn (pane-close pane) had)
-          (progn
-            (setf (server-had-sessions server) t)
-            (run-hook 'pane-started session pane)
-            (run-hook 'session-made session)
-            session)))))
+  (on-server server
+             (lambda ()
+               (or (session-named server name)
+                   (let* ((pane (make-pane command :directory directory))
+                          (session (%make-session :name name :socket (server-path server)
+                                                  :windows (list (%make-window :layout pane))
+                                                  :server server)))
+                     (multiple-value-bind (high wide) (laid-size session (make-view :rows rows :cols cols) pane)
+                       (pane-resize pane high wide))
+                     (session-start-pane session pane)
+                     (when (pane-failed pane)
+                       (error "~A" (pane-failed pane)))
+                     (sb-ext:atomic-update (server-sessions server) (lambda (all) (append all (list session))))
+                     (setf (server-had-sessions server) t)
+                     (run-hook 'pane-started session pane)
+                     (run-hook 'session-made session)
+                     session)))))
 
 (defun session-named (server name)
   "The session called NAME, or the first one when no name is asked for."
@@ -510,14 +655,6 @@ the other windows alike."
 ;;; for that is a key, a wheel, or the scrollbar down the pane's right side. The
 ;;; wheel and the buttons are the program's when it asked for them, the way they
 ;;; would be with no multiplexer in between, and the multiplexer's otherwise.
-
-;;; how big the pane is: the smallest any watcher can show, so nobody is shown a
-;;; screen with a piece missing.
-
-;;; Following: a terminal that follows another shows whatever session that
-;;; one shows, as it moves, until it types something of its own. A session
-;;; shows one window for everybody on it, so following is being kept on the
-;;; same session.
 
 ;;; Clients: the terminals attached to this server. Each is a watcher that is
 ;;; here, on a session, looking at the window it shows.

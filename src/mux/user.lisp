@@ -45,8 +45,10 @@
       (loop :for (chord . does) :in (atty/mode:mode-bindings mode)
             :do (setf (gethash (list :key mode chord) places) does)))
     (dolist (kind '(:command :doc :group :unlisted))
-      (maphash (lambda (name value) (setf (gethash (list kind name) places) value))
-               (place-table kind)))
+      (let ((table (place-table kind)))
+        (sb-ext:with-locked-hash-table (table)
+          (maphash (lambda (name value) (setf (gethash (list kind name) places) value))
+                   table))))
     (loop :for (key symbol) :in *settings*
           :do (setf (gethash (list :setting key) places) (symbol-value symbol)))
     (loop :for (name symbol) :in *hooks*

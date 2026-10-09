@@ -9,7 +9,9 @@
 
 (defclass pane-view (atty/ui:widget)
   ((pane :initarg :pane :reader view-pane)
-   (focusp :initarg :focusp :initform nil :reader view-focus-p)))
+   (focusp :initarg :focusp :initform nil :reader view-focus-p)
+   (back :initarg :back :initform 0 :reader view-back-rows)
+   (look :initarg :look :initform nil :reader view-look-of)))
 
 (defun pane-view (pane &rest props)
   (apply #'make-instance 'pane-view :pane pane :expand 1 props))
@@ -30,16 +32,15 @@ one and told what it is, so what it asks for is the room left over."
 a step darker everywhere else."
   (atty/ui:unhex (atty/ui:color (if focusp 'atty/ui::bg 'atty/ui::bg-well))))
 
-(defvar *grounded* nil)
+(defvar *grounded* (make-hash-table :test 'equal :synchronized t))
 
 (declaim (ftype (function (t) hash-table) grounded-faces))
 (defun grounded-faces (ground)
-  (let ((kept (assoc ground *grounded* :test #'equal)))
-    (if kept
-        (cdr kept)
-        (let ((table (make-hash-table :test 'eq :weakness :key)))
-          (push (cons ground table) *grounded*)
-          table))))
+  (or (gethash ground *grounded*)
+      (sb-ext:with-locked-hash-table (*grounded*)
+        (or (gethash ground *grounded*)
+            (setf (gethash ground *grounded*)
+                  (make-hash-table :test 'eq :weakness :key :synchronized t))))))
 
 (defun ground-blanks (m left top width height ground)
   "Every cell in the rectangle with no background of its own given GROUND, one
@@ -75,29 +76,52 @@ one found changed."
         (replace (term:row-chars into) (term:row-chars from) :start1 left :end2 cols)
         (replace (term:row-faces into) (term:row-faces from) :start1 left :end2 cols)))
     (when (< cols width)
-      (atty/cells:fill-rect m (+ left cols) top (- width cols) rows (term:make-face)))))
+      (atty/cells:fill-rect m (+ left cols) top (- width cols) rows (term:make-face)))
+    (when (< rows height)
+      (atty/cells:fill-rect m left (+ top rows) width (- height rows) (term:make-face)))))
+
+(defun read-back-screen (look pane back)
+  (let* ((shown (pane-shown-now pane))
+         (key (list back (and shown (shown-at shown)) (pane-width pane) (pane-height pane)))
+         (shot (look-shot look)))
+    (if (and shot (equal key (car shot)))
+        (cdr shot)
+        (let ((screen (on-pane pane
+                               (lambda ()
+                                 (let* ((term (pane-term pane))
+                                        (w (term:term-width term))
+                                        (h (term:term-height term))
+                                        (screen (tty:make-screen :width w :height h)))
+                                   (atty/cells:blit (atty/cells:make-cells (tty:screen-grid screen) w h)
+                                                    term 0 0 w h back)
+                                   screen)))))
+          (setf (look-shot look) (cons key screen))
+          screen))))
 
 (defun selection-face ()
   (term:make-face :bg (atty/ui:unhex (atty/ui:color 'atty/ui::bg-active))))
 
 (defmethod atty/ui:paint ((w pane-view) (m atty/cells:cells))
   (let* ((pane (view-pane w))
+         (look (view-look-of w))
+         (back (view-back-rows w))
          (top (atty/ui:top w)) (left (atty/ui:left w))
          (height (atty/ui:height w)) (width (atty/ui:width w)))
     (let ((shown (pane-shown-now pane)))
-      (if shown
-          (paint-shown m (shown-screen shown) left top width height)
-          (atty/cells:blit m (pane-term pane) left top width height (pane-scrolled pane))))
+      (cond ((and look (plusp back))
+             (paint-shown m (read-back-screen look pane back) left top width height))
+            (shown (paint-shown m (shown-screen shown) left top width height))
+            (t (atty/cells:blit m (pane-term pane) left top width height))))
     (ground-blanks m left top width height (pane-ground (view-focus-p w)))
     ;; what a find found, and what is being selected, over the top: a hit is
     ;; lit where it is, the one gone to brightest, and selected rows are shaded
-    (let* ((find (pane-find pane))
+    (let* ((find (and look (look-find look)))
            (hits (getf find :hits))
            (at (getf find :at))
-           (first-shown (pane-top-row pane))
+           (first-shown (- (pane-history pane) back))
            (grid (atty/cells:cells-grid m)))
-      (when (pane-selecting pane)
-        (let* ((mark (pane-selecting pane))
+      (when (and look (look-selecting look))
+        (let* ((mark (look-selecting look))
                (from (min mark first-shown))
                (to (+ (max mark first-shown) height)))
           (loop :for a :from from :below to
@@ -135,14 +159,14 @@ widgets already use, just answering with itself rather than an action to run."
 ;;; asked about, so the arithmetic is the rail's and only the reading is here.
 
 (defclass scrollbar (rail)
-  ((pane :initarg :pane :reader view-pane)))
+  ((pane :initarg :pane :reader view-pane)
+   (back :initarg :back :initform 0 :reader view-back-rows)))
 
 (defun scrollbar (pane &rest props)
   (apply #'make-instance 'scrollbar :pane pane props))
 
 (defmethod rail-at-of ((r scrollbar))
-  (let ((pane (view-pane r)))
-    (- (pane-history pane) (pane-scrolled pane))))
+  (- (pane-history (view-pane r)) (view-back-rows r)))
 
 (defmethod rail-extent-of ((r scrollbar))
   (pane-height (view-pane r)))
@@ -152,7 +176,7 @@ widgets already use, just answering with itself rather than an action to run."
     (+ (pane-history pane) (pane-height pane))))
 
 (defmethod rail-thumb-face ((r scrollbar))
-  (if (plusp (pane-scrolled (view-pane r))) :scroll-thumb-back :scroll-thumb))
+  (if (plusp (view-back-rows r)) :scroll-thumb-back :scroll-thumb))
 
 (defun scrollbar-thumb (track rows history back)
   "Where the thumb is on a track TRACK cells long, for a pane of ROWS with
@@ -180,15 +204,16 @@ cells down from its head is at LINE."
 (defclass live-chip (atty/ui:label)
   ((pane :initarg :pane :reader view-pane)))
 
-(defun live-chip (pane)
+(defun live-chip (pane back)
   (make-instance 'live-chip :pane pane :face :chip-scrolled
-                            :text (format nil " ↓ ~D to live " (pane-scrolled pane))))
+                            :text (format nil " ↓ ~D to live " back)))
 
 (defclass pane-position (atty/ui:label)
-  ((pane :initarg :pane :reader view-pane)))
+  ((pane :initarg :pane :reader view-pane)
+   (back :initarg :back :initform 0 :reader view-back-rows)))
 
-(defun pane-position (pane)
-  (make-instance 'pane-position :pane pane :face :quiet :text ""))
+(defun pane-position (pane back)
+  (make-instance 'pane-position :pane pane :back back :face :quiet :text ""))
 
 (defmethod atty/ui:measure ((w pane-position) m aw ah)
   (declare (ignore m aw ah))
@@ -197,7 +222,8 @@ cells down from its head is at LINE."
 
 (defmethod atty/ui:paint ((w pane-position) (m atty/cells:cells))
   (let* ((pane (view-pane w))
-         (text (format nil " line ~D of ~D " (1+ (pane-top-row pane)) (pane-row-count pane)))
+         (text (format nil " line ~D of ~D " (1+ (- (pane-history pane) (view-back-rows w)))
+                       (pane-row-count pane)))
          (face (atty/cells:face-of w))
          (width (atty/ui:width w)))
     (unless (term:face-bg face)
@@ -221,10 +247,10 @@ cells down from its head is at LINE."
   ((view :initarg :view :reader area-view)
    (bar :initarg :bar :reader area-bar)))
 
-(defun pane-area (pane &key (scrollbarp t) focusp)
+(defun pane-area (pane &key (scrollbarp t) focusp (back 0) look)
   "PANE with a scrollbar down its right when SCROLLBARP."
-  (let ((view (pane-view pane :focusp focusp))
-        (bar (and scrollbarp (scrollbar pane))))
+  (let ((view (pane-view pane :focusp focusp :back back :look look))
+        (bar (and scrollbarp (scrollbar pane :back back))))
     (make-instance 'pane-area :expand 1 :view view :bar bar
                               :parts (remove nil (list view bar)))))
 
@@ -245,14 +271,12 @@ cells down from its head is at LINE."
 ;;; with a header row and a footer row inside it. What they say is
 ;;; src/mux/frames.lisp's business.
 
-(defvar *scrollbars* t
-  "Whether panes are drawn with a scrollbar. The session's to say, and bound
-while one is laid out.")
-
-(defun pane-frame (pane focusp &optional session)
-  (let ((area (pane-area pane :scrollbarp *scrollbars* :focusp focusp)))
+(defun pane-frame (pane focusp session view)
+  (let* ((back (view-back view pane))
+         (area (pane-area pane :scrollbarp (view-scrollbars-p view) :focusp focusp
+                               :back back :look (view-look view pane))))
     (atty/ui:framed (if session
-                        (destructuring-bind (&key tl tr bl br) (frame-corners session pane focusp)
+                        (destructuring-bind (&key tl tr bl br) (frame-corners session view pane focusp)
                           (atty/ui:column :align :stretch :expand 1
                                           (unwidened (band (list (atty/ui:label (if focusp " ◆" "  ") :face :here) (squeezed tl)) tr
                                                            :ground (if focusp :bg-alt :bg-dim)))
@@ -314,17 +338,17 @@ one part is that part: nobody wants a border around a single pane."
                  (t (make-split (split-way it) kept)))))
         (t it)))
 
-(defun layout-tree (it &optional focus session zoomed)
+(defun layout-tree (it focus session view &optional zoomed)
   "IT as widgets: a row or a column of panes each in a frame of its own, a pane
 alone framed the same. A ZOOMED pane is the whole of it, framed, so what it is
 doing still shows while the others are out of sight."
-  (cond (zoomed (pane-frame zoomed t session))
-        ((split-p it) (framed-tree it focus session))
-        (t (pane-frame it t session))))
+  (cond (zoomed (pane-frame zoomed t session view))
+        ((split-p it) (framed-tree it focus session view))
+        (t (pane-frame it t session view))))
 
-(defun framed-tree (it focus &optional session)
+(defun framed-tree (it focus session view)
   (if (split-p it)
       (apply (if (eq (split-way it) :across) #'atty/ui:row #'atty/ui:column)
              :align :stretch :spacing 0 :expand 1
-             (mapcar (lambda (part) (framed-tree part focus session)) (split-parts it)))
-      (pane-frame it (eql it focus) session)))
+             (mapcar (lambda (part) (framed-tree part focus session view)) (split-parts it)))
+      (pane-frame it (eql it focus) session view)))

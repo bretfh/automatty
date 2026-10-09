@@ -9,10 +9,8 @@
     (and thread (not (eq thread sb-thread:*current-thread*)) (sb-thread:thread-alive-p thread))))
 
 (defun watcher-poke (watcher)
-  (let ((wake (watcher-wake watcher)))
-    (when wake
-      (sb-sys:with-pinned-objects (*poke-octet*)
-        (sb-unix:unix-write (cdr wake) *poke-octet* 0 1)))))
+  (sb-thread:with-mutex (*wake-lock*)
+    (poke-wake-pipe (watcher-wake watcher))))
 
 (declaim (ftype (function (watcher function) t) on-watcher))
 (defun on-watcher (watcher job)
@@ -60,8 +58,8 @@
     (when (and thread (not (eq thread sb-thread:*current-thread*)))
       (sb-thread:join-thread thread :default nil :timeout 5))))
 
-(defun panes-shown (session)
-  (mapcar #'pane-shown (window-panes (session-window session))))
+(defun panes-shown (watcher)
+  (mapcar (lambda (it) (pane-shown (first it))) (watcher-fits watcher)))
 
 (defun watcher-due-at (server watcher)
   (let ((session (watcher-session watcher))
@@ -71,7 +69,7 @@
         (at (watcher-clocked watcher))
         (when (and (zerop (wire-pending (watcher-wire watcher)))
                    (or (watcher-owed-p watcher)
-                       (not (equal (panes-shown session) (watcher-drawn watcher)))))
+                       (not (equal (panes-shown watcher) (watcher-drawn watcher)))))
           (at (frame-due-at watcher (* (server-interval server) 1000000))))))
     due))
 
@@ -86,26 +84,26 @@
     (when (and (session-panes session) (watcher-interactive watcher) (wire-open wire))
       (let ((now (monotonic-ns)))
         (watcher-tick watcher session now)
-        (let ((want (let ((focus (session-focus session)))
+        (let ((want (let ((focus (watcher-focus watcher)))
                       (and focus (pane-pastes-p focus)))))
           (unless (eq want (watcher-bracketed-sent watcher))
             (send-message watcher (list :bracketed-paste want))
             (setf (watcher-bracketed-sent watcher) want)))
         (let ((owed (watcher-owed-p watcher))
               (version (session-version session))
-              (shown (panes-shown session))
-              (echo (let ((focus (session-focus session)))
+              (shown (panes-shown watcher))
+              (echo (let ((focus (watcher-focus watcher)))
                       (and focus (pane-shown-now focus)))))
           (when (and (or owed (not (equal shown (watcher-drawn watcher))))
                      (zerop (wire-pending wire))
                      (>= now (frame-due-at watcher (* (server-interval server) 1000000))))
             (setf (watcher-behind watcher) nil)
-            (or (and (not owed) (session-repaint session watcher))
+            (or (and (not owed) (session-repaint watcher))
                 (session-compose session watcher))
             (watcher-frame session watcher)
             (setf (watcher-sent watcher) now
                   (watcher-seen watcher) version
-                  (watcher-drawn watcher) shown)
+                  (watcher-drawn watcher) (panes-shown watcher))
             (when (or (null echo) (>= (shown-echoed echo) (watcher-keyed-at watcher)))
               (setf (watcher-answered watcher) (watcher-keyed-at watcher)))
             (wire-flush wire)))))))
@@ -151,28 +149,62 @@
       (when (or (watcher-session watcher) (member watcher (server-pending-watchers server)))
         (drop-watcher server watcher))
       (tty:free-waiting w)
-      (close-wake-pipe (watcher-wake watcher))
-      (setf (watcher-wake watcher) nil))))
+      (sb-thread:with-mutex (*wake-lock*)
+        (close-wake-pipe (shiftf (watcher-wake watcher) nil))))))
 
 (defun send-message (watcher form)
   (if (watcher-elsewhere-p watcher)
       (on-watcher watcher (lambda () (send-message watcher form)))
       (wire-send (watcher-wire watcher) form)))
 
-(declaim (ftype (function (watcher session) t) send-hello))
-(defun send-hello (watcher session)
+(declaim (ftype (function (watcher) t) send-hello))
+(defun send-hello (watcher)
   "Tell WATCHER how big what it is looking at is."
-  (send-message watcher (list :hello (session-name session)
-                      (session-rows session) (session-cols session))))
+  (let ((session (watcher-session watcher)))
+    (send-message watcher (list :hello (and session (session-name session))
+                                (watcher-rows watcher) (watcher-cols watcher)))))
+
+(defparameter +seeds-kept+ 16)
+
+(defun kept-seed (tty view seeds)
+  (let ((kept (cons (cons tty view) (remove tty seeds :key #'car :test #'equal))))
+    (subseq kept 0 (min +seeds-kept+ (length kept)))))
+
+(defun seed-for (session watcher)
+  (let* ((seeds (session-seeds session))
+         (latest (loop :with best := nil
+                       :for w :in (session-watchers session)
+                       :when (and (watcher-interactive w) (not (eq w watcher))
+                                  (or (null best) (> (watcher-typed-at w) (watcher-typed-at best))))
+                         :do (setf best w)
+                       :finally (return best))))
+    (or (and watcher (watcher-tty watcher) (cdr (assoc (watcher-tty watcher) seeds :test #'equal)))
+        (and latest (view-like (watcher-view latest)))
+        (cdr (first seeds))
+        (make-view))))
+
+(defun forget-watcher (session watcher)
+  (let ((seed (and (watcher-interactive watcher) (view-like (watcher-view watcher))))
+        (tty (watcher-tty watcher)))
+    (lambda ()
+      (change-session session
+                      (lambda (s)
+                        (setf (state-watchers s) (remove watcher (state-watchers s)))
+                        (when seed
+                          (setf (state-seeds s) (kept-seed tty seed (state-seeds s)))))))))
+
+(defun redraw-others (session watcher)
+  (dolist (w (session-watchers session))
+    (when (and (watcher-interactive w) (not (eq w watcher))) (draw-again w))))
 
 (defun leave-session (watcher)
   "Take WATCHER off whatever session it was on."
   (let ((session (watcher-session watcher)))
     (when session
-      (change-session session (lambda (s) (setf (state-watchers s) (remove watcher (state-watchers s)))))
-      (sb-ext:atomic-update (session-readers session) (lambda (all) (remove watcher all)))
-      (setf (watcher-session watcher) nil)
-      (session-fit session))
+      (on-server (session-server session) (forget-watcher session watcher))
+      (setf (watcher-session watcher) nil
+            (watcher-fits watcher) nil)
+      (redraw-others session watcher))
     session))
 
 (defun drop-watcher (server watcher &optional why)
@@ -183,7 +215,9 @@
     (ignore-errors (send-message watcher (list :bye why))
                    (wire-flush (watcher-wire watcher))))
   (wire-close (watcher-wire watcher))
-  (sb-ext:atomic-update (server-pending-watchers server) (lambda (all) (remove watcher all)))
+  (on-server server (lambda ()
+                      (sb-ext:atomic-update (server-pending-watchers server)
+                                            (lambda (all) (remove watcher all)))))
   (leave-session watcher)
   (stop-following server watcher)
   (when (watcher-interactive watcher) (send-client-list server)))
@@ -193,21 +227,25 @@
   (when (watcher-elsewhere-p watcher)
     (return-from join-session
       (on-watcher watcher (lambda () (join-session server watcher session)))))
-  (leave-session watcher)
-  (sb-ext:atomic-update (server-pending-watchers server) (lambda (all) (remove watcher all)))
-  (setf (watcher-session watcher) session)
-  (change-session session (lambda (s) (push watcher (state-watchers s))))
-  (mapc #'pane-poke (session-panes session))
-  ;; a fit that changed the size has already told everybody, this one included;
-  ;; only a fit that changed nothing leaves it to be said here
-  (setf (watcher-rung watcher) (loop :for pane :in (session-panes session) :sum (pane-rang pane)))
-  (unless (session-fit session)
-    (setf (watcher-shadow watcher)
-          (tty:make-screen :width (session-cols session)
-                           :height (session-rows session))
-          (watcher-told watcher) nil
-          (watcher-behind watcher) t)
-    (send-hello watcher session))
+  (let ((old (watcher-session watcher))
+        (seed (seed-for session watcher)))
+    (let ((forget (and old (forget-watcher old watcher))))
+      (on-server server
+                 (lambda ()
+                   (when forget (funcall forget))
+                   (sb-ext:atomic-update (server-pending-watchers server)
+                                         (lambda (all) (remove watcher all)))
+                   (change-session session (lambda (s) (push watcher (state-watchers s)))))))
+    (setf (watcher-session watcher) session
+          (watcher-fits watcher) nil)
+    (adopt-view watcher seed)
+    (when old (redraw-others old watcher)))
+  (setf (watcher-rung watcher) (loop :for pane :in (session-panes session) :sum (pane-rang pane))
+        (watcher-shadow watcher) (tty:make-screen :width (watcher-cols watcher)
+                                                  :height (watcher-rows watcher))
+        (watcher-told watcher) nil
+        (watcher-behind watcher) t)
+  (send-hello watcher)
   ;; what the server has had to say since anybody was here to hear it: the
   ;; first to arrive is told, and it is said once
   (let ((notes (loop :for had := (server-notes server)
@@ -218,26 +256,21 @@
         (show-note watcher "atty" text :face face))))
   (send-client-list server)
   (let ((*client* watcher)) (run-hook 'client-attached watcher))
-  (move-followers server watcher session)
+  (view-changed watcher)
   session)
 
 (defun followers-of (server watcher)
   (remove-if-not (lambda (w) (eql (watcher-following w) (watcher-id watcher)))
                  (all-watchers server)))
 
-(defun move-followers (server watcher session)
-  "Everybody following WATCHER is put on SESSION with it."
-  (dolist (w (followers-of server watcher))
-    (unless (eq (watcher-session w) session)
-      (join-session server w session))))
-
 (defun follow (server watcher id)
   "WATCHER goes where the watcher called ID goes, from now; nil stops."
   (let ((leader (and id (find id (all-watchers server) :key #'watcher-id))))
     (setf (watcher-following watcher) (and leader (not (eq leader watcher)) id))
-    (when (and leader (watcher-following watcher) (watcher-session leader)
-               (not (eq (watcher-session leader) (watcher-session watcher))))
-      (join-session server watcher (watcher-session leader)))
+    (when (and leader (watcher-following watcher) (watcher-session leader))
+      (unless (eq (watcher-session leader) (watcher-session watcher))
+        (join-session server watcher (watcher-session leader)))
+      (adopt-view watcher (view-like (watcher-view leader))))
     (send-client-list server)))
 
 (defun stop-following (server watcher)
@@ -249,10 +282,11 @@
     (when was (send-client-list server))))
 
 (defun watcher-resize (watcher rows cols takes)
-  (setf (watcher-rows watcher) (max 1 (min +max-pane-size+ rows))
-        (watcher-cols watcher) (max 1 (min +max-pane-size+ cols))
-        (watcher-takes watcher) takes
-        (watcher-interactive watcher) t)
+  (let ((view (watcher-view watcher)))
+    (setf (view-rows view) (max 1 (min +max-pane-size+ rows))
+          (view-cols view) (max 1 (min +max-pane-size+ cols))
+          (watcher-takes watcher) takes
+          (watcher-interactive watcher) t))
   (when (zerop (watcher-since watcher))
     (setf (watcher-since watcher) (now-ms))))
 
@@ -261,11 +295,12 @@
 where it is looking, how long it has been attached and how long since it
 typed."
   (declare (ignore server))
-  (let ((session (watcher-session watcher)))
+  (let ((session (watcher-session watcher))
+        (window (watcher-window watcher)))
     (list (watcher-id watcher) (watcher-tty watcher)
           (watcher-rows watcher) (watcher-cols watcher)
           (and session (session-name session))
-          (and session (window-number session (session-window session)))
+          (and session window (window-number session window))
           (max 0 (- now (watcher-since watcher)))
           (if (plusp (watcher-typed-at watcher)) (max 0 (- now (watcher-typed-at watcher))) nil)
           (watcher-following watcher))))

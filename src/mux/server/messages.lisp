@@ -51,7 +51,7 @@ here handles, or one that needs a session the watcher has not joined."
                                                   :cols (watcher-cols watcher)
                                                   :directory directory)))
                            (when label
-                             (let ((pane (session-focus made)))
+                             (let ((pane (first (session-panes made))))
                                (on-pane pane (lambda () (setf (pane-label pane) label)))))
                            made)
                        (error (e)
@@ -76,18 +76,7 @@ here handles, or one that needs a session the watcher has not joined."
     (when want (join-session server watcher want))))
 
 (define-message-handler :sessions ()
-  (send-message watcher
-        (list :these
-              (mapcar (lambda (s)
-                        (list (session-name s) (session-rows s)
-                              (session-cols s)
-                              (length (session-panes s))
-                              (count-if #'watcher-interactive (session-watchers s))
-                              (count :blocked (session-panes s)
-                                     :key (lambda (p) (agent:agent-state
-                                                       (pane-agent p))))
-                              (encode-windows s)))
-                      (server-sessions server)))))
+  (send-message watcher (list :these (session-list server watcher))))
 
 (define-message-handler :restart (&optional successor)
   ;; everybody attached is told it is a restart, so they wait for the
@@ -156,20 +145,18 @@ here handles, or one that needs a session the watcher has not joined."
                            :key (lambda (p) (pane-address-of session p)) :test #'equal)
         :when pane :return (values pane session)))
 
-(defvar *caller* nil
-  "The pane a command run from a command line was run in, as ATTY_PANE says.")
-
-(defvar *caller-directory* nil
-  "Where the command line a command was run from was.")
-
 (define-message-handler :run (name arguments &optional here directory)
   (let ((does (gethash name *commands*))
         (out (make-string-output-stream))
         (status t))
     (unless (watcher-session watcher)
-      (setf (watcher-session watcher)
-            (or (nth-value 1 (and here (pane-by-address server here)))
-                (first (server-sessions server)))))
+      (multiple-value-bind (pane there) (and here (pane-by-address server here))
+        (let ((session (or there (first (server-sessions server)))))
+          (when session
+            (setf (watcher-session watcher) session
+                  (watcher-view watcher) (view-like (seed-for session nil)))
+            (when pane
+              (view-place session (watcher-view watcher) (window-of session pane) pane nil))))))
     (if (null does)
         (send-message watcher (list :ran nil :no-command))
         (progn
@@ -197,10 +184,13 @@ here handles, or one that needs a session the watcher has not joined."
   (handle-input watcher text))
 
 (define-message-handler (:resize :session) (rows cols)
-  (setf (watcher-rows watcher) (max 1 (min +max-pane-size+ rows))
-        (watcher-cols watcher) (max 1 (min +max-pane-size+ cols)))
-  (session-fit session)
-  (send-client-list (session-server session)))
+  (watcher-resize watcher rows cols (watcher-takes watcher))
+  (setf (watcher-shadow watcher) (tty:make-screen :width (watcher-cols watcher)
+                                                  :height (watcher-rows watcher))
+        (watcher-told watcher) nil
+        (watcher-behind watcher) t)
+  (send-hello watcher)
+  (send-client-list server))
 
 (defun read-messages (server watcher)
   "Read what the client said and act on it.

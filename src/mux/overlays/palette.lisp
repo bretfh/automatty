@@ -13,16 +13,16 @@ from what it is called now. TAB goes over to naming the window it is in."
          :swap (lambda (w) (run-command "rename window" w))
          :swap-says "window instead"))
 
-(declaim (ftype (function (watcher string integer (or null string)) t) prompt-window-name))
-(defun prompt-window-name (watcher session n label)
-  "Ask what to call window N of SESSION. TAB goes over to naming the pane."
+(declaim (ftype (function (watcher session window) t) prompt-window-name))
+(defun prompt-window-name (watcher session window)
+  "Ask what to call WINDOW of SESSION. TAB goes over to naming the pane."
   (entry watcher "name"
-         (format nil "window ~A › ~D" session n)
-         (or label "")
+         (format nil "window ~A › ~D" (session-name session) (window-number session window))
+         (or (window-label window) "")
          :keep (lambda (typed w)
-                 (let* ((it (session-named (watcher-server w) session))
-                        (window (and it (session-nth-window it n))))
-                   (when window (session-rename-window it window typed))))
+                 (declare (ignore w))
+                 (when (window-now session window)
+                   (session-rename-window session window typed)))
          :swap (lambda (w) (run-command "rename pane" w))
          :swap-says "pane instead"))
 
@@ -43,12 +43,12 @@ on what it does, dim, cut where the row ends."
 
 (defun window-choices (rows here)
   "Every session › window the server said, the ones asking first, from what
-:these says: (name rows cols panes watching blocked windows). HERE is the
-session this watcher is on: the window it shows is marked."
+:these says: (name panes watching blocked windows). HERE is the session this
+watcher is on: the window it shows is marked."
   (let ((out nil))
     (dolist (row rows)
-      (destructuring-bind (name rows cols panes watching &optional (blocked 0) windows) row
-        (declare (ignore rows cols panes watching blocked))
+      (destructuring-bind (name panes watching &optional (blocked 0) windows) row
+        (declare (ignore panes watching blocked))
         (if windows
             (loop :for (n label npanes asking shownp) :in windows
                   :do (push (list :session name :window n :label label :panes npanes
@@ -104,8 +104,8 @@ what it is doing."
                     'prompt-descend "its panes")
        :chose (lambda (c watcher) (go-to watcher (getf c :session) (getf c :window)))
        :alt (lambda (c watcher)
-              (let ((session (go-to watcher (getf c :session))))
-                (when session (session-add-window session))))
+              (when (go-to watcher (getf c :session))
+                (watcher-add-window watcher)))
        :into (lambda (c watcher) (prompt-panes watcher (getf c :session) (getf c :window)))))
 
 (defun prompt-panes (watcher session window)
@@ -216,6 +216,6 @@ is found as it is typed."
   "Open the palette on KIND: :commands, :windows, :clients or :find."
   (ecase kind
     (:commands (prompt-command watcher))
-    (:windows (prompt-window watcher (session-list (watcher-server watcher))))
+    (:windows (prompt-window watcher (session-list (watcher-server watcher) watcher)))
     (:clients (prompt-clients watcher))
     (:find (prompt-search watcher))))

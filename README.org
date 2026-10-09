@@ -117,7 +117,10 @@ atty -L <server> ...    # any of these against a server other than your own
 
 One server holds every session, the way tmux's does. A session holds windows,
 a window holds panes in their splits, and each terminal attached is a client
-looking at one window of one session. A pane's address is
+looking at one window of one session. The panes are everybody's; which window
+a terminal shows, where its keys go, its zoom, its bar and how far back it is
+reading are its own, so two terminals on one session never move each other. A
+pane's address is
 =session:window.pane=, =todo:1.2=: window 1 of todo, its second pane.
 
 =^-b= is the prefix for everything else, and the one key to learn: press it

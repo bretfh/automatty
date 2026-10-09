@@ -26,7 +26,7 @@
       (say-to looking '(:who "/dev/ttys042") '(:attach 6 20 t))
       (flet ((row () (find "/dev/ttys042" (mux::encode-clients server (mux::now-ms))
                            :key #'second :test #'equal)))
-        (is-true (step-until server #'row) "the joined client is not listed")
+        (is-true (step-until server (lambda () (fifth (row)))) "the joined client is not listed")
         (let ((row (row)))
           (when row
             (is (equal "work" (fifth row)))

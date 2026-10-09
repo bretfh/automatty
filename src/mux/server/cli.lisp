@@ -3,7 +3,7 @@
 (in-package #:atty)
 
 (defun request-sessions ()
-  "What this server holds, as (name rows cols panes attached blocked) rows."
+  "What this server holds, as (name panes attached blocked windows) rows."
   (let ((path (server-socket-path)))
     (and (server-alive-p path)
          (second (find :these (request path '((:sessions))
@@ -77,8 +77,8 @@ when a server is running and is another."
          (rows (session-list server))
          (clients (encode-clients server (now-ms))))
     (dolist (row rows)
-      (destructuring-bind (name rows cols panes attached &optional (blocked 0) windows) row
-        (declare (ignore rows cols attached))
+      (destructuring-bind (name panes attached &optional (blocked 0) windows) row
+        (declare (ignore attached))
         (let ((here (remove name clients :key #'fifth :test-not #'equal)))
           (format t "~&~12A ~D window~:P  ~D pane~:P~A~@[  ~{~A~^, ~}~]~%"
                   name (max 1 (length windows)) panes

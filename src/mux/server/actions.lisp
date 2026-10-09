@@ -103,12 +103,15 @@ that has since gone would land in whatever is there now. Answers t, or
 (defun focus-pane (server watcher name id)
   "Put WATCHER on the session called NAME, when it is not there already, with
 pane ID in focus."
+  (when (watcher-elsewhere-p watcher)
+    (return-from focus-pane
+      (on-watcher watcher (lambda () (focus-pane server watcher name id)))))
   (let* ((session (session-named server name))
          (pane (and session (find id (session-panes session) :key #'pane-id))))
     (when pane
       (unless (eq session (watcher-session watcher))
         (join-session server watcher session))
-      (session-focus-pane session pane))
+      (setf (watcher-focus watcher) pane))
     (send-message watcher (list :focused name id (and pane t)))))
 
 (defun oldest-blocked-pane (server)
@@ -129,14 +132,13 @@ nil when nothing is."
                          (show-note watcher "atty" "nothing needs you" :face :accent))))
 
 (defun session-zoom-pane (server watcher &optional name id)
-  "Give the pane NAME:ID, or the focused one, the whole of its session; or give
-it back when it already has it."
+  "Give the pane NAME:ID, or the focused one, the whole of what WATCHER shows;
+or give it back when it already has it."
   (when name (focus-pane server watcher name id))
-  (let* ((session (if name (session-named server name) (watcher-session watcher)))
-         (pane (and session (session-focus session))))
+  (let ((pane (watcher-focus watcher)))
     (when pane
-      (setf (session-zoomed session)
-            (if (eq pane (session-zoomed session)) nil pane)))))
+      (setf (watcher-zoomed watcher)
+            (if (eq pane (watcher-zoomed watcher)) nil pane)))))
 
 (defun pane-row-count (pane)
   "How many rows PANE has all told: what is kept behind the screen and the screen."
@@ -151,15 +153,10 @@ it back when it already has it."
             ((< a (pane-row-count pane)) (term:term-dump-row-string term (- a kept)))
             (t "")))))
 
-(declaim (ftype (function (pane) integer) pane-top-row))
-(defun pane-top-row (pane)
-  "Which row is at the top of what PANE shows."
-  (- (pane-history pane) (pane-scrolled pane)))
-
-(defun pane-scroll-to-row (pane a)
-  "Scroll PANE so row A is on the screen, near the middle."
+(defun scroll-to-row (watcher pane a)
+  "Scroll PANE for WATCHER so row A is on the screen, near the middle."
   (let ((height (pane-height pane)))
-    (pane-scroll-to pane (- (pane-history pane) a (- (floor height 2))))))
+    (scroll-to watcher pane (- (pane-history pane) a (- (floor height 2))))))
 
 (defun search-hits (pane query)
   "Every row of PANE with QUERY in it, oldest first: (row start end)."
@@ -171,40 +168,38 @@ it back when it already has it."
                           :when at :collect (list a at (+ at (length q))))))))
 
 (defun search-pane (server watcher name id query way)
-  "Find QUERY in the pane called NAME:ID, or the focus's when they are nil.
-:HERE is a new query, found from the newest hit; :NEXT is the next older hit,
-:BACK the next newer; :CLEAR forgets it. The pane scrolls to the hit and the
-watcher is told how many there are and which this is."
+  "Find QUERY in the pane called NAME:ID, or the focus's when they are nil, for
+WATCHER. :HERE is a new query, found from the newest hit; :NEXT is the next
+older hit, :BACK the next newer; :CLEAR forgets it. The pane scrolls to the hit
+and the watcher is told how many there are and which this is."
   (let ((pane (or (and name (find-pane server name id))
-                  (and (watcher-session watcher) (session-focus (watcher-session watcher))))))
+                  (watcher-focus watcher))))
     (when pane
-      (on-pane pane
-               (lambda ()
-                 (let ((find (pane-find pane)))
-                   (flet ((at (n) (list :query (getf find :query) :hits (getf find :hits) :at n)))
-                     (ecase (if (consp way) (first way) way)
-                       (:clear (setf (pane-find pane) nil (pane-selecting pane) nil))
-                       (:here
-                        (let ((hits (search-hits pane query)))
-                          (setf (pane-find pane)
-                                (cond (hits (list :query query :hits hits :at (1- (length hits))))
-                                      ((plusp (length query)) (list :query query :hits nil :at nil))))))
-                       ((:next :back)
-                        (when (and find (getf find :hits))
-                          (let* ((n (length (getf find :hits)))
-                                 (to (+ (getf find :at) (if (eq way :next) -1 1))))
-                            (setf (pane-find pane) (at (mod to n))))))
-                       (:row
-                        ;; (:row n): the hit on row n, when there is one
-                        (let ((to (and find (position (second way) (getf find :hits) :key #'first))))
-                          (when to (setf (pane-find pane) (at to))))))))))
-        (let* ((find (pane-find pane))
+      (let* ((look (watcher-look watcher pane))
+             (find (look-find look)))
+        (flet ((at (n) (list :query (getf find :query) :hits (getf find :hits) :at n)))
+          (ecase (if (consp way) (first way) way)
+            (:clear (setf (look-find look) nil (look-selecting look) nil))
+            (:here
+             (let ((hits (search-hits pane query)))
+               (setf (look-find look)
+                     (cond (hits (list :query query :hits hits :at (1- (length hits))))
+                           ((plusp (length query)) (list :query query :hits nil :at nil))))))
+            ((:next :back)
+             (when (and find (getf find :hits))
+               (let* ((n (length (getf find :hits)))
+                      (to (+ (getf find :at) (if (eq way :next) -1 1))))
+                 (setf (look-find look) (at (mod to n))))))
+            (:row
+             ;; (:row n): the hit on row n, when there is one
+             (let ((to (and find (position (second way) (getf find :hits) :key #'first))))
+               (when to (setf (look-find look) (at to)))))))
+        (setf (watcher-behind watcher) t)
+        (let* ((find (look-find look))
                (hits (getf find :hits))
                (at (getf find :at))
                (hit (and at (nth at hits))))
-          (when hit (pane-scroll-to-row pane (first hit)))
-          (dolist (w (session-watchers (pane-session server pane)))
-            (draw-again w))
+          (when hit (scroll-to-row watcher pane (first hit)))
           ;; the hits nearest the one gone to go out with their text, for a
           ;; list of them: the nearest two hundred, and which of those it is
           ;; a clear is not a find: nothing is said back for one
@@ -217,37 +212,34 @@ watcher is told how many there are and which this is."
                                     (loop :for h :in (subseq hits from to)
                                           :collect (list (first h) (second h) (third h)
                                                          (string-right-trim " " (pane-row-text pane (first h)))))))))
-              (found-in-pane watcher n said (and at (- at from)))))))))
-
-(defun pane-session (server pane)
-  (find-if (lambda (s) (member pane (session-panes s))) (server-sessions server)))
+              (found-in-pane watcher n said (and at (- at from))))))))))
 
 (defun select-pane-rows (watcher what)
   "Lines out of the pane with WATCHER's focus. :START marks the top row shown
 as one end of a selection; :COPY sends the lines from that mark to the other
 end of what is shown now, or the screen when nothing was marked."
-  (let* ((session (watcher-session watcher))
-         (pane (and session (session-focus session))))
+  (let ((pane (watcher-focus watcher)))
     (when pane
-      (let ((top (pane-top-row pane))
+      (let ((look (watcher-look watcher pane))
+            (top (top-row watcher pane))
             (height (pane-height pane)))
         (ecase (if (consp what) (first what) what)
-               (:line
-                ;; (:line row): that one row, as it is
-                (copied watcher (string-right-trim " " (pane-row-text pane (second what)))))
-               (:start (on-pane pane (lambda () (setf (pane-selecting pane) top))))
-               (:copy
-                (let* ((mark (or (pane-selecting pane) top))
-                       (from (min mark top))
-                       (to (+ (max mark top) height)))
-                  (copied watcher
-                          (format nil "~{~A~^~%~}"
-                                  (on-pane pane
-                                           (lambda ()
-                                             (loop :for a :from from :below (min to (pane-row-count pane))
-                                                   :collect (string-right-trim " " (pane-row-text pane a)))))))
-                  (on-pane pane (lambda () (setf (pane-selecting pane) nil))))))
-        (dolist (w (session-watchers session)) (draw-again w))))))
+          (:line
+           ;; (:line row): that one row, as it is
+           (copied watcher (string-right-trim " " (pane-row-text pane (second what)))))
+          (:start (setf (look-selecting look) top))
+          (:copy
+           (let* ((mark (or (look-selecting look) top))
+                  (from (min mark top))
+                  (to (+ (max mark top) height)))
+             (copied watcher
+                     (format nil "~{~A~^~%~}"
+                             (on-pane pane
+                                      (lambda ()
+                                        (loop :for a :from from :below (min to (pane-row-count pane))
+                                              :collect (string-right-trim " " (pane-row-text pane a)))))))
+             (setf (look-selecting look) nil))))
+        (setf (watcher-behind watcher) t)))))
 
 (defun copied (watcher text)
   "TEXT to the clipboard of WATCHER's terminal, and a note saying so."
@@ -308,54 +300,53 @@ pane that is asking something is refused as a prompt to it now would be."
         (prompt-pane server pane (first queued) (second queued))))))
 
 (defun spawn-pane (server name command directory label &optional window)
-  "A pane running COMMAND in the session called NAME, beside the one with the
-focus there, or the first pane of that session when there is no such session
+  "A pane running COMMAND in the session called NAME, beside the pane the
+command line was run in when that is there, else beside the focus of whoever
+was there last, or the first pane of that session when there is no such session
 yet. WINDOW puts it in that window of the session instead, by number, or in a
-new window when it is :new. Answers the pane."
+new window when it is :new. Nobody is shown it who was not already. Answers the
+pane."
   (let* ((session (session-named server name))
-         (pane (if session
-                   (cond
-                    ((eq window :new)
-                     (window-focus (session-add-window session command directory nil)))
-                    ((and (integerp window) (session-nth-window session window)
-                          (not (same-window-p (session-nth-window session window) (session-window session))))
-                     ;; beside the focus of that window, without showing it
-                     (let* ((w (session-nth-window session window))
-                            (focus (window-focus w))
-                            (it (make-pane command
-                                           :rows (pane-height focus)
-                                           :cols (pane-width focus)
-                                           :directory (or directory (pane-directory focus)))))
-                       (change-window session w
-                                      (lambda (w) (setf (window-layout w) (layout-insert (window-layout w) focus :across it))))
-                       (session-start-pane session it)
-                       it))
-                    (t
-                     ;; beside the focus, the way a split puts one, but running
-                     ;; what it was asked to; the focus stays where somebody put it
-                     (let* ((focus (session-focus session))
-                            (it (make-pane command
-                                           :rows (pane-height focus)
-                                           :cols (pane-width focus)
-                                           :directory (or directory (pane-directory focus)))))
-                       (setf (session-layout session)
-                             (layout-insert (session-layout session) focus :across it))
-                       (session-compose session)
-                       (session-start-pane session it)
-                       it)))
-                 (session-focus (add-session server command :name name
-                                             :directory directory)))))
+         (caller (and session *caller*
+                      (multiple-value-bind (pane there) (pane-by-address server *caller*)
+                        (and (eq there session) pane))))
+         (pane (cond
+                 ((null session)
+                  (first (session-panes (add-session server command :name name :directory directory))))
+                 ((eq window :new)
+                  (let* ((like (or caller (first (session-panes session))))
+                         (it (make-pane command :rows (pane-height like) :cols (pane-width like)
+                                                :directory (or directory (pane-directory like)))))
+                    (session-add-window session it)
+                    it))
+                 (t
+                  (let* ((w (if (integerp window)
+                                (or (session-nth-window session window)
+                                    (error "~A has no window ~D" name window))
+                                (or (and caller (window-of session caller))
+                                    (view-shown-window session (seed-for session nil)))))
+                         (beside (or (and caller (member caller (window-panes w)) caller)
+                                     (and (not (integerp window))
+                                          (view-focus-in session (seed-for session nil) w))
+                                     (car (last (window-panes w)))))
+                         (it (make-pane command :rows (pane-height beside) :cols (pane-width beside)
+                                                :directory (or directory (pane-directory beside)))))
+                    (or (session-split session beside :across it)
+                        (error "~A changed under the pane being made" name)))))))
     (when label (on-pane pane (lambda () (setf (pane-label pane) label))))
     pane))
 
 (defun go-to (watcher name &optional n)
   "WATCHER onto the session called NAME, showing its window N when there is one."
+  (when (watcher-elsewhere-p watcher)
+    (return-from go-to
+      (on-watcher watcher (lambda () (go-to watcher name n)))))
   (let* ((server (watcher-server watcher))
          (session (and server (session-named server name))))
     (when session
       (unless (eq session (watcher-session watcher))
         (join-session server watcher session))
-      (when n (session-select-window session n)))
+      (when n (watcher-select-window watcher n)))
     session))
 
 (defun name-pane (server name id label)
@@ -390,11 +381,3 @@ WATCHER when it could not be."
   (let* ((session (session-named server name))
          (pane (and session (find id (session-panes session) :key #'pane-id))))
     (when pane (session-close-pane session pane))))
-
-(defun set-reading (watcher readingp)
-  "Whether WATCHER is reading its pane back, which the bar says for everybody."
-  (let ((session (watcher-session watcher)))
-    (when session
-      (sb-ext:atomic-update (session-readers session)
-                            (lambda (all) (if readingp (adjoin watcher all) (remove watcher all))))
-      (dolist (w (session-watchers session)) (draw-again w)))))

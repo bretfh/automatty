@@ -38,7 +38,7 @@
         (say-to wire (list :open "here" "pwd -P; sleep 30" dir 10 60 t))
         (is-true (step-until server (lambda ()
                                       (let ((s (mux:session-named server "here")))
-                                        (and s (search dir (dumped (mux:session-focus s))))))))
+                                        (and s (search dir (dumped (first (mux:session-panes s)))))))))
         (mux:wire-close wire)))))
 
 (test stopping-one-session-leaves-the-others-and-moves-whoever-watched-it
@@ -65,14 +65,14 @@
            (wire (wire-to path)))
       ;; a pane that has just started is still drawing, and anything it is said
       ;; to be doing is taken back the moment it draws; so it is let settle first
-      (let ((agent (mux:pane-agent (mux:session-focus session))))
+      (let ((agent (mux:pane-agent (first (mux:session-panes session)))))
         (step-until server (lambda () (eq :idle (agent:agent-state agent))))
-        (mux::pane-hear (mux:session-focus session) :blocked)
+        (mux::pane-hear (first (mux:session-panes session)) :blocked)
         (is-true (step-until server (lambda () (eq :blocked (agent:agent-state agent))))))
       (say-to wire '(:sessions))
       (let ((row (first (second (heard-from server wire :these)))))
         (is (equal "work" (first row)))
-        (is (eql 1 (sixth row)) "the row was ~S" row))
+        (is (eql 1 (fourth row)) "the row was ~S" row))
       (mux:wire-close wire))))
 
 (test a-server-says-it-holds-every-session-when-knocked-on
@@ -96,3 +96,29 @@
   (let ((mux:*server-name* "../../elsewhere"))
     (is (equal "elsewhere" (file-namestring (mux:socket-path))))
     (is (search (namestring (mux:socket-directory)) (mux:socket-path)))))
+
+(test two-terminals-on-one-server-are-two-views-of-the-same-panes
+  (with-server (path :command "cat" :rows 12 :cols 60)
+    (with-seer (a path :rows 12 :cols 60)
+      (with-seer (b path :rows 12 :cols 60)
+        (type-at a "from-a")
+        (is-true (pump a :want "from-a"))
+        (is-true (pump b :want "from-a") "the other terminal does not show the pane they share")
+        (type-at a (format nil "~Cc" mux:+prefix+))
+        (is-true (pump a :until (lambda () (null (search "from-a" (seen a))))))
+        (pump b :seconds 1/2)
+        (is (search "from-a" (seen b)) "a window one terminal made was shown in the other: ~S" (seen b))
+        (type-at a "in-two")
+        (is-true (pump a :want "in-two"))
+        (pump b :seconds 1/2)
+        (is (null (search "in-two" (seen b))) "keys in one terminal reached the other's pane: ~S" (seen b))
+        (type-at b "from-b")
+        (is-true (pump b :want "from-b") "the other terminal's keys went nowhere: ~S" (seen b))
+        (pump a :seconds 1/2)
+        (is (null (search "from-b" (seen a))) "keys in one terminal went to the window the other shows")
+        (type-at b (format nil "~Ct" mux:+prefix+))
+        (is-true (pump b :until (lambda () (null (search " λ " (seen b))))) "the bar did not go: ~S" (seen b))
+        (pump a :seconds 1/2)
+        (is (search " λ " (seen a)) "the bar went in a terminal that did not ask: ~S" (seen a))
+        (type-at a (format nil "~Cp" mux:+prefix+))
+        (is-true (pump a :want "from-b") "the pane they share does not have what the other typed: ~S" (seen a))))))

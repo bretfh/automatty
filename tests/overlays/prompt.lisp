@@ -7,8 +7,8 @@
 
 (test the-window-prompt-lists-every-session-and-window-asking-first-and-goes-there
   (let ((choices (mux::window-choices
-                  '(("todo" 24 80 3 1 1 ((1 "agents" 2 1 t) (2 nil 1 0 nil)))
-                    ("lib" 24 80 1 0 0 ((1 nil 1 0 t))))
+                  '(("todo" 3 1 1 ((1 "agents" 2 1 t) (2 nil 1 0 nil)))
+                    ("lib" 1 0 0 ((1 nil 1 0 t))))
                   "todo")))
     (is (eql 3 (length choices)))
     (is (equal '("todo" 1) (list (getf (first choices) :session) (getf (first choices) :window)))

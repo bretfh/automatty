@@ -51,19 +51,19 @@
         (is (eq t status) "~S" said)
         (let ((session (mux:session-named server "work")))
           (is-true session "spawning into no session did not make one")
-          (is (equal "impl" (mux::pane-label (mux:session-focus session))))))
+          (is (equal "impl" (mux::pane-label (first (mux:session-panes session)))))))
       (run-by-name server wire "agent spawn" '("work" "--name" "test" "--" "cat"))
       (let ((session (mux:session-named server "work")))
         (is (eql 2 (length (mux:session-panes session))))
         (is (equal "test" (mux::pane-label (second (mux:session-panes session)))))
-        (is (equal "impl" (mux::pane-label (mux:session-focus session)))
+        (is (equal "impl" (mux::pane-label (first (mux:session-panes session))))
             "spawning moved the focus off the pane somebody was in"))
       (mux:wire-close wire))))
 
 (test since-a-prompt-says-when-it-was-and-what-came-after
   (with-stepped-server (server path)
     (let* ((session (mux:add-session server "cat" :name "work" :rows 6 :cols 30))
-           (pane (mux:session-focus session))
+           (pane (first (mux:session-panes session)))
            (wire (wire-to path)))
       (settled server pane)
       (say-to wire (list :since-prompt "work" (mux:pane-id pane)))
@@ -84,7 +84,7 @@
     (let* ((session (mux:add-session server
                                      (format nil "printf '\\033[?2004h'; stty -echo; cat -v")
                                      :name "work" :rows 12 :cols 60))
-           (pane (mux:session-focus session))
+           (pane (first (mux:session-panes session)))
            (wire (wire-to path)))
       (step-until server (lambda () (mux::with-term (term pane) (term:term-bracketed-paste term))))
       (say-to wire (list :agent-prompt "work" (mux:pane-id pane) "hello there"))
@@ -104,20 +104,22 @@
     (let* ((session (mux:add-session
                      server "printf '\\033[?2004h'; read x; printf '\\033[?2004l'; cat"
                      :name "work" :rows 6 :cols 30))
-           (a (mux:session-focus session))
+           (a (first (mux:session-panes session)))
            (wire (wire-to path))
            (heard (heard-tags server wire)))
-      (mux:session-add-window session "cat" nil nil)
+      (mux:session-add-window session (mux:make-pane "cat" :rows 6 :cols 30))
       (is-true (step-until server (lambda () (mux::with-term (term a) (term:term-bracketed-paste term)))))
       (say-to wire (list :want "work") (list :attach 6 30 t))
       (funcall heard :hello)
       (is (equal (list :bracketed-paste t) (funcall heard :bracketed-paste))
           "A already wants it when the client attaches: told right away")
       ;; focus leaves A for B, which never asked
-      (mux:session-select-window session 2)
+      (let ((w (first (mux:session-watchers session))))
+        (mux::on-watcher w (lambda () (mux:watcher-select-window w 2))))
       (is (equal (list :bracketed-paste nil) (funcall heard :bracketed-paste)))
       ;; focus comes back to A, still on
-      (mux:session-select-window session 1)
+      (let ((w (first (mux:session-watchers session))))
+        (mux::on-watcher w (lambda () (mux:watcher-select-window w 1))))
       (is (equal (list :bracketed-paste t) (funcall heard :bracketed-paste)))
       ;; A turns it back off without the focus moving
       (say-to wire (list :keys (format nil "go~%")))
@@ -128,7 +130,7 @@
 (test a-pane-that-never-asks-for-bracketed-paste-leaves-the-host-alone
   (with-stepped-server (server path)
     (let* ((session (mux:add-session server "cat" :name "work" :rows 10 :cols 30))
-           (pane (mux:session-focus session))
+           (pane (first (mux:session-panes session)))
            (wire (wire-to path)))
       (say-to wire (list :want "work") (list :attach 10 30 t))
       (heard-from server wire :hello)

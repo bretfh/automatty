@@ -29,13 +29,11 @@
 (defcommand (scroll-mode :group scrolling) ()
             "read this pane back from the keys; q leaves"
             (unless (current-scroll-view)
-              (push-overlay *client* (%make-scroll-view))
-              (set-reading *client* t)))
+              (push-overlay *client* (%make-scroll-view))))
 
 (defcommand (exit-scroll-mode :unlisted) ()
             (let ((r (current-scroll-view)))
               (when r (pop-overlay *client* r)))
-            (set-reading *client* nil)
             (search-pane (here-server) *client* nil nil nil :clear)
             (scroll-to-bottom))
 

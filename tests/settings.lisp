@@ -57,16 +57,15 @@
     (is (member :prefix rows :key #'first))
     (is (member :theme rows :key #'first))))
 
-(test a-new-session-takes-the-defaults-for-the-bar-the-rail-and-the-scrollbars
+(test a-new-terminal-takes-the-defaults-for-the-bar-the-rail-and-the-scrollbars
   (with-setting-kept (:scrollbars-by-default)
     (with-setting-kept (:bar-by-default)
       (with-setting-kept (:rail-by-default)
         (mux:configure :scrollbars-by-default nil :bar-by-default nil :rail-by-default nil)
-        (with-stepped-server (server path)
-          (let ((session (mux:add-session server "sleep 30" :name "work" :rows 6 :cols 30)))
-            (is (null (mux::session-scrollbars-p session)))
-            (is (null (mux::session-bar-p session)))
-            (is (null (mux::session-rail-p session)))))))))
+        (let ((view (mux:make-view)))
+          (is (null (mux::view-scrollbars-p view)))
+          (is (null (mux::view-bar-p view)))
+          (is (null (mux::view-rail-p view))))))))
 
 (test a-hook-that-comes-apart-is-said-and-the-rest-still-run
   (let ((ran nil))
@@ -97,8 +96,9 @@
              (with-stepped-server (server path)
                (let ((session (mux:add-session server "sleep 30" :name "work" :rows 6 :cols 30)))
                  (is (equal (list session) made))
-                 (is (eq (mux:session-focus session) (cdr (first started))))
-                 (mux::session-split session :across)
+                 (is (eq (first (mux:session-panes session)) (cdr (first started))))
+                 (mux::session-split session (first (mux:session-panes session)) :across
+                                     (mux:make-pane "sleep 30"))
                  (is (eql 2 (length started))))))
         (mux:remove-hook 'mux::session-made #'keep-session)
         (mux:remove-hook 'mux::pane-started #'pane)))))

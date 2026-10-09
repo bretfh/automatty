@@ -182,7 +182,7 @@ last thing answered, when there was one."
   (let* ((recent (if (and (queue-showing-recent q) (recent-of watcher))
                      (1+ (length (recent-of watcher)))
                    0))
-         (room (max +question-rows+ (- (view-rows watcher) (chrome-top watcher (view-rows watcher))
+         (room (max +question-rows+ (- (watcher-rows watcher) (chrome-top watcher (watcher-rows watcher))
                                        (chrome-bottom watcher) 5 recent)))
          (most (max 1 (floor room +question-rows+)))
          (from (max 0 (min (- (length rows) most) (- (queue-index q) (floor most 2))))))
@@ -257,6 +257,7 @@ last thing answered, when there was one."
            (if (queue-filtering q) 'queue-filter-mode 'queue-mode))
 
 (defmethod overlay-ticks-p ((q queue)) t)
+(defmethod overlay-shows-panes-p ((q queue)) t)
 (defmethod overlay-name ((q queue)) "needs you")
 (defmethod close-overlay ((q queue) watcher) (close-queue q watcher))
 

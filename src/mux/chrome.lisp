@@ -20,8 +20,7 @@
 
 (declaim (ftype (function (t) fixnum) chrome-left))
 (defun chrome-left (watcher)
-  (let ((session (and watcher (watcher-session watcher))))
-    (if (and session (rail-shown-p session)) +rail-width+ 0)))
+  (if (and watcher (watcher-session watcher) (rail-shown-p (watcher-view watcher))) +rail-width+ 0))
 
 (declaim (ftype (function (t) fixnum) chrome-bottom))
 (defun chrome-bottom (watcher)
@@ -526,8 +525,8 @@ border is :single, :double or :none."
 
 (declaim (ftype (function (t keyword fixnum fixnum) (values fixnum fixnum)) place-sheet))
 (defun place-sheet (watcher kind width height)
-  (let* ((cols (view-cols watcher))
-         (rows (view-rows watcher))
+  (let* ((cols (watcher-cols watcher))
+         (rows (watcher-rows watcher))
          (top (chrome-top watcher rows))
          (left (chrome-left watcher))
          (foot (- rows (chrome-bottom watcher))))

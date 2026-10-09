@@ -75,10 +75,7 @@ so most of them are behind the screen."
         (is (search "restored" (shown-row back 1)) "no rule under it: ~S" (shown-row back 1))
         (is (equal "" (shown-row back 2)) "the program's first line has nowhere clean to go")
         (is (eql 2 (mux::with-term (term back) (term:term-cursor-y term))))
-        (is (eql 0 (mux::with-term (term back) (term:term-cursor-x term))))
-        (is (eql 0 (mux::pane-scrolled back)))
-        (is (eql (mux::with-term (term back) (term:term-scrollback-pushed term))
-                 (mux::pane-pushed-seen back)))))))
+        (is (eql 0 (mux::with-term (term back) (term:term-cursor-x term))))))))
 
 (test a-pane-on-the-alt-screen-saves-its-main-screen-and-what-was-over-it
   (let ((pane (coloured-pane 5 :rows 3 :cols 8)))
@@ -279,25 +276,27 @@ so most of them are behind the screen."
     (is (search "restored" (shown-row back 1)) "~S" (shown-row back 1))))
 
 (defun server-with-windows (server)
-  "Two sessions; the first with three windows, the second one shown, splits in
-it, a zoom in the third. Answers the first session."
+  "Two sessions; the first with three windows, the second one shown by a
+terminal on it, splits in it, a zoom in the third. Answers the first session
+and the terminal."
   (let* ((one (mux:add-session server "sleep 30" :name "work" :rows 17 :cols 40))
-         (two (mux:add-session server "sleep 30" :name "other" :rows 17 :cols 40)))
+         (two (mux:add-session server "sleep 30" :name "other" :rows 17 :cols 40))
+         (w (viewer one :rows 17 :cols 40 :tty "/dev/ttys001")))
     (declare (ignore two))
-    (mux:session-add-window one)
-    (mux::session-split one :across)
-    (mux::session-split one :down)
-    (mux:session-add-window one)
+    (mux:watcher-add-window w)
+    (mux:watcher-split w :across)
+    (mux:watcher-split w :down)
+    (mux:watcher-add-window w)
     (mux::session-rename-window one (mux:session-nth-window one 3) "third")
-    (setf (mux:session-zoomed one) (mux:session-focus one))
-    (mux:session-select-window one 2)
-    one))
+    (setf (mux:watcher-zoomed w) (mux:watcher-focus w))
+    (mux:watcher-select-window w 2)
+    (values one w)))
 
 (test the-tree-round-trips-window-for-window
   (with-state-home (dir)
     (with-stepped-server (server path)
-      (let* ((one (server-with-windows server))
-             (addresses (loop :for s :in (mux::server-sessions server)
+      (multiple-value-bind (one w) (server-with-windows server)
+       (let* ((addresses (loop :for s :in (mux::server-sessions server)
                               :append (mapcar (lambda (p) (mux:pane-address-of s p))
                                               (mux:session-panes s))))
              (tree (mux:encode-tree server))
@@ -307,21 +306,24 @@ it, a zoom in the third. Answers the first session."
         (let* ((forms (getf (nthcdr 2 tree) :sessions))
                (back (mapcar (lambda (form) (mux::decode-session server form panes)) forms)))
           (is (equal '("work" "other") (mapcar #'mux::session-name back)))
-          (let ((b (first back)))
+          (let* ((b (first back))
+                 (seen (cdr (assoc "/dev/ttys001" (mux::session-seeds b) :test #'equal))))
+            (is-true seen "what the terminal showed was not kept")
             (is (eql 3 (length (mux:session-windows b))))
-            (is (eql 2 (mux:window-number b (mux:session-window b))))
+            (is (eql 2 (mux:window-number b (mux::view-shown-window b seen))))
             (is (equal "third" (mux:window-label (mux:session-nth-window b 3))))
             (is (equal (mapcar (lambda (w) (mux::encode-layout (mux:window-layout w)))
                                (mux:session-windows one))
                        (mapcar (lambda (w) (mux::encode-layout (mux:window-layout w)))
                                (mux:session-windows b))))
-            (is (eq (mux:session-focus one) (mux:session-focus b)))
-            (is (eq (mux:window-zoomed (mux:session-nth-window one 3))
-                    (mux:window-zoomed (mux:session-nth-window b 3))))
+            (is (eq (mux:watcher-focus w) (mux::view-focus-in b seen)))
+            (is-true (mux::view-zoomed-in b seen (mux:session-nth-window b 3)))
+            (is (eq (mux::view-zoomed-in one (mux:watcher-view w) (mux:session-nth-window one 3))
+                    (mux::view-zoomed-in b seen (mux:session-nth-window b 3))))
             (is (equal addresses
                        (loop :for s :in back
                              :append (mapcar (lambda (p) (mux:pane-address-of s p))
-                                             (mux:session-panes s)))))))))))
+                                             (mux:session-panes s))))))))))))
 
 (test a-file-is-whole-or-not-there-and-a-strange-version-is-moved-aside
   (with-state-home (dir)
@@ -350,8 +352,8 @@ it, a zoom in the third. Answers the first session."
     (let ((path (socket-path)) ids)
       (let ((server (mux:make-server path)))
         (unwind-protect
-             (let ((one (server-with-windows server)))
-               (mux::with-term (term (mux:session-focus one)) (term:term-process-output term
+             (multiple-value-bind (one w) (server-with-windows server)
+               (mux::with-term (term (mux:watcher-focus w)) (term:term-process-output term
                                          (format nil "typed here~C~%and more" #\Return)))
                (setf ids (mapcar #'mux:pane-id (mux:session-panes one)))
                (mux:save-all server))
@@ -365,8 +367,10 @@ it, a zoom in the third. Answers the first session."
                (let ((one (first sessions)))
                  (is (equal ids (mapcar #'mux:pane-id (mux:session-panes one))))
                  (is (>= mux::*panes-made* (reduce #'max ids)))
-                 (is (eql 2 (mux:window-number one (mux:session-window one))))
-                 (let* ((pane (mux:session-focus one))
+                 (let ((seen (cdr (assoc "/dev/ttys001" (mux::session-seeds one) :test #'equal))))
+                   (is (eql 2 (mux:window-number one (mux::view-shown-window one seen)))))
+                 (let* ((pane (mux::view-focus-in one (cdr (assoc "/dev/ttys001" (mux::session-seeds one)
+                                                                  :test #'equal))))
                         (dump (mux::with-term (term pane) (term:term-dump-to-string term)))
                         (behind (mapcar #'car (rows-behind pane))))
                    ;; a pane three rows tall: the first line has gone behind
@@ -548,7 +552,7 @@ it, a zoom in the third. Answers the first session."
                (say-to wire (list :sessions))
                (let (heard)
                  (is-true (until 5 (lambda () (setf heard (find :these (heard-back wire) :key #'first)))))
-                 (is (eql 2 (length (seventh (first (second heard)))))
+                 (is (eql 2 (length (fifth (first (second heard)))))
                      "the two windows did not come back: ~S" heard))
                (mux:wire-close wire)))
         (stop-server path)

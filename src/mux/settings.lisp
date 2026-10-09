@@ -109,15 +109,15 @@ slip in an init file says so rather than doing nothing."
   :check (check-number 1))
 
 (defsetting +scrollbars-by-default+ t
-  "Whether a new session's panes have scrollbars; toggle scrollbars changes one session."
+  "Whether a terminal shows panes with scrollbars when it first attaches; toggle scrollbars changes it for that terminal."
   :check #'check-boolean)
 
 (defsetting +bar-by-default+ t
-  "Whether a new session has the bar; C-b t changes one session."
+  "Whether a terminal shows the bar when it first attaches; C-b t changes it for that terminal."
   :check #'check-boolean)
 
 (defsetting +rail-by-default+ t
-  "Whether a new session has the rail of sessions down the left; C-b T changes one session."
+  "Whether a terminal shows the rail of sessions down the left when it first attaches; C-b T changes it for that terminal."
   :check #'check-boolean)
 
 (defsetting +rail-width+ 14

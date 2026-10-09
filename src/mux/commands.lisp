@@ -14,50 +14,46 @@
 
 (defcommand (redraw :group asking) ()
   "draw the whole screen again"
-  (let ((session (here)))
-    (when session
-      (setf (watcher-shadow *client*) (tty:make-screen :width (session-cols session)
-                                                        :height (session-rows session))
-            (watcher-told *client*) nil
-            (watcher-behind *client*) t)
-      (send-hello *client* session))))
+  (when (here)
+    (setf (watcher-shadow *client*) (tty:make-screen :width (watcher-cols *client*)
+                                                      :height (watcher-rows *client*))
+          (watcher-told *client*) nil
+          (watcher-behind *client*) t)
+    (send-hello *client*)))
 
-(defun set-bar (session state)
-  "The bar is the session's: whoever asks, everybody on it sees the change."
-  (setf (session-bar-p session) (if (eq state :toggle)
-                                    (not (session-bar-p session))
-                                    (and state t)))
-  (session-reset-shadows session))
+(defun set-bar (watcher state)
+  (setf (watcher-bar-p watcher) (if (eq state :toggle)
+                                    (not (watcher-bar-p watcher))
+                                    (and state t))))
 
 (defcommand (bar-off :group asking) ()
-  "take the bar off, for everybody on the session"
-  (set-bar (here) nil))
+  "take the bar off"
+  (set-bar *client* nil))
 
 (defcommand (bar-on :group asking) ()
   "put the bar back"
-  (set-bar (here) t))
+  (set-bar *client* t))
 
 (defcommand (toggle-bar :group asking) ()
   "the bar off or on"
-  (set-bar (here) :toggle))
+  (set-bar *client* :toggle))
 
-(defun set-rail (session state)
-  (setf (session-rail-p session) (if (eq state :toggle)
-                                     (not (session-rail-p session))
-                                     (and state t)))
-  (session-reset-shadows session))
+(defun set-rail (watcher state)
+  (setf (watcher-rail-p watcher) (if (eq state :toggle)
+                                     (not (watcher-rail-p watcher))
+                                     (and state t))))
 
 (defcommand (rail-off :group asking) ()
-  "take the rail of sessions off, for everybody on the session"
-  (set-rail (here) nil))
+  "take the rail of sessions off"
+  (set-rail *client* nil))
 
 (defcommand (rail-on :group asking) ()
   "put the rail of sessions back"
-  (set-rail (here) t))
+  (set-rail *client* t))
 
 (defcommand (toggle-rail :group asking) ()
   "the rail of sessions off or on"
-  (set-rail (here) :toggle))
+  (set-rail *client* :toggle))
 
 (defcommand (commands :group asking) ()
   "run any command by name; the palette's first tab"
@@ -65,35 +61,33 @@
 
 (defcommand (split-right :group panes) ()
   "another pane beside this one"
-  (session-split (here) :across))
+  (watcher-split *client* :across))
 
 (defcommand (split-below :group panes) ()
   "another pane under this one"
-  (session-split (here) :down))
+  (watcher-split *client* :down))
 
 (defcommand (next-pane :group panes) ()
   "the focus to the next pane in this window"
-  (session-focus-next (here)))
+  (watcher-focus-next *client*))
 
 (defcommand (close-pane :group panes) ()
   "close this pane and let its program go"
-  (session-close-pane (here) (session-focus (here))))
+  (session-close-pane (here) (watcher-focus *client*)))
 
 (defcommand (delete-other-panes :group panes) ()
   "close every other pane in this window"
-  (session-delete-other-panes (here) (session-focus (here))))
+  (session-delete-other-panes (here) (watcher-focus *client*)))
 
 (defun open-session (server watcher &optional name command directory)
   "A new session, joined by WATCHER, started where its pane is."
-  (let ((session (watcher-session watcher)))
+  (let ((focus (watcher-focus watcher)))
     (join-session server watcher
                   (add-session server (or command (server-command server))
                                :name (or name (unused-session-name server))
                                :rows (watcher-rows watcher)
                                :cols (watcher-cols watcher)
-                               :directory (or directory
-                                              (and session
-                                                   (pane-directory (session-focus session))))))))
+                               :directory (or directory (and focus (pane-directory focus)))))))
 
 (defcommand (new-session :group sessions) ()
   "another session, started where this pane is"
@@ -101,38 +95,41 @@
 
 (defcommand (new-window :group windows) ()
   "another window in this session, after this one"
-  (session-add-window (here)))
+  (watcher-add-window *client*))
 
 (defcommand (next-window :group windows) ()
   "show the next window"
-  (session-cycle-window (here) 1))
+  (watcher-cycle-window *client* 1))
 
 (defcommand (previous-window :group windows) ()
   "show the window before"
-  (session-cycle-window (here) -1))
+  (watcher-cycle-window *client* -1))
 
 (defcommand (close-window :group windows) ()
   "close this window and every program in it, after a yes"
-  (confirm *client* "close this window and every program in it?"
-           :yes (lambda (w)
-                  (let ((session (watcher-session w)))
-                    (session-close-window session (session-window session))))))
+  (let ((session (here))
+        (window (watcher-window *client*)))
+    (confirm *client* "close this window and every program in it?"
+             :yes (lambda (w)
+                    (declare (ignore w))
+                    (let ((now (window-now session window)))
+                      (when now (session-close-window session now)))))))
 
-(defun session-list (server)
-  "Every session as the window chooser lists them: (name rows cols panes
-watching blocked windows)."
+(defun session-list (server &optional watcher)
+  "Every session as the window chooser lists them: (name panes watching blocked
+windows), the window shown being WATCHER's."
   (mapcar (lambda (s)
-            (list (session-name s) (session-rows s) (session-cols s)
+            (list (session-name s)
                   (length (session-panes s))
                   (count-if #'watcher-interactive (session-watchers s))
                   (count :blocked (session-panes s)
                          :key (lambda (p) (agent:agent-state (pane-agent p))))
-                  (encode-windows s)))
+                  (encode-windows s watcher)))
           (server-sessions server)))
 
 (defcommand (switch-session :group sessions) ()
   "every session and its windows, to go to one; the same list as @"
-  (prompt-window *client* (session-list (here-server))))
+  (prompt-window *client* (session-list (here-server) *client*)))
 
 (defcommand (clients :group sessions) ()
   "who is attached to this server, and what each is looking at; RET goes there, C-RET detaches one"
@@ -140,14 +137,13 @@ watching blocked windows)."
 
 (defcommand (switch-window :group windows) ()
   "every session › window, the ones asking first; RET goes, C-RET makes one, TAB its panes"
-  (prompt-window *client* (session-list (here-server))))
+  (prompt-window *client* (session-list (here-server) *client*)))
 
 (defcommand (rename-window :group windows) ()
   "what to call this window; TAB names the pane instead"
-  (let ((session (here)))
-    (prompt-window-name *client* (session-name session)
-                        (window-number session (session-window session))
-                        (window-label (session-window session)))))
+  (let ((session (here))
+        (window (watcher-window *client*)))
+    (prompt-window-name *client* session window)))
 
 (defcommand (send-prefix :group asking) ()
   "send the prefix itself to the pane"
@@ -156,7 +152,7 @@ watching blocked windows)."
 (defcommand (rename-pane :group panes) ()
   "what to call this pane; TAB names the window instead"
   (let* ((session (here))
-         (pane (session-focus session)))
+         (pane (watcher-focus *client*)))
     (prompt-pane-name *client* (session-name session) (pane-id pane)
                       (pane-label pane) (pane-named pane)
                       :address (pane-address-of session pane))))
@@ -201,7 +197,7 @@ watching blocked windows)."
     (unless (and (eq what :press) (eq button :left)
                  (some (lambda (over) (overlay-clicked over (cdr *mouse-position*) (car *mouse-position*) *client*))
                        (watcher-overlays *client*)))
-      (handle-pointer (here) *client* what button (car *mouse-position*) (cdr *mouse-position*)
+      (handle-pointer *client* what button (car *mouse-position*) (cdr *mouse-position*)
                       (mouse-modifiers)))))
 
 (defcommand (mouse-pressed :unlisted) () (pointer :press))
@@ -209,13 +205,12 @@ watching blocked windows)."
 (defcommand (mouse-released :unlisted) () (pointer :release))
 
 (defun scroll-by (amount)
-  (let* ((session (here))
-         (x (car *mouse-position*))
-         (y (cdr *mouse-position*)))
-    (scroll-pane (or (and x y (pane-at session x y)) (session-focus session)) amount)))
+  (let ((x (car *mouse-position*))
+        (y (cdr *mouse-position*)))
+    (scroll-pane *client* (or (and x y (pane-at *client* x y)) (watcher-focus *client*)) amount)))
 
 (defun wheel (way)
-  (handle-wheel (here) way (car *mouse-position*) (cdr *mouse-position*) (mouse-modifiers)))
+  (handle-wheel *client* way (car *mouse-position*) (cdr *mouse-position*) (mouse-modifiers)))
 
 (defcommand natural-scroll-up () (wheel :up))
 (defcommand natural-scroll-down () (wheel :down))
@@ -235,12 +230,11 @@ watching blocked windows)."
 
 (defcommand (toggle-scrollbars :group scrolling) ()
   "the scrollbar column off or on, for the programs"
-  (let ((session (here)))
-    (setf (session-scrollbars-p session) (not (session-scrollbars-p session)))))
+  (setf (watcher-scrollbars-p *client*) (not (watcher-scrollbars-p *client*))))
 
 (defcommand (reload-init :group asking) ()
   "have the server read the init file again"
-  (load-user-init)
+  (on-server (here-server) #'load-user-init)
   (destructuring-bind (text face) (init-load-note)
     (show-note *client* "atty" text :face face))
   (dolist (w (all-watchers (here-server))) (draw-again w)))

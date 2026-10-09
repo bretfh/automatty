@@ -269,18 +269,14 @@ unless it says not."
                                                            (mux:make-split (first it) (mapcar #'build (rest it)))
                                                            (gethash it panes))))
                                               (build tree))))
-                                (mux::%make-window :label label :layout layout
-                                                   :focus (first (mux:layout-panes layout)))))
+                                (mux::%make-window :label label :layout layout)))
                (loop :for n :in (sort (remove-duplicates (mapcar (lambda (r) (or (getf r :window) 1)) mine)) #'<)
                      :collect (let* ((in (sort (remove n mine :key (lambda (r) (or (getf r :window) 1)) :test-not #'eql)
                                                #'< :key (lambda (r) (or (getf r :at) 0))))
                                      (ps (mapcar (lambda (r) (gethash (getf r :id) panes)) in))
                                      (layout (if (rest ps) (mux:make-split :across ps) (first ps))))
-                                (mux::%make-window :label (getf (first in) :window-name) :layout layout
-                                                   :focus (first ps))))))
-         (session (mux::%make-session :name name :rows 30 :cols 150 :windows windows
-                                      :window (first windows) :server server
-                                      :bar-p t :screen (tty:make-screen :width 150 :height 30))))
+                                (mux::%make-window :label (getf (first in) :window-name) :layout layout)))))
+         (session (mux::%make-session :name name :windows windows :server server)))
     (setf (mux::server-sessions server) (append (mux::server-sessions server) (list session)))
     session))
 
@@ -304,7 +300,8 @@ ENCODE-CLIENT says one: the first is the one the tests act as. Answers it."
     (first
      (loop :for (id tty wrows wcols session window since typed)
              :in (or clients '((7 "/dev/ttys042" 30 150 "todo" 1 1000 nil)))
-           :collect (let ((w (mux::%make-watcher :id id :tty tty :rows wrows :cols wcols
+           :collect (let ((w (mux::%make-watcher :id id :tty tty
+                                                 :view (mux:make-view :rows wrows :cols wcols)
                                                  :interactive t :wire (buffer-wire)
                                                  :since (- now since)
                                                  :typed-at (if typed (- now typed) 0)))
@@ -312,7 +309,7 @@ ENCODE-CLIENT says one: the first is the one the tests act as. Answers it."
                       (when it
                         (setf (mux::watcher-session w) it)
                         (setf (mux::session-watchers it) (append (mux::session-watchers it) (list w)))
-                        (when window (mux::session-select-window it window)))
+                        (when window (mux:watcher-select-window w window)))
                       w)))))
 
 (defmacro with-world ((watcher server rows &key layouts clients) &body body)
@@ -365,9 +362,9 @@ built from ROWS, with ROWS what the overlays are told of its panes."
 
 (defun board-screen (watcher b &key (cols 150) (rows 30))
   "B drawn for WATCHER on a screen COLS by ROWS, as one string."
-  (let ((screen (tty:make-screen :width cols :height rows))
-        (session (mux::watcher-session watcher)))
-    (setf (mux::session-rows session) rows (mux::session-cols session) cols)
+  (let ((screen (tty:make-screen :width cols :height rows)))
+    (setf (mux::view-rows (mux:watcher-view watcher)) rows
+          (mux::view-cols (mux:watcher-view watcher)) cols)
     (let ((mux:*client* watcher)) (mux:draw-overlay b screen))
     (values (format nil "~{~A~%~}" (loop :for y :below rows :collect (shown screen y))) screen)))
 
@@ -379,14 +376,34 @@ built from ROWS, with ROWS what the overlays are told of its panes."
 (defun dumped (pane)
   (mux::with-term (term pane) (term:term-dump-to-string term)))
 
-(defmacro with-session ((session pane server command &key (rows 15) (cols 30)) &body body)
-  "One session of one pane running COMMAND on a server stepped by hand, laid
-out: the bar on the first row, the pane framed under it between its header and
-footer rows, its scrollbar down the column inside the frame's right."
+(defun on-client (watcher thunk)
+  (let ((done (sb-thread:make-semaphore))
+        (said nil))
+    (mux::on-watcher watcher (lambda ()
+                               (unwind-protect (setf said (multiple-value-list (funcall thunk)))
+                                 (sb-thread:signal-semaphore done))))
+    (sb-thread:wait-on-semaphore done :timeout 10)
+    (values-list said)))
+
+(defun viewer (session &key (rows 15) (cols 30) tty)
+  (let ((w (mux::%make-watcher :interactive t :wire (buffer-wire) :tty tty
+                               :view (mux:make-view :rows rows :cols cols))))
+    (setf (mux::watcher-session w) session
+          (mux::session-watchers session) (append (mux::session-watchers session) (list w)))
+    w))
+
+(defmacro with-session ((session pane server command &key (rows 15) (cols 30) (watcher (gensym "WATCHER")))
+                        &body body)
+  "One session of one pane running COMMAND on a server stepped by hand, and
+WATCHER, a terminal ROWS by COLS looking at it: the bar on the first row, the
+pane framed under it between its header and footer rows, its scrollbar down the
+column inside the frame's right."
   (let ((path (gensym "PATH")))
     `(with-stepped-server (,server ,path)
        (let* ((,session (mux:add-session ,server ,command :name "work" :rows ,rows :cols ,cols))
-              (,pane (mux:session-focus ,session)))
+              (,pane (first (mux:session-panes ,session)))
+              (,watcher (viewer ,session :rows ,rows :cols ,cols)))
+         (declare (ignorable ,watcher))
          ,@body))))
 
 (defun heard-from-wire (wire tag &optional (seconds 5))

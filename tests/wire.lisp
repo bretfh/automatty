@@ -109,9 +109,10 @@
     (is (null (difference there host)) "~A" (difference there host))))
 
 (test what-a-peer-names-is-not-named-in-this-image
-  (let ((form (let ((*read-eval* nil)
-                    (*package* (mux::message-package)))
-                (read-from-string "(:keys a-name-nobody-here-uses nil t)"))))
+  (let ((form (with-wires (sender reader)
+                (let ((*read-eval* nil)
+                      (*package* (mux::message-package reader)))
+                  (read-from-string "(:keys a-name-nobody-here-uses nil t)")))))
     (is (eq :keys (first form)))
     (is (null (find-symbol "A-NAME-NOBODY-HERE-USES" '#:atty))
         "a name off the wire was interned where the program's own names live")
@@ -119,10 +120,36 @@
     (is (eq t (fourth form)) "t off the wire did not read as t")))
 
 (test the-package-a-peer-names-things-in-is-thrown-away-when-it-fills
-  (let ((was (mux::message-package)))
-    (dotimes (i (1+ mux::+max-interned-names+))
-      (intern (format nil "MADE-UP-~D" i) was))
-    (is-true (mux::too-many-names-p was))
-    (let ((mux::*reads* 1023))
-      (is (not (eq was (mux::message-package)))
+  (with-wires (sender wire)
+    (let ((was (mux::message-package wire)))
+      (dotimes (i (1+ mux::+max-interned-names+))
+        (intern (format nil "MADE-UP-~D" i) was))
+      (is-true (mux::too-many-names-p was))
+      (setf (mux::wire-reads wire) 1023)
+      (is (not (eq was (mux::message-package wire)))
           "a package full of made-up names was kept"))))
+
+(test each-wire-reads-in-a-package-of-its-own
+  (with-wires (one two)
+    (is (not (eq (mux::message-package one) (mux::message-package two)))
+        "two wires read what their peers name in one package")
+    (let ((had (mux::message-package one)))
+      (mux:wire-close one)
+      (is (null (package-name had)) "a closed wire's package was kept"))))
+
+(test a-message-that-arrives-with-the-end-is-still-read
+  ;; exactly what one read takes, so the read after it is the end
+  (with-wires (sender reader)
+    (let ((said (make-string (- mux::+read-chunk-size+ 8) :initial-element #\a)))
+      (mux:wire-send sender said)
+      (is-true (mux:wire-flush sender))
+      (mux:wire-close sender)
+      (is-true (mux:wire-receive reader) "what came with the end was thrown away")
+      (is (equal said (mux:wire-read-message reader)))
+      (is (null (mux:wire-receive reader)) "the end after it was not said"))))
+
+(test a-length-that-never-ends-is-refused
+  (with-wires (sender reader)
+    (pty:pty-write-string (mux:wire-fd sender) (make-string 40 :initial-element #\7))
+    (mux:wire-receive reader)
+    (signals error (mux:wire-read-message reader))))

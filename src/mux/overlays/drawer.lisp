@@ -175,9 +175,13 @@ and its log."
                                                                              (let ((w (getf row :window-name))) (and w (plusp (length w)) w))))
                                                                 (format nil "~@[~D ~]~A" (and (getf row :at) (1+ (getf row :at))) name)
                                                                 (list :quiet (format nil "› ~A" (truncate-string (or (getf info :command) "") 24)))))
-                                             (toolbar (keycap "z" "zoom" :runs "zoom pane")
+                                             (toolbar (keycap "z" "zoom" :runs (lambda () (session-zoom-pane (here-server) *client* session id)))
                                                       (keycap "r" "read" :runs (lambda () (read-pane (here-server) *client* session id)))
-                                                      (keycap "n" "name" :runs "rename pane")
+                                                      (keycap "n" "name" :runs (lambda ()
+                                                                                 (let ((pane (find-pane (here-server) session id)))
+                                                                                   (when pane
+                                                                                     (prompt-pane-name *client* session id (pane-label pane)
+                                                                                                       (pane-named pane))))))
                                                       (keycap "x" "close" :runs (list :confirm-close session id)))
                                              (section-head d "what it is" :what))
                                        (when (open-p :what) (identity-section info row))
@@ -233,7 +237,10 @@ its actions."
                                     (watcher-behind watcher) t))
                        (:confirm-close
                         (destructuring-bind (session id) (rest runs)
-                                            (confirm watcher (format nil "close ~A and what runs in it?" (row-path (focused-row watcher)))
+                                            (confirm watcher (format nil "close ~A and what runs in it?"
+                                                             (let ((row (find (cons session id) (pane-rows-of watcher)
+                                                                              :key #'row-key :test #'equal)))
+                                                               (if row (row-path row) (format nil "~A:~D" session id))))
                                                      :yes (lambda (w) (close-pane-named (watcher-server w) session id)))))
                        (t (handle-button d runs watcher))))
                t)))

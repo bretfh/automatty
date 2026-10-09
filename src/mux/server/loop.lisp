@@ -6,18 +6,20 @@
   "End a SESSION. Whoever was watching it goes to another session when there
 is one, the way a terminal left open on a closed tab shows the next; only when
 it was the last are they told WHY and let go."
-  (sb-ext:atomic-update (server-sessions server) (lambda (all) (remove session all)))
-  (dolist (watcher (copy-list (session-watchers session)))
-    (let ((next (first (server-sessions server))))
-      (if next
-          (join-session server watcher next)
-        (drop-watcher server watcher why))))
-  (mapc #'pane-close (session-panes session))
-  (dolist (w (session-windows session))
-    (change-window session w (lambda (w) (setf (window-layout w) nil (window-focus w) nil))))
-  (unless (server-sessions server)
-    (setf (server-running server) nil))
-  server)
+  (on-server server
+             (lambda ()
+               (sb-ext:atomic-update (server-sessions server) (lambda (all) (remove session all)))
+               (dolist (watcher (copy-list (session-watchers session)))
+                 (let ((next (first (server-sessions server))))
+                   (if next
+                       (join-session server watcher next)
+                       (drop-watcher server watcher why))))
+               (mapc #'pane-close (session-panes session))
+               (dolist (w (session-windows session))
+                 (change-window session w (lambda (w) (setf (window-layout w) nil))))
+               (unless (server-sessions server)
+                 (setf (server-running server) nil))
+               server)))
 
 (declaim (ftype (function (pane integer) t) look-at-agent))
 (defun look-at-agent (pane ms)
@@ -97,8 +99,8 @@ it has typed since, so what it typed is seen as soon as it is echoed."
 
 (defun pane-urgent-p (session pane now)
   (or (< (- now (pane-typed-at pane)) +typed-lately+)
-      (and (some #'watcher-interactive (session-watchers session))
-           (member pane (layout-panes (session-layout session))))))
+      (some (lambda (w) (and (watcher-interactive w) (assoc pane (watcher-fits w))))
+            (session-watchers session))))
 
 (declaim (ftype (function (server list integer integer) integer) wake-in))
 (defun wake-in (server sessions now gap)
@@ -158,7 +160,8 @@ sooner. Answers the poll set, where the socket is in it, and how many came back.
           (end-session server session :done)))))
 
 (defun server-step (server &key (interval *interval*) most)
-  (setf (server-interval server) interval)
+  (setf (server-interval server) interval
+        (server-thread server) sb-thread:*current-thread*)
   (let ((sessions (server-sessions server)))
     (multiple-value-bind (w listening ready) (poll-descriptors server sessions interval most)
       (when (plusp ready) (stir server))
@@ -185,9 +188,8 @@ sooner. Answers the poll set, where the socket is in it, and how many came back.
             (decf total (- (funcall kept pane) share))
             (on-pane pane (lambda ()
                             (when (term:term-trim-scrollback (pane-term pane) share)
-                              (setf (pane-kept pane) (term:term-scrollback-size (pane-term pane))
-                                    (pane-scrolled pane) (min (pane-scrolled pane) (pane-history pane)))
-                              (when (pane-thread pane) (pane-show pane))))
+                              (setf (pane-kept pane) (term:term-scrollback-size (pane-term pane)))
+                              (pane-show pane)))
                      :wait nil)))))
     total))
 

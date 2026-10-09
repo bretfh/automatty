@@ -25,7 +25,7 @@
                                                             :options ((1 "Yes") (2 "No"))))))
     (let ((q (mux::%make-queue))
           (screen (tty:make-screen :width 100 :height 20)))
-      (setf (mux::session-rows (mux::watcher-session client)) 20)
+      (setf (mux::view-rows (mux:watcher-view client)) 20)
       (let ((mux:*client* client))
         (mux:draw-overlay q screen))
       (let ((all (format nil "~{~A~%~}" (loop :for y :below 20 :collect (shown screen y)))))

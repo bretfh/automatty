@@ -15,8 +15,9 @@
 
 (defun command-name-of (does)
   "The name DOES is registered under, or nil for a function that is no command."
-  (loop :for name :being :the :hash-keys :of *commands* :using (hash-value fn)
-        :when (eq fn does) :return name))
+  (sb-ext:with-locked-hash-table (*commands*)
+    (loop :for name :being :the :hash-keys :of *commands* :using (hash-value fn)
+          :when (eq fn does) :return name)))
 
 (defun mode-keys-rows (mode)
   "Every key in force in MODE that runs a command, as (name key group)."

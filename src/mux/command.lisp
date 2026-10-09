@@ -11,18 +11,18 @@
   "The attached terminal a command is running for, the way a command in an
 editor reads which buffer it is in.")
 
-(defvar *commands* (make-hash-table :test 'equal)
+(defvar *commands* (make-hash-table :test 'equal :synchronized t)
   "Every command, by the name it is asked for by.")
 
-(defvar *unlisted* (make-hash-table :test 'equal)
+(defvar *unlisted* (make-hash-table :test 'equal :synchronized t)
   "Commands that are not offered when asking for one by name: the ones that only
 mean anything while something is up that the asking would have closed.")
 
-(defvar *command-docs* (make-hash-table :test 'equal)
+(defvar *command-docs* (make-hash-table :test 'equal :synchronized t)
   "One line on each command, by name: what the prompt that offers them shows
 beside each.")
 
-(defvar *command-groups* (make-hash-table :test 'equal)
+(defvar *command-groups* (make-hash-table :test 'equal :synchronized t)
   "What each command acts on, by name: panes, windows, sessions, agents,
 reading or asking. The keys help groups by it.")
 
@@ -62,8 +62,9 @@ BODY is one line on what it does, shown beside it when it is offered."
 (defun command-names (&optional (offered t))
   "What the commands are called. OFFERED leaves out the ones that cannot be run
 from a prompt, which is where being asked for a command happens."
-  (sort (loop :for name :being :the :hash-keys :of *commands*
-              :unless (and offered (gethash name *unlisted*)) :collect name)
+  (sort (sb-ext:with-locked-hash-table (*commands*)
+          (loop :for name :being :the :hash-keys :of *commands*
+                :unless (and offered (gethash name *unlisted*)) :collect name))
         #'string<))
 
 (define-condition quit () ())
@@ -85,7 +86,7 @@ the server down."
             (*client* client))
         (when does (apply #'call-guarded does name arguments)))))
 
-(setf atty/mode:*run* (lambda (does) (call-guarded does (or (atty/mode:pending) "that key"))))
+(setf atty/mode:*run* (lambda (does chord) (call-guarded does chord)))
 
 (setf atty/mode:*named* (lambda (name)
                           (if (gethash name *commands*)

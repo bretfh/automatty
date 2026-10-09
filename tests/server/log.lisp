@@ -8,7 +8,7 @@
 (test keys-typed-at-a-pane-are-counted-by-who-typed-them-and-not-kept
   (with-stepped-server (server path)
     (let* ((session (mux:add-session server "cat" :name "work" :rows 6 :cols 20))
-           (pane (mux:session-focus session))
+           (pane (first (mux:session-panes session)))
            (wire (wire-to path)))
       (say-to wire (list :who "/dev/ttys042") (list :want "work") (list :attach 6 20 t))
       (is-true (step-until server (lambda () (mux:session-watchers session))))
@@ -53,7 +53,7 @@
 (test what-happens-in-a-pane-is-an-event-the-server-lists-newest-first
   (with-stepped-server (server path)
     (let* ((session (mux:add-session server "cat" :name "work" :rows 6 :cols 20))
-           (pane (mux:session-focus session))
+           (pane (first (mux:session-panes session)))
            (wire (wire-to path)))
       (say-to wire (list :who "/dev/ttys042") (list :want "work") (list :attach 6 20 t))
       (is-true (step-until server (lambda () (mux:session-watchers session))))
@@ -144,7 +144,7 @@
 (test a-prompt-says-which-pane-sent-it-and-a-refused-one-says-so
   (with-stepped-server (server path)
     (let* ((session (mux:add-session server "cat" :name "work" :rows 6 :cols 20))
-           (pane (mux:session-focus session))
+           (pane (first (mux:session-panes session)))
            (id (mux:pane-id pane))
            (wire (wire-to path)))
       (say-to wire (list :agent-prompt "work" id "run the suite" "todo:4"))
@@ -174,7 +174,7 @@
 (test a-pane-is-named-by-whoever-asks-and-named-nothing-by-an-empty-name
   (with-stepped-server (server path)
     (let* ((session (mux:add-session server "cat" :name "work" :rows 6 :cols 20))
-           (pane (mux:session-focus session))
+           (pane (first (mux:session-panes session)))
            (wire (wire-to path)))
       (run-by-name server wire "agent name" '("work:1.1" "  impl "))
       (is (equal "impl" (mux::pane-label pane)))
@@ -188,7 +188,7 @@
 (test naming-the-focused-pane-asks-on-the-line-at-the-foot
   (with-stepped-server (server path)
     (let* ((session (mux:add-session server "cat" :name "work" :rows 6 :cols 20))
-           (pane (mux:session-focus session))
+           (pane (first (mux:session-panes session)))
            (wire (wire-to path)))
       (setf (mux::pane-label pane) "arch")
       (say-to wire (list :want "work") (list :attach 6 20 t))

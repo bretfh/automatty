@@ -2,9 +2,8 @@
 
 (in-package #:atty)
 
-;;; The bar is what the session looks like rather than what any one person is
-;;; doing, so the server composes it and it crosses the wire as cells like
-;;; everything else. Everyone attached sees the same one.
+;;; The server composes the bar for each terminal from what that terminal
+;;; shows, and it crosses the wire as cells like everything else.
 
 (defun pane-display-name (pane)
   "What to call PANE: the name somebody gave it, else the title its program
@@ -68,7 +67,7 @@ of them is a known agent."
                                    :key (lambda (p) (position (agent:agent-state (pane-agent p))
                                                               +state-severity+)))))))))
 
-(defun window-chip (session window &key narrow)
+(defun window-chip (session view window &key narrow)
   "A window on the bar, in a slot: its number on the colour of the pane in it
 that most wants somebody, its name, and that pane's glyph; a count when any is
 asking. The one shown is a pill on the ground of the panes. A click shows it."
@@ -76,7 +75,7 @@ asking. The one shown is a pill on the ground of the panes. A click shows it."
          (panes (window-panes window))
          (asking (count :blocked panes :key (lambda (p) (agent:agent-state (pane-agent p)))))
          (worst (window-worst window))
-         (shown (same-window-p window (session-window session)))
+         (shown (same-window-p window (view-shown-window session view)))
          ;; an unnamed window goes by its first pane, which does not change
          ;; as the focus moves about in it, and by what somebody called it or
          ;; what it runs, never the title its program set
@@ -89,7 +88,7 @@ asking. The one shown is a pill on the ground of the panes. A click shows it."
          (glyph (if (plusp asking) 4 2))
          (number (atty/ui:label (format nil " ~D " n)
                                 :face (if worst (number-face worst) :number-unknown)))
-         (runs (lambda () (session-select-window session n)))
+         (runs (lambda () (setf (watcher-window *client*) window)))
          (chip (atty/ui:row :spacing 0
                             number
                             (if narrow
@@ -105,19 +104,19 @@ asking. The one shown is a pill on the ground of the panes. A click shows it."
                          (pill chip :ground :bg)
                          (atty/ui:row :spacing 0 (atty/ui:label " ") chip (atty/ui:label " "))))))
 
-(defun plus-chip (session)
+(defun plus-chip ()
   "The way to another window, by mouse."
-  (bar-button (lambda () (session-add-window session))
-              (atty/ui:label " + " :face :quiet)))
+  (bar-button "new window" (atty/ui:label " + " :face :quiet)))
 
-(defun mode-slot (session)
-  "Zoomed, or somebody reading back, or nothing, in one slot: a click on
-reading back, from whoever is, is back to live."
-  (let ((zoomed (session-zoomed session)))
+(defun mode-slot (session view)
+  "Zoomed, or reading back, or nothing, in one slot: a click on reading back
+is back to live."
+  (let ((zoomed (view-zoomed-in session view))
+        (focus (view-focus-in session view)))
     (cond
       (zoomed
        (pill (slot (format nil " ⤢ ~A zoomed" (pane-display-name zoomed)) (- +mode-width+ 2) :face :strong)))
-      ((session-readers session)
+      ((and focus (plusp (view-back view focus)))
        (bar-button "exit scroll mode"
                    (pill (slot " reading back" (- +mode-width+ 2) :face :chip-scrolled) :ground :yellow)))
       (t (slot "" +mode-width+)))))
@@ -169,9 +168,9 @@ NARROW keeps three letters of each name."
        (list (bar-button "switch session"
                          (slot (format nil " +~D" rest) (if narrow 3 5) :face :quiet)))))))
 
-(declaim (ftype (function (session) boolean) rail-shown-p))
-(defun rail-shown-p (session)
-  (and (session-rail-p session) (>= (session-cols session) +narrow-bar+)))
+(declaim (ftype (function (view) boolean) rail-shown-p))
+(defun rail-shown-p (view)
+  (and (view-rail-p view) (>= (view-cols view) +narrow-bar+)))
 
 (defun session-state (session)
   (let ((worst (worst-pane session)))
@@ -207,11 +206,11 @@ NARROW keeps three letters of each name."
                                                      (slot (if (> asking 1) (princ-to-string asking) "") 2
                                                            :face :state-blocked-strong))))))))
 
-(defun session-rail (session)
+(defun session-rail (session view)
   (let* ((server (session-server session))
          (all (if server (server-sessions server) (list session)))
          (terminals (remove-if-not #'watcher-interactive (session-watchers session)))
-         (room (max 1 (- (session-rows session) (if (session-bar-p session) 1 0) 4
+         (room (max 1 (- (view-rows view) (if (view-bar-p view) 1 0) 4
                          (if (rest terminals) (1+ (length terminals)) 0))))
          (at (or (position session all) 0))
          (from (max 0 (min (- (length all) room) (- at (floor room 2)))))
@@ -244,8 +243,8 @@ NARROW keeps three letters of each name."
                :unless (eql other prefix)
                  :collect (hint (string other) name :runs opens))))
 
-(defun session-field (session)
-  (let* ((kind (nth (mod (session-field-kind session) (length +palette-kinds+)) +palette-kinds+)))
+(defun session-field (view)
+  (let* ((kind (nth (mod (view-field-kind view) (length +palette-kinds+)) +palette-kinds+)))
     (destructuring-bind (prefix name runs placeholder) kind
       (declare (ignore name))
       (well (list (atty/ui:row :spacing 0
@@ -261,7 +260,7 @@ NARROW keeps three letters of each name."
                                            :expand 1)
                                (kind-hints prefix)))))))
 
-(defun default-bar (session)
+(defun default-bar (session view)
   "What the bar shows, left to right, each in a slot that keeps its place: the
 corner, which opens the menu; this session's windows and a way to another;
 zoomed or reading back; what needs you anywhere; the other sessions; the time.
@@ -273,21 +272,21 @@ leave the windows their least room it is folded up in steps, never the names
 of the sessions: wide has every slot; tight folds what needs you to its count
 and names two sessions; narrow drops the mode slot, names three letters of
 each session and numbers the windows. Rebind *BAR* to a function of the
-session answering another tree, and it is another bar."
+session and the view answering another tree, and it is another bar."
   (let* ((server (session-server session))
-         (cols (session-cols session))
-         (fit (bar-fit session cols))
+         (cols (view-cols view))
+         (fit (bar-fit session view cols))
          (narrow (eq fit :narrow))
          (tight (not (eq fit :wide)))
          (chip (+ 2 (if narrow +narrow-chip-width+ +chip-width+)))
-         (rail (rail-shown-p session))
+         (rail (rail-shown-p view))
          (lead (if rail +rail-width+ 4))
-         (room (max 0 (- cols (bar-right-width session fit) 3)))
+         (room (max 0 (- cols (bar-right-width session view fit) 3)))
          ;; the windows have what the right leaves, less the plus, and are
          ;; cut there; the plus follows them wherever they end. The one
          ;; shown is never what is cut: those before it go first
          (windows (let* ((all (session-windows session))
-                         (at (or (position (session-window session) all) 0))
+                         (at (or (position (view-shown-window session view) all) 0))
                          (fits (max 1 (floor (- room lead 2) chip))))
                     (nthcdr (max 0 (- (1+ at) fits)) all)))
          (natural (+ lead 2 (* (length windows) chip))))
@@ -302,11 +301,11 @@ session answering another tree, and it is another bar."
                                            (slot (format nil " ~A" (if server (file-namestring (server-path server)) ""))
                                                  (- +rail-width+ 3) :face :quiet)
                                            (atty/ui:label " ")))
-                                 (mapcar (lambda (w) (window-chip session w :narrow narrow)) windows)))
+                                 (mapcar (lambda (w) (window-chip session view w :narrow narrow)) windows)))
                          (min natural room) 1)
-                  (plus-chip session)
+                  (plus-chip)
                   (atty/ui:gap))
-            (unless narrow (list (mode-slot session)))
+            (unless narrow (list (mode-slot session view)))
             (unless rail
               (other-sessions-folded session :narrow narrow
                                             :most (ecase fit (:wide +sessions-shown+) (:tight 2) (:narrow 2))))
@@ -316,11 +315,11 @@ session answering another tree, and it is another bar."
                   (atty/ui:label (format-current-time))
                   (atty/ui:label " "))))))
 
-(defun bar-right-width (session fit)
+(defun bar-right-width (session view fit)
   "How many columns the right of the bar takes at FIT: what is pinned to the
 right edge, everything but the session's windows."
   (let* ((server (session-server session))
-         (others (if (rail-shown-p session)
+         (others (if (rail-shown-p view)
                      0
                      (length (and server (remove session (server-sessions server))))))
          (clock 10))
@@ -332,19 +331,19 @@ right edge, everything but the session's windows."
         (:tight (+ +mode-width+ 7 (sessions 2 +session-width+ 5) clock))
         (:narrow (+ 7 (sessions 2 +session-narrow-width+ 3) clock))))))
 
-(defun bar-fit (session cols)
+(defun bar-fit (session view cols)
   "How the bar is folded at COLS: :wide when the whole right leaves the
 windows their least room, :tight when its narrow forms do, else :narrow."
   (cond ((< cols +narrow-bar+) :narrow)
-        ((>= (- cols (bar-right-width session :wide)) +bar-left-min+) :wide)
-        ((>= (- cols (bar-right-width session :tight)) +bar-left-min+) :tight)
+        ((>= (- cols (bar-right-width session view :wide)) +bar-left-min+) :wide)
+        ((>= (- cols (bar-right-width session view :tight)) +bar-left-min+) :tight)
         (t :narrow)))
 (defvar *bar* #'default-bar)
 
-(declaim (ftype (function (session) t) session-bar))
-(defun session-bar (session)
+(declaim (ftype (function (session view) t) session-bar))
+(defun session-bar (session view)
   "The bar for SESSION, or nothing when it is turned off. It is the first child
 of the column the panes are in, so how many rows it takes is whatever it
 measures to rather than a number somebody has to keep in step."
-  (when (and (session-bar-p session) *bar*)
-    (funcall *bar* session)))
+  (when (and (view-bar-p view) *bar*)
+    (funcall *bar* session view)))

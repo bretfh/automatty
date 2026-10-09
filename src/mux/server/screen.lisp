@@ -2,39 +2,6 @@
 
 (in-package #:atty)
 
-(defun session-reset-shadows (session)
-  "The session is a different size. Nobody watching knows what is on their own
-screen any more, so every shadow goes and everybody is told the new size."
-  (let ((rows (session-rows session))
-        (cols (session-cols session)))
-    (dolist (w (session-watchers session))
-      (on-watcher w (let ((w w))
-                      (lambda ()
-                        (setf (watcher-shadow w) (tty:make-screen :width cols :height rows)
-                              (watcher-told w) nil)
-                        (draw-again w)
-                        (when (watcher-interactive w)
-                          (ignore-errors (send-hello w session)))))))))
-
-(defun session-fit (session)
-  "As big as the smallest watcher can show, so nobody is shown a screen with a
-piece missing. What each pane gets out of that is the layout pass's business,
-not this one's."
-  (let ((rows (session-rows session))
-        (cols (session-cols session))
-        (here (remove-if-not #'watcher-interactive (session-watchers session))))
-    (when here
-      (setf rows (reduce #'min here :key #'watcher-rows)
-            cols (reduce #'min here :key #'watcher-cols)))
-    (setf rows (max 1 (min rows +max-pane-size+))
-          cols (max 1 (min cols +max-pane-size+)))
-    (unless (and (= rows (session-rows session))
-                 (= cols (session-cols session)))
-      (setf (session-rows session) rows
-            (session-cols session) cols)
-      (session-reset-shadows session)
-      t)))
-
 (declaim (ftype (function (integer) (integer 1)) duration-turns))
 (defun duration-turns (elapsed)
   (let ((unit (cond ((< elapsed 60000) 1000)
@@ -85,43 +52,70 @@ passed under an overlay. Answers whether it did."
             (watcher-behind watcher) t)
       t)))
 
-(defun session-tree (session)
+(defun session-tree (session view &key (layout (window-layout (view-shown-window session view)))
+                                        (focus (view-focus-in session view))
+                                        (zoomed (view-zoomed-in session view)))
   "What the session looks like: the bar, the rail of sessions and the panes
 under it."
-  (let ((panes (layout-tree (session-layout session) (session-focus session)
-                            session (session-zoomed session))))
-    (if (rail-shown-p session)
+  (let ((panes (layout-tree layout focus session view zoomed)))
+    (if (rail-shown-p view)
         (atty/ui:column
          :align :stretch
-         (session-bar session)
+         (session-bar session view)
          (atty/ui:row :align :stretch :spacing 0 :expand 1
-                      (session-rail session)
-                      (atty/ui:column :align :stretch :expand 1 panes (session-field session))))
+                      (session-rail session view)
+                      (atty/ui:column :align :stretch :expand 1 panes (session-field view))))
         (atty/ui:column
          :align :stretch
-         (session-bar session)
+         (session-bar session view)
          panes
          (atty/ui:row :align :stretch :spacing 0 :background-color (bar-face :ground)
                       (atty/ui:label (make-string +mode-chip-width+ :initial-element #\Space))
-                      (atty/ui:column :align :stretch :expand 1 (session-field session)))))))
+                      (atty/ui:column :align :stretch :expand 1 (session-field view)))))))
 
-(defun fit-panes (tree)
-  "Give each pane the room the layout gave its view."
-  (dolist (v (views-in tree))
-    (let ((pane (view-pane v))
-          (rows (max 1 (atty/ui:height v)))
-          (cols (max 1 (atty/ui:width v))))
-      (unless (and (= rows (pane-height pane))
-                   (= cols (pane-width pane)))
-        (pane-resize pane rows cols)))))
+(defun lay-tree (tree screen)
+  (let* ((cols (tty:screen-width screen))
+         (rows (tty:screen-height screen))
+         (m (atty/cells:make-cells (tty:screen-grid screen) cols rows)))
+    (atty/ui:restyle tree)
+    (atty/ui:measure tree m cols rows)
+    (atty/ui:lay tree m 0 0 cols rows)
+    m))
 
-(defun place-cursor (session screen tree)
+(defun laid-size (session view pane &optional (layout pane))
+  (let ((tree (session-tree session view :layout layout :focus pane :zoomed nil)))
+    (atty/ui:with-pass
+      (lay-tree tree (tty:make-screen :width (view-cols view) :height (view-rows view))))
+    (let ((it (view-of tree pane)))
+      (if it
+          (values (max 1 (atty/ui:height it)) (max 1 (atty/ui:width it)))
+          (values (view-rows view) (view-cols view))))))
+
+(defun fit-panes (watcher tree)
+  (let* ((session (watcher-session watcher))
+         (fits (mapcar (lambda (v) (list (view-pane v) (max 1 (atty/ui:height v)) (max 1 (atty/ui:width v))))
+                       (views-in tree)))
+         (others (remove watcher (session-watchers session))))
+    (unless (equal fits (watcher-fits watcher))
+      (setf (watcher-fits watcher) fits)
+      (dolist (it fits) (pane-poke (first it)))
+      (dolist (w others) (when (watcher-interactive w) (draw-again w))))
+    (loop :for (pane rows cols) :in fits
+          :do (dolist (w others)
+                (let ((there (and (watcher-interactive w) (assoc pane (watcher-fits w)))))
+                  (when there
+                    (setf rows (min rows (second there))
+                          cols (min cols (third there))))))
+              (unless (and (= rows (pane-height pane)) (= cols (pane-width pane)))
+                (pane-resize pane rows cols)))))
+
+(defun place-cursor (watcher screen tree)
   "The cursor sits where the pane it belongs to says, moved to where that pane
 was put."
-  (let* ((v (view-of tree (session-focus session))))
+  (let* ((focus (watcher-focus watcher))
+         (v (view-of tree focus)))
     (multiple-value-bind (x y visible style)
-        (let* ((focus (session-focus session))
-               (shown (pane-shown-now focus)))
+        (let ((shown (pane-shown-now focus)))
           (if shown
               (let ((it (shown-screen shown)))
                 (values (tty:screen-cursor-x it) (tty:screen-cursor-y it)
@@ -137,64 +131,66 @@ was put."
                  (1- (tty:screen-height screen)))
             ;; a pane being read back is not showing the line the cursor is on
             (tty:screen-cursor-visible screen)
-            (and (zerop (pane-scrolled (session-focus session))) visible)
+            (and (zerop (watcher-back watcher focus)) visible)
             (tty:screen-cursor-style screen) style))))
 
-(declaim (ftype (function (session &optional (or null watcher)) tty:screen) session-compose))
-(defun session-compose (session &optional watcher)
-  "Measure the session, lay it out, give each pane what it was given, and paint
-it. One pass: the panes are resized between the laying and the painting, so what
-is drawn is what they have just been told they are."
-  (let* ((cols (session-cols session))
-         (rows (session-rows session))
-         (screen (let ((had (and watcher (watcher-session-screen watcher))))
+(defun forget-gone-looks (watcher session)
+  (let* ((view (watcher-view watcher))
+         (panes (session-panes session)))
+    (setf (view-looks view)
+          (remove-if-not (lambda (it) (member (car it) panes)) (view-looks view)))))
+
+(declaim (ftype (function (session watcher) tty:screen) session-compose))
+(defun session-compose (session watcher)
+  "Measure what WATCHER sees of the session, lay it out, give each pane what it
+was given, and paint it. One pass: the panes are resized between the laying and
+the painting, so what is drawn is what they have just been told they are."
+  (let* ((cols (watcher-cols watcher))
+         (rows (watcher-rows watcher))
+         (screen (let ((had (watcher-session-screen watcher)))
                    (if (and had (= cols (tty:screen-width had)) (= rows (tty:screen-height had)))
                        had
                        (tty:make-screen :width cols :height rows))))
-         (tree (let ((*scrollbars* (session-scrollbars-p session)))
-                 (session-tree session)))
-         (m (atty/cells:make-cells (tty:screen-grid screen) cols rows)))
+         (tree (progn (forget-gone-looks watcher session)
+                      (session-tree session (watcher-view watcher)))))
     (atty/ui:with-pass
-      (atty/ui:restyle tree)
-      (atty/ui:measure tree m cols rows)
-      (atty/ui:lay tree m 0 0 cols rows)
-      (fit-panes tree)
-      (atty/ui:paint tree m))
-    (place-cursor session screen tree)
-    (if watcher
-        (setf (watcher-session-screen watcher) screen
-              (watcher-geometry watcher) tree
-              (watcher-composed-at watcher) (now-ms))
-        (setf (session-screen session) screen
-              (session-geometry session) tree))
+      (let ((m (lay-tree tree screen)))
+        (fit-panes watcher tree)
+        (atty/ui:paint tree m)))
+    (place-cursor watcher screen tree)
+    (setf (watcher-session-screen watcher) screen
+          (watcher-geometry watcher) tree
+          (watcher-composed-at watcher) (now-ms))
     screen))
 
-(declaim (ftype (function (session integer) boolean) session-plain-p))
-(defun session-plain-p (session since)
-  "Whether nothing drawn around the panes shown depends on what is in them:
-none is read back, searched or selected in, none was titled or scrolled since
-SINCE, and none is an agent, whose frame reads its screen."
-  (every (lambda (pane)
-           (and (zerop (pane-scrolled pane))
-                (null (pane-find pane))
-                (null (pane-selecting pane))
-                (< (pane-titled-at pane) since)
-                (< (pane-scrolled-at pane) since)
-                (not (pane-known-p pane))))
-         (window-panes (session-window session))))
+(declaim (ftype (function (watcher integer) boolean) session-plain-p))
+(defun session-plain-p (watcher since)
+  "Whether nothing drawn around the panes WATCHER shows depends on what is in
+them: none is read back, searched or selected in, none was titled since SINCE,
+and none is an agent, whose frame reads its screen."
+  (let ((window (watcher-window watcher))
+        (view (watcher-view watcher)))
+    (and window
+         (every (lambda (pane)
+                  (let ((look (cdr (assoc pane (view-looks view)))))
+                    (and (zerop (view-back view pane))
+                         (not (and look (or (look-find look) (look-selecting look))))
+                         (< (pane-titled-at pane) since)
+                         (not (pane-known-p pane)))))
+                (window-panes window)))))
 
-(declaim (ftype (function (session watcher) (or null tty:screen)) session-repaint))
-(defun session-repaint (session watcher)
+(declaim (ftype (function (watcher) (or null tty:screen)) session-repaint))
+(defun session-repaint (watcher)
   "Paint the panes again where the last compose put them, when they are all
 that changed. Answers the screen, or nil when it takes a compose."
   (let* ((tree (watcher-geometry watcher))
          (screen (watcher-session-screen watcher))
-         (cols (session-cols session))
-         (rows (session-rows session)))
+         (cols (watcher-cols watcher))
+         (rows (watcher-rows watcher)))
     (when (and tree screen
                (= cols (tty:screen-width screen) (atty/ui:width tree))
                (= rows (tty:screen-height screen) (atty/ui:height tree))
-               (session-plain-p session (watcher-composed-at watcher)))
+               (session-plain-p watcher (watcher-composed-at watcher)))
       (let ((m (atty/cells:make-cells (tty:screen-grid screen) cols rows)))
         (atty/ui:with-pass
           (labels ((walk (w)
@@ -204,11 +200,11 @@ that changed. Answers the screen, or nil when it takes a compose."
                        (pane-position (atty/ui:paint w m))
                        (t (dolist (part (atty/ui:parts w)) (walk part))))))
             (walk tree))))
-      (place-cursor session screen tree)
+      (place-cursor watcher screen tree)
       screen)))
 
 (defun watcher-frame (session watcher)
-  (let* ((screen (watcher-view session watcher))
+  (let* ((screen (overlaid-screen watcher))
          (runs (tty:screen-diff (watcher-shadow watcher) screen)))
     (when runs
       (multiple-value-bind (said faces) (encode-runs screen runs)

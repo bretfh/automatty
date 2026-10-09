@@ -82,13 +82,16 @@ may know it."
   (let ((path (namestring path)))
     (if (not (probe-file path))
         (values nil :missing)
-        (let ((form (handler-case
-                        (with-open-file (in path :external-format :utf-8)
-                          (with-standard-io-syntax
-                            (let ((*read-eval* nil)
-                                  (*package* (message-package)))
-                              (read in))))
-                      (error () :truncated))))
+        (let ((form (let ((names (names-package)))
+                      (unwind-protect
+                           (handler-case
+                               (with-open-file (in path :external-format :utf-8)
+                                 (with-standard-io-syntax
+                                   (let ((*read-eval* nil)
+                                         (*package* names))
+                                     (read in))))
+                             (error () :truncated))
+                        (delete-package names)))))
           (cond
             ((eq form :truncated) (values nil :truncated))
             ((and (consp form) (eq (first form) tag) (eql (second form) +state-version+))
@@ -266,7 +269,6 @@ screen and its terminal's modes as they were, and nothing started."
       (setf (pane-fd pane) (pty:nonblocking fd)
             (pane-pid pane) pid
             (pane-here pane) here
-            (pane-pushed-seen pane) (term:term-scrollback-pushed term)
             (pane-label pane) label
             (pane-named pane) named
             (pane-programs pane) programs
@@ -487,8 +489,7 @@ it could not be as it was."
                         (pane-cover pane) cover
                         (pane-covered pane) t)))
               (write-rows-to-term term (append (rows-of screen) (rows-of over) (list (rule))))))
-        (setf (pane-pushed-seen pane) (term:term-scrollback-pushed term)
-              (pane-here pane) start
+        (setf (pane-here pane) start
               (pane-typed pane) (and typed (list typed entered))
               (pane-kept-front pane) (and typed (front-of form))
               (pane-label pane) label
@@ -506,25 +507,34 @@ it could not be as it was."
   (let ((pane (make-pane (default-shell) :id id :rows rows :cols cols)))
     (write-rows-to-term (pane-term pane)
                (list (divider-row cols (format nil "restored; what it held is ~A" why))))
-    (setf (pane-pushed-seen pane) (with-term (term pane) (term:term-scrollback-pushed term)))
     pane))
 
 ;;; The tree as data, and back.
 
 (defun encode-window (window)
   (list :label (window-label window)
-        :layout (encode-layout (window-layout window))
-        :focus (and (window-focus window) (pane-id (window-focus window)))
-        :zoomed (and (window-zoomed window) (pane-id (window-zoomed window)))))
+        :layout (encode-layout (window-layout window))))
+
+(defun encode-view (session view)
+  (let ((shown (view-shown-window session view)))
+    (list :window (or (and shown (window-number session shown)) 1)
+          :spots (loop :for w :in (session-windows session)
+                       :for n :from 1
+                       :for spot := (view-spot view w)
+                       :when spot
+                         :collect (list n (and (car spot) (pane-id (car spot)))
+                                        (and (cdr spot) (pane-id (cdr spot)))))
+          :bar (view-bar-p view) :rail (view-rail-p view)
+          :scrollbars (view-scrollbars-p view) :search-kind (view-field-kind view))))
 
 (defun encode-session (session)
-  (list :name (session-name session)
-        :rows (session-rows session) :cols (session-cols session)
-        :bar (session-bar-p session) :rail (session-rail-p session)
-        :scrollbars (session-scrollbars-p session)
-        :search-kind (session-field-kind session)
-        :window (or (window-number session (session-window session)) 1)
-        :windows (mapcar #'encode-window (session-windows session))))
+  (let ((seeds (session-seeds session)))
+    (dolist (w (session-watchers session))
+      (when (watcher-interactive w)
+        (setf seeds (kept-seed (watcher-tty w) (watcher-view w) seeds))))
+    (list :name (session-name session)
+          :windows (mapcar #'encode-window (session-windows session))
+          :views (mapcar (lambda (it) (list* :tty (car it) (encode-view session (cdr it)))) seeds))))
 
 (defun encode-tree (server)
   "The server's sessions, windows and panes as they go to disk: without when,
@@ -547,27 +557,49 @@ that is not there is left out, and a split left with one part is that part."
         (t nil)))
 
 (defun decode-window (form panes)
-  (destructuring-bind (&key label layout focus zoomed &allow-other-keys) form
+  (destructuring-bind (&key label layout &allow-other-keys) form
     (let ((layout (decode-layout layout panes)))
       (when layout
-        (let ((in (layout-panes layout)))
-          (%make-window :label label :layout layout
-                        :focus (or (find focus in :key #'pane-id) (first in))
-                        :zoomed (find zoomed in :key #'pane-id)))))))
+        (%make-window :label label :layout layout)))))
+
+(defun decode-view (form windows)
+  (destructuring-bind (&key window spots (bar t) (rail t) (scrollbars t) search-kind &allow-other-keys) form
+    (let ((view (make-view :bar-p bar :rail-p rail :scrollbars-p scrollbars
+                           :field-kind (or search-kind 0)))
+          (shown (or (and (integerp window) (nth (1- window) windows)) (first windows))))
+      (when shown
+        (setf (view-window view) (window-id shown)
+              (view-at view) (position shown windows)
+              (view-spots view)
+              (loop :for (n focus zoomed) :in spots
+                    :for w := (and (integerp n) (nth (1- n) windows))
+                    :when w
+                      :collect (let ((in (window-panes w)))
+                                 (list* (window-id w) (find focus in :key #'pane-id)
+                                        (find zoomed in :key #'pane-id))))))
+      view)))
 
 (defun decode-session (server form panes)
-  (destructuring-bind (&key name rows cols bar (rail t) scrollbars search-kind window windows
+  (destructuring-bind (&key name windows views bar (rail t) scrollbars search-kind window
                        &allow-other-keys)
       form
-    (let ((made (remove nil (mapcar (lambda (w) (decode-window w panes)) windows))))
-      (when made
-        (%make-session :name name :rows rows :cols cols
-                       :socket (server-path server) :server server
-                       :bar-p bar :rail-p rail :scrollbars-p scrollbars
-                       :field-kind (or search-kind 0)
-                       :windows made
-                       :window (or (and window (nth (1- window) made)) (first made))
-                       :screen (tty:make-screen :width cols :height rows))))))
+    (let* ((pairs (loop :for w :in windows
+                        :for made := (decode-window w panes)
+                        :when made :collect (cons made w)))
+           (kept (mapcar #'car pairs)))
+      (when kept
+        (%make-session :name name :socket (server-path server) :server server
+                       :windows kept
+                       :seeds (if views
+                                  (mapcar (lambda (v) (cons (getf v :tty) (decode-view v kept))) views)
+                                  (list (cons nil (decode-view
+                                                   (list :window window :bar bar :rail rail
+                                                         :scrollbars scrollbars :search-kind search-kind
+                                                         :spots (loop :for (nil . w) :in pairs
+                                                                      :for n :from 1
+                                                                      :collect (list n (getf w :focus)
+                                                                                     (getf w :zoomed))))
+                                                   kept)))))))))
 
 (defun tree-pane-ids (tree)
   "Every pane id the saved TREE names, in the order the layouts name them."

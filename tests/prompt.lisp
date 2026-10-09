@@ -53,7 +53,7 @@
 (test the-prompt-draws-itself-under-the-bar
   (let ((screen (tty:make-screen :width 30 :height 10))
         (p (mux:make-prompt "run" '("detach" "redraw" "rename")))
-        (mux:*client* (mux::%make-watcher :rows 10 :cols 30)))
+        (mux:*client* (mux::%make-watcher :view (mux:make-view :rows 10 :cols 30))))
     (setf (mux:prompt-query p) "re")
     (mux:draw-overlay p screen)
     (let ((rows (loop :for y :below 10
@@ -68,7 +68,7 @@
 (test the-prompt-covers-only-what-it-needs
   (let ((screen (tty:make-screen :width 30 :height 10))
         (p (mux:make-prompt "run" '("one")))
-        (mux:*client* (mux::%make-watcher :rows 10 :cols 30)))
+        (mux:*client* (mux::%make-watcher :view (mux:make-view :rows 10 :cols 30))))
     (dotimes (x 30)
       (setf (term:row-char (tty:screen-row screen 0) x) #\x))
     (mux:draw-overlay p screen)

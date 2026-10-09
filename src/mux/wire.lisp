@@ -23,6 +23,8 @@
   (scratch (make-array +read-chunk-size+ :element-type '(unsigned-byte 8)) :type bytes)
   (owner nil)
   (in-bytes 0 :type fixnum)
+  (names nil)
+  (reads 0 :type fixnum)
   (open t :type boolean))
 
 (defun grow-buffer (vec need)
@@ -45,6 +47,8 @@ descriptor number closed twice, and by the second time it may belong to
 somebody else."
   (when (wire-open wire)
     (setf (wire-open wire) nil)
+    (let ((names (shiftf (wire-names wire) nil)))
+      (when names (ignore-errors (delete-package names))))
     (let ((owner (wire-owner wire)))
       (if owner
           (ignore-errors (sb-bsd-sockets:socket-close owner))
@@ -178,40 +182,42 @@ it all got out."
            (incf (wire-in-bytes wire) n)
            (incf got n)
            (when (< n (length buf)) (return got)))
-          ((eql n 0) (return nil))
+          ((eql n 0) (return (and (plusp got) got)))
           ((eql errno sb-unix:eintr))
           ((or (eql errno sb-unix:eagain) (eql errno sb-unix:ewouldblock))
            (return got))
-          (t (return nil)))))))
-
-(defvar *reading-in* nil)
-(defvar *reads* 0)
+          (t (return (and (plusp got) got))))))))
 
 (defparameter +max-interned-names+ 4096
   "How many names a peer may make up before the package it makes them in is
 thrown away and started again.")
 
+(defvar *names-made* (list 0))
+
 (defun too-many-names-p (package)
   (> (loop :for s :being :the :present-symbols :of package :count s)
      +max-interned-names+))
 
-(defun message-package ()
-  "The package a message is read in.
+(defun names-package ()
+  (make-package (format nil "ATTY/WIRE-~D" (sb-ext:atomic-incf (car *names-made*)))
+                :use '(#:common-lisp)))
+
+(defun message-package (wire)
+  "The package a message off WIRE is read in.
 
 Not the mux: a message names symbols, and reading them where the program's own
 names live lets whoever is on the other end put anything it likes there. A
-package of its own, thrown away and started again once it fills, so a peer
-naming something new every message cannot grow this image without end."
-  (when (or (null *reading-in*)
-            (and (zerop (mod (incf *reads*) 1024))
-                 (too-many-names-p *reading-in*)))
-    (when *reading-in* (ignore-errors (delete-package *reading-in*)))
-    (setf *reading-in*
-          ;; common-lisp so that T and NIL read as themselves; nothing else,
-          ;; so everything a peer makes up is this package's own and goes with
-          ;; it when it is thrown away
-          (make-package (symbol-name (gensym "ATTY/WIRE")) :use '(#:common-lisp))))
-  *reading-in*)
+package of the wire's own, thrown away and started again once it fills, so a
+peer naming something new every message cannot grow this image without end.
+It has common-lisp in it so that T and NIL read as themselves, and nothing
+else, so everything a peer makes up goes with it when it is thrown away."
+  (let ((had (wire-names wire)))
+    (when (or (null had)
+              (and (zerop (mod (incf (wire-reads wire)) 1024))
+                   (too-many-names-p had)))
+      (when had (ignore-errors (delete-package had)))
+      (setf (wire-names wire) (names-package))))
+  (wire-names wire))
 
 (defun wire-read-message (wire)
   "The next whole message, or nil when what has come in is not yet one."
@@ -220,7 +226,10 @@ naming something new every message cannot grow this image without end."
          (at (wire-read wire)))
     (let ((eol (loop for i from at below have
                      when (= (aref in i) 10) return i)))
-      (unless eol (return-from wire-read-message nil))
+      (unless eol
+        (when (> (- have at) 20)
+          (error "a message's length ran on past any length there is"))
+        (return-from wire-read-message nil))
       (let ((size 0))
         (loop for i from at below eol
               for b = (aref in i)
@@ -244,5 +253,5 @@ naming something new every message cannot grow this image without end."
                         (wire-read wire) 0)))
             (with-standard-io-syntax
               (let ((*read-eval* nil)
-                    (*package* (message-package)))
+                    (*package* (message-package wire)))
                 (read-from-string text)))))))))

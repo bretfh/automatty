@@ -153,7 +153,7 @@ follows it when it is drawn."
   (let* ((b (current-board)) (place (and b (board-place b *client*))))
     (when place
       (let ((session (session-named (here-server) (first place))))
-        (when session (session-add-window session))))))
+        (when session (add-window-in session))))))
 
 (defcommand (switchboard-new-session :unlisted) ()
   "another session"
@@ -180,8 +180,9 @@ follows it when it is drawn."
   "name the cursor's window; TAB names its pane instead"
   (let* ((b (current-board)) (place (and b (board-place b *client*))))
     (when place
-      (let ((window (find (second place) (windows-of *client* (first place)) :key #'first)))
-        (prompt-window-name *client* (first place) (second place) (and window (second window)))))))
+      (let* ((session (session-named (here-server) (first place)))
+             (window (and session (session-nth-window session (second place)))))
+        (when window (prompt-window-name *client* session window))))))
 
 (defcommand (switchboard-rename :unlisted) ()
   "name the cursor's session"
@@ -328,7 +329,7 @@ thumb was taken hold of when it was the thumb, else nil."
                  (ecase (first it) (:fold-quiet (switchboard-fold-quiet)) (:live (switchboard-toggle-live)))))
       (:filter (let ((*client* watcher)) (switchboard-filter)))
       (:new-window (let ((session (session-named (watcher-server watcher) (first it))))
-                     (when session (session-add-window session))))
+                     (when session (add-window-in session))))
       (t (handle-button b runs watcher)))))
 
 (defcommand (switchboard-click :unlisted) ()

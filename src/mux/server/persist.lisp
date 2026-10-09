@@ -8,20 +8,19 @@ is missing or unreadable comes back empty, and the server's notes say so."
   (let ((panes (make-hash-table)))
     (dolist (id (tree-pane-ids tree) panes)
       (multiple-value-bind (form status) (read-state-file (pane-file dir id) :atty-pane)
-        (let ((rows (saved-session-size tree id)))
-          (case status
-            (:ok
-             (multiple-value-bind (pane note) (decode-pane form now)
-               (setf (gethash id panes) pane)
-               (when note (push (list note :warning) (server-notes server)))))
-            (t
-             (setf (gethash id panes)
-                   (make-empty-pane id (first rows) (second rows)
-                                    (if (eq status :missing) "not on disk" "unreadable")))
-             (push (list (format nil "pane ~D came back empty: its file ~A" id
-                                 (if (eq status :missing) "was not there" "could not be read"))
-                         :warning)
-                   (server-notes server)))))))))
+        (case status
+          (:ok
+           (multiple-value-bind (pane note) (decode-pane form now)
+             (setf (gethash id panes) pane)
+             (when note (push (list note :warning) (server-notes server)))))
+          (t
+           (setf (gethash id panes)
+                 (make-empty-pane id 24 80
+                                  (if (eq status :missing) "not on disk" "unreadable")))
+           (push (list (format nil "pane ~D came back empty: its file ~A" id
+                               (if (eq status :missing) "was not there" "could not be read"))
+                       :warning)
+                 (server-notes server))))))))
 
 (defun restore-state (server &optional (dir (server-state-dir server)))
   "Bring back what the server called by DIR's name held when it was last
@@ -44,7 +43,6 @@ server's notes for whoever attaches first."
            (setf *panes-made* (max *panes-made* (or (getf (nthcdr 2 tree) :panes-made) 0)
                                   (reduce #'max (tree-pane-ids tree) :initial-value 0)))
            (dolist (session sessions)
-             (session-compose session)
              (dolist (pane (session-panes session))
                (session-start-pane session pane)))
            (sb-ext:atomic-update (server-sessions server) (lambda (all) (append all sessions)))
@@ -55,20 +53,6 @@ server's notes for whoever attaches first."
                (run-hook 'pane-started session pane)))
            (run-hook 'server-restored server sessions)
            sessions))))))
-
-(defun saved-session-size (tree id)
-  "The size of the session the pane ID is in, as (rows cols), for a pane that
-comes back with no file of its own."
-  (dolist (session (getf (nthcdr 2 tree) :sessions) (list 24 80))
-    (dolist (window (getf session :windows))
-      (when (member id (let ((ids nil))
-                         (labels ((walk (said)
-                                    (cond ((integerp said) (push said ids))
-                                          ((consp said) (mapc #'walk (rest said))))))
-                           (walk (getf window :layout)))
-                         ids))
-        (return-from saved-session-size
-          (list (getf session :rows) (getf session :cols)))))))
 
 (defun save-tree (server &optional (dir (server-state-dir server)) force)
   "Write the tree if it is not what was last written, or when FORCE, and drop

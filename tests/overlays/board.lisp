@@ -266,13 +266,13 @@
                 (mux::*mouse-position* (cons (+ 2 (search " 2  notes " (shown screen line))) line)))
             (mux::switchboard-click))
           (is (null (mux:watcher-overlays client)) "a click on the cursor's own row did not go there")
-          (is (eq (world-pane server 11) (mux::session-focus (mux:session-named server "todo")))
+          (is (eq (world-pane server 11) (mux:watcher-focus client))
               "the click did not put the focus on that window's pane")))))))
 
 (test a-prompt-for-a-busy-pane-waits-until-it-is-idle
   (with-stepped-server (server path)
     (let* ((session (mux:add-session server "cat" :name "work" :rows 6 :cols 30))
-           (pane (mux:session-focus session))
+           (pane (first (mux:session-panes session)))
            (agent (mux:pane-agent pane))
            (wire (wire-to path)))
       (settled server pane)

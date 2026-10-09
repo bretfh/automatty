@@ -102,8 +102,7 @@
                              (button-at (asks-of-laid a) (cdr *mouse-position*) (car *mouse-position*)))))
               (cond ((and hit (eq :go (bar-button-runs hit))) (asks-go a *client*))
                     (hit (handle-button a (bar-button-runs hit) *client*))
-                    (a (handle-click (watcher-session *client*) *client*
-                                     (car *mouse-position*) (cdr *mouse-position*))))))
+                    (a (handle-click *client* (car *mouse-position*) (cdr *mouse-position*))))))
 
 (defcommand (asks-ignore :unlisted) () nil)
 

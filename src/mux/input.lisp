@@ -149,18 +149,17 @@ arrived yet is kept until it has."
         (setf (watcher-behind watcher) t)))))
 
 (defun type-into-pane (watcher text)
-  "TEXT typed into the pane with the focus of WATCHER's session."
-  (let* ((session (watcher-session watcher))
-         (pane (and session (session-focus session))))
+  "TEXT typed into the pane with WATCHER's focus."
+  (let ((pane (watcher-focus watcher)))
     (when pane
       (let ((now (now-ms))
             (actor (actor-of watcher)))
         (setf (watcher-typed-at watcher) now
               (watcher-keyed-at watcher) (monotonic-ns))
-        (when (watcher-following watcher) (stop-following (session-server session) watcher))
+        (when (watcher-following watcher) (stop-following (watcher-server watcher) watcher))
+        (scroll-to watcher pane 0)
         (on-pane pane (lambda ()
                         (pane-note-log pane now actor :keys (length text) t)
-                        (pane-scroll-to pane 0)
                         (when (and (pane-running pane) (pane-started pane))
                           (pane-send pane text)))
                  :wait nil)))))

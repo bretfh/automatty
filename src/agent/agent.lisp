@@ -9,7 +9,7 @@
 (defparameter +unrecognized-kept+ 50)
 (defparameter +history-length+ 512)
 
-(defvar *unrecognized-written* 0)
+(defvar *unrecognized-written* (list 0))
 
 (defclass agent ()
   ((reader :initform nil :accessor agent-reader)
@@ -121,17 +121,17 @@
 (defun keep-unrecognized (agent term)
   (let ((hash (sxhash (term:term-dump-to-string term))))
     (unless (or (member hash (agent-kept agent))
-                (>= *unrecognized-written* +unrecognized-kept+))
+                (>= (car *unrecognized-written*) +unrecognized-kept+))
       (push hash (agent-kept agent))
-      (incf *unrecognized-written*)
-      (ignore-errors
-       (let ((path (merge-pathnames (format nil "~A-~A-~36R.sexp" (agent-kind agent)
-                                            (or (agent-version agent) "unknown") hash)
-                                    (unrecognized-dir))))
-         (ensure-directories-exist path)
-         (with-open-file (out path :direction :output :if-exists :supersede
-                                   :external-format :utf-8)
-           (write-snapshot (snapshot term) out)))))))
+      (when (< (sb-ext:atomic-incf (car *unrecognized-written*)) +unrecognized-kept+)
+        (ignore-errors
+         (let ((path (merge-pathnames (format nil "~A-~A-~36R.sexp" (agent-kind agent)
+                                              (or (agent-version agent) "unknown") hash)
+                                      (unrecognized-dir))))
+           (ensure-directories-exist path)
+           (with-open-file (out path :direction :output :if-exists :supersede
+                                     :external-format :utf-8)
+             (write-snapshot (snapshot term) out))))))))
 
 (defun held-by-prompt (agent state now)
   (let ((asked (agent-prompted-at agent)))

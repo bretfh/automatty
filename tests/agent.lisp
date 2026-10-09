@@ -16,7 +16,7 @@
 
 (defmacro with-probe (&body body)
   `(let ((agent:*readers* nil)
-         (agent::*unrecognized-written* agent::+unrecognized-kept+))
+         (agent::*unrecognized-written* (list agent::+unrecognized-kept+)))
      (agent:register-reader +probe+)
      ,@body))
 

@@ -68,10 +68,10 @@ puts it in what has been typed; most things ignore it.")
   "While one frame is drawn or one key is handled, the pane rows worked out
 for it, so they are worked out once.")
 
-(declaim (ftype (function (session watcher) tty:screen) watcher-view))
-(defun watcher-view (session watcher)
-  "SESSION's screen with whatever WATCHER has on top drawn over it."
-  (let* ((screen (or (watcher-session-screen watcher) (session-screen session)))
+(declaim (ftype (function (watcher) tty:screen) overlaid-screen))
+(defun overlaid-screen (watcher)
+  "What WATCHER sees of SESSION with whatever it has on top drawn over it."
+  (let* ((screen (watcher-session-screen watcher))
          (work (let ((had (watcher-screen watcher)))
                  (if (and had (= (tty:screen-width had) (tty:screen-width screen))
                           (= (tty:screen-height had) (tty:screen-height screen)))
@@ -85,7 +85,7 @@ for it, so they are worked out once.")
       (dolist (it (reverse (watcher-overlays watcher)))
         (draw-overlay it work))
       (draw-field watcher work)
-      (draw-rail-cursor session watcher work)
+      (draw-rail-cursor watcher work)
       (if (menu-due-p watcher)
           (draw-menu watcher work)
           (setf (watcher-menu watcher) nil
@@ -93,10 +93,10 @@ for it, so they are worked out once.")
       (draw-mode-chip watcher work))
     work))
 
-(defun draw-rail-cursor (session watcher screen)
+(defun draw-rail-cursor (watcher screen)
   (let* ((top (first (watcher-overlays watcher)))
          (on (and top (overlay-rail-cursor top)))
-         (tree (or (watcher-geometry watcher) (session-geometry session)))
+         (tree (watcher-geometry watcher))
          (row (and on tree
                    (labels ((walk (w)
                               (if (and (typep w 'rail-row) (equal on (rail-row-session w)))
@@ -154,14 +154,16 @@ for it, so they are worked out once.")
                 (tty:screen-cursor-visible screen) t))))))
 
 (defun bar-shown-p (watcher)
-  (let ((session (watcher-session watcher)))
-    (or (null session) (session-bar-p session))))
+  (or (null (watcher-session watcher)) (watcher-bar-p watcher)))
+
+(defgeneric overlay-shows-panes-p (thing)
+  (:method (thing) (declare (ignore thing)) nil))
 
 (declaim (ftype (function (watcher t) t) push-overlay))
 (defun push-overlay (watcher it)
   (push it (watcher-overlays watcher))
   (let ((server (watcher-server watcher)))
-    (when server
+    (when (and server (overlay-shows-panes-p it))
       (dolist (s (server-sessions server))
         (mapc #'pane-poke (session-panes s)))))
   (update-mode watcher)

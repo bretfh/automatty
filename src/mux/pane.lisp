@@ -68,13 +68,8 @@
   (programs-at 0)
   (group-at 0 :type integer)
   (look-at nil :type (or null integer))
-  (scrolled 0 :type fixnum)
-  (find nil)
-  (selecting nil)
-  (pushed-seen 0 :type fixnum)
   (touched 0 :type integer)
   (titled-at 0 :type integer)
-  (scrolled-at 0 :type integer)
   (saved-at 0 :type integer)
   ;; the last twenty minutes: a cell every +pulse-every+ of how much was
   ;; written and the worst state it was in, oldest first
@@ -97,6 +92,7 @@
   (inbox nil)
   (wake nil)
   (stopping nil)
+  (closing nil)
   (ended nil)
   (changed nil)
   (gap 0 :type integer)
@@ -340,11 +336,16 @@ made now takes the next."
 
 (defvar *poke-octet* (make-array 1 :element-type '(unsigned-byte 8) :initial-element 1))
 
+(defvar *wake-lock* (sb-thread:make-mutex :name "wake pipes"))
+
+(defun poke-wake-pipe (wake)
+  (when wake
+    (sb-sys:with-pinned-objects (*poke-octet*)
+      (sb-unix:unix-write (cdr wake) *poke-octet* 0 1))))
+
 (defun pane-poke (pane)
-  (let ((wake (pane-wake pane)))
-    (when wake
-      (sb-sys:with-pinned-objects (*poke-octet*)
-        (sb-unix:unix-write (cdr wake) *poke-octet* 0 1)))))
+  (sb-thread:with-mutex (*wake-lock*)
+    (poke-wake-pipe (pane-wake pane))))
 
 (defun pane-post (pane job)
   (sb-ext:atomic-push job (pane-inbox pane))
@@ -359,16 +360,17 @@ made now takes the next."
   (cond ((not (pane-thread-p pane)) (funcall job))
         ((not wait) (pane-post pane job) nil)
         (t (let ((done (sb-thread:make-semaphore))
+                 (claim (list nil))
                  (said nil)
                  (broke nil))
-             (pane-post pane (lambda ()
-                               (unwind-protect
-                                    (handler-case (setf said (multiple-value-list (funcall job)))
-                                      (serious-condition (c) (setf broke c)))
-                                 (sb-thread:signal-semaphore done))))
-             (loop :until (sb-thread:wait-on-semaphore done :timeout 1)
-                   :unless (pane-thread-p pane)
-                     :do (return (setf said (multiple-value-list (funcall job)))))
+             (flet ((run ()
+                      (when (null (sb-ext:compare-and-swap (car claim) nil t))
+                        (handler-case (setf said (multiple-value-list (funcall job)))
+                          (serious-condition (c) (setf broke c)))
+                        t)))
+               (pane-post pane (lambda () (unwind-protect (run) (sb-thread:signal-semaphore done))))
+               (loop :until (sb-thread:wait-on-semaphore done :timeout 1)
+                     :when (and (not (pane-thread-p pane)) (run)) :return nil))
              (when broke (error broke))
              (values-list said)))))
 
@@ -378,7 +380,8 @@ made now takes the next."
        (on-pane ,it (lambda () (let ((,term (pane-term ,it))) ,@body))))))
 
 (defstruct (shown (:constructor %make-shown))
-  screen (history 0 :type fixnum) (paste nil) (at 0 :type integer) (echoed 0 :type integer))
+  screen (history 0 :type fixnum) (pushed 0 :type fixnum) (paste nil) (at 0 :type integer)
+  (echoed 0 :type integer))
 
 (defun pane-drew-over-p (pane)
   (let ((term (pane-term pane)))
@@ -395,8 +398,7 @@ made now takes the next."
          (w (term:term-width term))
          (h (term:term-height term))
          (screen (tty:make-screen :width w :height h)))
-    (atty/cells:blit (atty/cells:make-cells (tty:screen-grid screen) w h) term 0 0 w h
-                     (if (pane-cover pane) 0 (pane-scrolled pane)))
+    (atty/cells:blit (atty/cells:make-cells (tty:screen-grid screen) w h) term 0 0 w h)
     (setf (tty:screen-cursor-x screen) (term:term-cursor-x term)
           (tty:screen-cursor-y screen) (term:term-cursor-y term)
           (tty:screen-cursor-visible screen) (and (term:term-cursor-visible term) t)
@@ -407,16 +409,19 @@ made now takes the next."
                                          :history (if (term:term-in-alt-screen term)
                                                       0
                                                       (term:term-scrollback-size term))
+                                         :pushed (term:term-scrollback-pushed (pane-term pane))
                                          :paste (and (term:term-bracketed-paste term) t)))))
 
 (defun pane-show-history (pane)
   (let* ((term (pane-term pane))
          (had (pane-shown pane))
          (history (if (term:term-in-alt-screen term) 0 (term:term-scrollback-size term)))
+         (pushed (term:term-scrollback-pushed term))
          (paste (and (term:term-bracketed-paste term) t)))
-    (unless (and (= history (shown-history had)) (eq paste (shown-paste had)))
+    (unless (and (= history (shown-history had)) (= pushed (shown-pushed had))
+                 (eq paste (shown-paste had)))
       (setf (pane-shown pane) (%make-shown :screen (shown-screen had) :history history
-                                           :paste paste :at (shown-at had)
+                                           :pushed pushed :paste paste :at (shown-at had)
                                            :echoed (shown-echoed had))))))
 
 (defun pane-pastes-p (pane)
@@ -460,7 +465,7 @@ made now takes the next."
         ms)))
 
 (defun pane-shown-now (pane)
-  (and (pane-thread-p pane) (pane-shown pane)))
+  (pane-shown pane))
 
 (defun pane-jobs (pane)
   (let ((jobs (loop :for had := (pane-inbox pane)
@@ -524,17 +529,19 @@ made now takes the next."
                        (when (and look due (<= due ms))
                          (funcall look pane ms)))))
       (pane-jobs pane)
-      (tty:free-waiting w))))
+      (tty:free-waiting w)
+      (sb-thread:with-mutex (*wake-lock*)
+        (close-wake-pipe (shiftf (pane-wake pane) nil)))
+      (when (pane-closing pane) (pane-let-go pane)))))
 
 (defun pane-stop (pane)
   (let ((thread (pane-thread pane)))
+    (setf (pane-stopping pane) t)
     (when (and thread (not (eq thread sb-thread:*current-thread*)))
-      (setf (pane-stopping pane) t)
       (pane-poke pane)
       (sb-thread:join-thread thread :default nil :timeout 5))
-    (setf (pane-thread pane) nil)
-    (close-wake-pipe (pane-wake pane))
-    (setf (pane-wake pane) nil)))
+    (unless (and thread (sb-thread:thread-alive-p thread))
+      (setf (pane-thread pane) nil))))
 
 (defun pane-drain (pane &key (budget 16) (size 65536) (most 65536))
   "Read what the program wrote and give it to the term. Answers nil when the
@@ -556,15 +563,9 @@ comes straight back, so one pane writing without pause cannot starve the rest."
                (term:decode-utf-8-into (pane-decoder pane) octets n *drain-chars*)
              (setf *drain-chars* chars)
              (term:term-process-output (pane-term pane) chars count))
-           (pane-scroll-settle pane)
            (setf (pane-kept pane) (term:term-scrollback-size (pane-term pane)))
            (incf (pane-output pane) n)
            (decf most n))))))
-
-;;; How far back a pane is being read. Nought is the screen as the program has
-;;; it now; anything more is that many rows up into what has scrolled off it.
-;;; It is the pane's and not the client's, the way the focus and the zoom are:
-;;; everybody attached is looking at the same pane.
 
 (defun pane-height (pane)
   (let ((shown (pane-shown-now pane)))
@@ -583,34 +584,9 @@ that has the whole screen to itself has none: what it draws never scrolls off."
         (let ((term (pane-term pane)))
           (if (term:term-in-alt-screen term) 0 (term:term-scrollback-size term))))))
 
-(defun pane-scroll-to (pane back)
-  "Show PANE from BACK rows behind its screen, or as near as there is. Answers
-whether that moved it."
-  (on-pane pane
-           (lambda ()
-             (let ((back (max 0 (min (pane-history pane) back))))
-               (unless (= back (pane-scrolled pane))
-                 (setf (pane-scrolled pane) back
-                       (pane-scrolled-at pane) (now-ms))
-                 (when (pane-thread pane) (pane-show pane))
-                 t)))))
-
-(defun pane-scroll-by (pane rows)
-  "ROWS further back, or nearer when it is negative."
-  (on-pane pane (lambda () (pane-scroll-to pane (+ (pane-scrolled pane) rows)))))
-
-(defun pane-scroll-settle (pane)
-  "The program wrote something. A pane being read back stays on the rows it was
-showing, which are now further back by however many went off the top; one whose
-program has taken the whole screen is back at it."
-  (let* ((term (pane-term pane))
-         (pushed (term:term-scrollback-pushed term))
-         (more (- pushed (pane-pushed-seen pane))))
-    (setf (pane-pushed-seen pane) pushed)
-    (when (plusp (pane-scrolled pane))
-      (setf (pane-scrolled pane)
-            (max 0 (min (pane-history pane)
-                        (+ (pane-scrolled pane) (max 0 more))))))))
+(defun pane-pushed (pane)
+  (let ((shown (pane-shown-now pane)))
+    (if shown (shown-pushed shown) (term:term-scrollback-pushed (pane-term pane)))))
 
 (declaim (ftype (function (pane) boolean) pane-owing-p))
 (defun pane-owing-p (pane)
@@ -664,17 +640,23 @@ program has taken the whole screen is back at it."
   (on-pane pane (lambda ()
                   (term:term-resize (pane-term pane) cols rows)
                   (when (pane-cover pane) (term:term-resize (pane-cover pane) cols rows))
-                  (ignore-errors (pty:pty-set-size (pane-fd pane) rows cols))
-                  (setf (pane-scrolled pane) (min (pane-scrolled pane) (pane-history pane)))
-                  (when (pane-thread pane) (pane-show pane))))
+                  (when (pane-started pane)
+                    (ignore-errors (pty:pty-set-size (pane-fd pane) rows cols)))
+                  (pane-show pane)))
   pane)
 
+(defun pane-let-go (pane)
+  (let ((fd (pane-fd pane)))
+    (when (and (>= fd 0) (eql fd (sb-ext:compare-and-swap (pane-fd pane) fd -1)))
+      (ignore-errors (pty:pty-close fd))
+      (ignore-errors (pty:pty-reap (pane-pid pane))))))
+
 (defun pane-close (pane)
+  (setf (pane-closing pane) t
+        (pane-running pane) nil)
   (pane-stop pane)
-  (setf (pane-running pane) nil)
-  (when (pane-started pane)
-    (ignore-errors (pty:pty-close (pane-fd pane)))
-    (ignore-errors (pty:pty-reap (pane-pid pane)))))
+  (unless (pane-thread-p pane)
+    (pane-let-go pane)))
 
 ;;; What kind of program a pane holds, said the way a person would: the agent
 ;;; it was recognised as, or else whatever has the terminal now.

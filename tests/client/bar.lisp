@@ -30,10 +30,10 @@
       (is-true (pump seer :want " 3  cat") "clicking + made no window: ~S" (seen seer)))))
 
 (test the-bar-is-the-corner-that-opens-the-menu-the-windows-and-the-time
-  (with-session (session pane server "cat" :rows 8 :cols 160)
+  (with-session (session pane server "cat" :rows 8 :cols 160 :watcher w)
     (declare (ignore pane))
     (let* ((screen (tty:make-screen :width 160 :height 1))
-           (tree (mux::default-bar session)))
+           (tree (mux::default-bar session (mux:watcher-view w))))
       (laid tree screen)
       (let ((line (shown screen 0)))
         (is (eql 0 (search " λ " line)) "~S" line)
@@ -82,14 +82,14 @@
                "leaving did not take the chip off the bar: ~S" (seen seer)))))
 
 (test a-window-with-a-pane-asking-is-a-yellow-chip-with-a-count
-  (with-session (session pane server "cat" :rows 8 :cols 100)
+  (with-session (session pane server "cat" :rows 8 :cols 100 :watcher w)
       (let ((agent (mux:pane-agent pane)))
         (step-until server (lambda () (member (agent:agent-state agent) '(:idle :working))))
         (mux::pane-hear pane :blocked)
         (is-true (step-until server (lambda () (eq :blocked (agent:agent-state agent)))))
-        (is (eq :blocked (mux::window-worst (mux:session-window session))))
+        (is (eq :blocked (mux::window-worst (mux:watcher-window w))))
         (let ((said (with-output-to-string (out)
-                      (let ((row (mux::window-chip session (mux:session-window session))))
+                      (let ((row (mux::window-chip session (mux:watcher-view w) (mux:watcher-window w))))
                         (labels ((walk (w)
                                    (when (typep w 'atty/ui:label) (write-string (atty/ui::text w) out))
                                    (dolist (part (atty/ui:parts w)) (walk part))))

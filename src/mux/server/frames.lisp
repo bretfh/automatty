@@ -110,7 +110,7 @@ last option is never the one that goes."
                                                                            left))
                                       " "))))))
 
-(defun answer-extras (session pane won)
+(defun answer-extras (session view pane won)
   "What follows the answers, most wanted first: read the whole of it, give it
 the whole session, and which rule decided it was asking."
   (let ((name (session-name session))
@@ -121,7 +121,7 @@ the whole session, and which rule decided it was asking."
             (list (bar-button (lambda () (read-pane (session-server session) *client* name id))
                               (atty/ui:label " read " :face :quiet))
                   (bar-button (lambda () (session-zoom-pane (session-server session) *client* name id))
-                              (atty/ui:label (if (eq pane (session-zoomed session))
+                              (atty/ui:label (if (eq pane (view-zoomed-in session view))
                                                  " unzoom " " zoom ")
                                              :face :quiet))
                   (and won (atty/ui:label (format nil " matched: ~A " won)
@@ -137,12 +137,10 @@ the whole session, and which rule decided it was asking."
   (+ (reduce #'+ extras :key #'columns-in)
      (max 0 (1- (length extras)))))
 
-(declaim (ftype (function (pane) t) search-marker))
-(defun search-marker (pane)
-  "What was looked for in PANE and which hit this is, with the keys that move
-between them."
-  (let* ((find (pane-find pane))
-         (hits (getf find :hits))
+(defun search-marker (find)
+  "What was looked for and which hit this is, with the keys that move between
+them."
+  (let* ((hits (getf find :hits))
          (at (getf find :at)))
     (atty/ui:row :spacing 0
                  (atty/ui:label (format nil " / ~A " (getf find :query)) :face :chip-scrolled)
@@ -154,10 +152,12 @@ between them."
                                   " nothing ")
                                 :face :quiet))))
 
-(declaim (ftype (function (session pane t) list) frame-corners))
-(defun frame-corners (session pane focusp)
+(declaim (ftype (function (session view pane t) list) frame-corners))
+(defun frame-corners (session view pane focusp)
   "What PANE's header says at its left and right, and its footer."
-  (let* ((agent (pane-agent pane))
+  (let* ((find (look-find (view-look view pane)))
+         (back (view-back view pane))
+         (agent (pane-agent pane))
          (state (agent:agent-state agent))
          (now (now-ms))
          (asks (agent:agent-asks agent nil))
@@ -171,7 +171,7 @@ between them."
                                              ""
                                              (format nil "~A " (pane-kind pane)))
                                          :face :quiet)
-                          (if (eq pane (session-zoomed session))
+                          (if (eq pane (view-zoomed-in session view))
                               (atty/ui:label " ⤢ zoomed " :face :state-blocked-strong)
                             (atty/ui:label "")))))
     (list
@@ -191,7 +191,7 @@ between them."
                                (atty/ui:label says :face (state-face state))))))
      :bl (cond
           (asks
-           (let* ((extras (answer-extras session pane (agent:agent-won agent nil)))
+           (let* ((extras (answer-extras session view pane (agent:agent-won agent nil)))
                   (room (- width (extras-width extras) 1)))
              ;; what follows the answers gives way before the answers do,
              ;; the rule first, then zoom; read stays
@@ -202,17 +202,17 @@ between them."
              (atty/ui:row :spacing 1
                           (option-buttons session pane (getf asks :options) room)
                           (apply #'atty/ui:row :spacing 1 extras))))
-          ((pane-find pane) (search-marker pane))
+          (find (search-marker find))
           (t (last-input-marker pane now)))
      :br (cond
           ;; being read back says so before anything else does: what is on
           ;; the screen is not what the program has on it now, and finding
           ;; in it is a button beside that
-          ((or (plusp (pane-scrolled pane)) (pane-find pane))
+          ((or (plusp back) find)
            (atty/ui:row :spacing 0
                         (bar-button "find in pane" (atty/ui:label " ⌕ find " :face :quiet))
-                        (if (plusp (pane-scrolled pane)) (live-chip pane) (atty/ui:label ""))
-                        (pane-position pane)))
+                        (if (plusp back) (live-chip pane back) (atty/ui:label ""))
+                        (pane-position pane back)))
           ((and (eq state :blocked) (null asks))
            (let ((answer (command-key 'goto-blocked-pane))
                  (zoom (command-key 'zoom-pane)))
@@ -222,5 +222,5 @@ between them."
                                                      answer (and answer zoom) zoom)
                                              :face :state-blocked)
                               (atty/ui:label ""))
-                          (pane-position pane))))
-          (t (pane-position pane))))))
+                          (pane-position pane back))))
+          (t (pane-position pane back))))))

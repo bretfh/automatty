@@ -671,7 +671,7 @@ not the one clicked on: ~S" (seen seer))
                                  (heard nil))
                             (say-to wire (list :want "here") (list :attach 10 40 nil))
                             (step-until server (lambda () (mux:session-watchers session)))
-                            (mux::session-add-window session "sh" "/no/such/directory" nil)
+                            (mux:session-add-window session (mux:make-pane "sh" :directory "/no/such/directory"))
                             (let ((w (first (mux:session-watchers session))))
                               (is-true (step-until server
                                                    (lambda ()

@@ -53,25 +53,31 @@
    #:*version*
    #:add-session
    #:session-name
-   #:session-layout
-   #:session-focus
-   #:session-zoomed
    #:session-panes
    #:session-windows
-   #:session-window
-   #:session-zoomed
-   #:window-zoomed
    #:window-panes
    #:window-label
-   #:window-focus
    #:window-layout
    #:window-number
    #:window-of
    #:pane-number
    #:pane-address-of
    #:session-add-window
-   #:session-select-window
-   #:session-cycle-window
+   #:view
+   #:make-view
+   #:watcher-view
+   #:watcher-window
+   #:watcher-focus
+   #:watcher-zoomed
+   #:watcher-layout
+   #:watcher-back
+   #:watcher-add-window
+   #:watcher-split
+   #:watcher-select-window
+   #:watcher-cycle-window
+   #:watcher-focus-next
+   #:watcher-fits
+   #:on-server
    #:session-close-window
    #:session-rename-window
    #:session-nth-window
@@ -88,14 +94,9 @@
    #:layout-tree
    #:session-split
    #:session-close-pane
-   #:session-focus-next
    #:session-delete-other-panes
    #:define-message-handler
-   #:session-screen
-   #:session-rows
-   #:session-cols
    #:session-watchers
-   #:session-bar-p
    #:session-tree
    #:pane-view
    #:view-pane

@@ -10,13 +10,7 @@
   (let ((session (watcher-session watcher)))
     (and session (session-name session))))
 
-(defun view-rows (watcher)
-  (let ((session (watcher-session watcher)))
-    (if session (session-rows session) (watcher-rows watcher))))
 
-(defun view-cols (watcher)
-  (let ((session (watcher-session watcher)))
-    (if session (session-cols session) (watcher-cols watcher))))
 
 (defun row-key (row) (cons (getf row :session) (getf row :id)))
 
@@ -25,7 +19,7 @@
            (let* ((server (watcher-server watcher))
                   (now (now-ms))
                   (rows (and server (mapcar (lambda (r) (list* :heard-at now r))
-                                            (pane-rows server now))))
+                                            (pane-rows server now watcher))))
                   (table (make-hash-table :test 'equal)))
              (dolist (r rows) (setf (gethash (row-key r) table) r))
              (cons rows table))))
@@ -71,15 +65,19 @@ program. Not its title: a shell's title is a path nobody wants forty of."
                  (clients-of watcher)))
 
 (defun windows-of (watcher session)
-  "SESSION's windows as (n label tree focus-id shownp)."
+  "SESSION's windows as (n label tree focus-id shownp), the focus and what is
+shown being WATCHER's own."
   (let* ((server (watcher-server watcher))
-         (it (and server (session-named server session))))
+         (it (and server (session-named server session)))
+         (mine (and it (eq it (watcher-session watcher))))
+         (view (watcher-view watcher)))
     (and it
          (loop :for w :in (session-windows it)
                :for n :from 1
-               :collect (list n (window-label w) (encode-layout (window-layout w))
-                              (and (window-focus w) (pane-id (window-focus w)))
-                              (same-window-p w (session-window it)))))))
+               :collect (let ((focus (if mine (view-focus-in it view w) (first (window-panes w)))))
+                          (list n (window-label w) (encode-layout (window-layout w))
+                                (and focus (pane-id focus))
+                                (and mine (same-window-p w (watcher-window watcher)))))))))
 
 (defun panes-in-tree (tree)
   (cond ((null tree) nil)

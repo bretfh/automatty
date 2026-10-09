@@ -197,7 +197,7 @@ pane in it asks, lit where the cursor is."
 (defun board-height (watcher)
   "The rows the lanes have: under the bar and the header, above the status
 and the footer."
-  (let ((rows (view-rows watcher)))
+  (let ((rows (watcher-rows watcher)))
     (max 3 (- rows (chrome-top watcher rows) (chrome-bottom watcher) 3))))
 
 (defun card-size (b watcher)
@@ -264,7 +264,7 @@ cursor's lane what can be pressed here. Answers the tree and the rail."
     (values tree (lane-strip-width b watcher session width))))
 
 (defun side-shown-p (b watcher)
-  (and (board-side b) (>= (- (view-cols watcher) (chrome-left watcher)) +side-from+)))
+  (and (board-side b) (>= (- (watcher-cols watcher) (chrome-left watcher)) +side-from+)))
 
 (defun side-width (b watcher)
   (cond ((not (side-shown-p b watcher)) 0)
@@ -279,7 +279,7 @@ cursor's lane what can be pressed here. Answers the tree and the rail."
   "The columns the lanes have: after the rail of sessions, before their own rail
 and the side pane and its rule."
   (let ((side (side-width b watcher)))
-    (max 10 (- (view-cols watcher) (lanes-left b watcher) 1 (if (plusp side) (1+ side) 0)))))
+    (max 10 (- (watcher-cols watcher) (lanes-left b watcher) 1 (if (plusp side) (1+ side) 0)))))
 
 ;;; The side pane: what is going on everywhere, not only where the cursor
 ;;; is. The server and every session with a sparkline each, the cursor's
@@ -624,6 +624,7 @@ newest first."
            (first (board-place b *client*)))
 
 (defmethod overlay-ticks-p ((b board)) t)
+(defmethod overlay-shows-panes-p ((b board)) (board-live b))
 (defmethod overlay-name ((b board)) "switchboard")
 (defmethod close-overlay ((b board) watcher) (close-board b watcher))
 

@@ -34,8 +34,9 @@ thing that acted on it was one."
   (let ((newest (find :keys (pane-log pane) :key #'third :test-not #'eq)))
     (and newest (eq :pane (first (second newest))) (second (second newest)))))
 
-(defun pane-row (session pane now &optional drives)
-  "What a client is told about PANE of SESSION, as a plist."
+(defun pane-row (session pane now &optional drives watcher)
+  "What a client is told about PANE of SESSION, as a plist; :focus is whether
+it has WATCHER's keys."
   (let ((agent (pane-agent pane))
         (server (session-server session)))
     (list :session (session-name session)
@@ -59,7 +60,7 @@ thing that acted on it was one."
                          :collect (list age state)
                          :until (> age +history-span+))
           :title (pane-named pane)
-          :focus (eq pane (session-focus session))
+          :focus (and watcher (eq session (watcher-session watcher)) (eq pane (watcher-focus watcher)))
           :queued (first (pane-pending-prompt pane))
           :driven-by (pane-driver pane)
           :drives drives
@@ -69,7 +70,7 @@ thing that acted on it was one."
   (loop :for s :in (server-sessions server)
         :append (mapcar (lambda (p) (cons s p)) (session-panes s))))
 
-(defun pane-rows (server now)
+(defun pane-rows (server now &optional watcher)
   (let* ((all (all-panes server))
          (drivers (mapcar (lambda (it) (pane-driver (cdr it))) all)))
     (mapcar (lambda (it)
@@ -81,7 +82,8 @@ thing that acted on it was one."
                           (loop :for other :in all
                                 :for driver :in drivers
                                 :when (or (equal driver address) (equal driver old))
-                                  :collect (pane-address-of (car other) (cdr other))))))
+                                  :collect (pane-address-of (car other) (cdr other)))
+                          watcher)))
             all)))
 
 (defun all-watchers (server)

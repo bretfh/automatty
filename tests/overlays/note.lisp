@@ -17,7 +17,7 @@
                "Escape did not close the drawer: ~S" (seen seer)))))
 
 (test a-note-is-a-sheet-and-a-click-on-it-closes-it
-  (let* ((client (mux::%make-watcher :id 7 :rows 10 :cols 60))
+  (let* ((client (mux::%make-watcher :id 7 :view (mux:make-view :rows 10 :cols 60)))
          (n (mux:make-note "init" (list "did not load" "line 4") :face :warning))
          (screen (tty:make-screen :width 60 :height 10)))
     (setf (mux:watcher-overlays client) (list n))
@@ -32,7 +32,7 @@
           (is (null (mux:watcher-overlays client)) "the click did not close it"))))))
 
 (test a-yes-or-no-is-a-sheet-answered-by-key-or-by-click
-  (let* ((client (mux::%make-watcher :id 7 :rows 10 :cols 60))
+  (let* ((client (mux::%make-watcher :id 7 :view (mux:make-view :rows 10 :cols 60)))
          (said nil)
          (screen (tty:make-screen :width 60 :height 10)))
     (flet ((row-with (text) (loop :for y :below 10 :when (search text (shown screen y)) :return y)))
@@ -57,7 +57,7 @@
     (is (null (mux:watcher-overlays client))))))
 
 (test a-name-is-typed-and-kept-or-undone
-  (let* ((client (mux::%make-watcher :id 7 :rows 10 :cols 80))
+  (let* ((client (mux::%make-watcher :id 7 :view (mux:make-view :rows 10 :cols 80)))
          (kept nil) (swapped nil))
     (mux::entry client "name" "window todo › 2" "impl"
                 :keep (lambda (text c) (declare (ignore c)) (setf kept text))
