@@ -27,9 +27,13 @@
     (is (eq #'mux::natural-scroll-up (bound "wheel-up" 'mux::scroll-mode))
         "the mode for reading back lost what the pane's mode does with the wheel")))
 
+(defun published-p (pane)
+  (let ((held (mux::with-term (term pane) (term:term-scrollback-size term))))
+    (and (plusp held) (eql held (mux::pane-history pane)))))
+
 (test the-wheel-over-a-shell-reads-its-pane-back-and-typing-is-back-to-live
   (with-session (session pane server "seq 1 60; sleep 30" :watcher w)
-    (is-true (step-until server (lambda () (search "60" (dumped pane)))))
+    (is-true (step-until server (lambda () (and (search "60" (dumped pane)) (published-p pane)))))
     (mux::session-compose session w)
     (mux::handle-wheel w :up 4 4 nil)
     (is (eql 3 (mux:watcher-back w pane)))
@@ -116,7 +120,7 @@
 
 (test the-chip-is-back-to-live
   (with-session (session pane server "seq 1 200; sleep 30" :watcher w)
-    (is-true (step-until server (lambda () (search "200" (dumped pane)))))
+    (is-true (step-until server (lambda () (and (search "200" (dumped pane)) (published-p pane)))))
     (mux::scroll-to w pane 40)
     (let* ((screen (mux::session-compose session w))
            (at (search "↓ 40 to live" (shown screen 10))))
@@ -135,7 +139,7 @@
 (test one-terminal-reading-back-leaves-the-other-live
   (with-session (session pane server "seq 1 60; sleep 30" :watcher one)
     (let ((two (viewer session)))
-      (is-true (step-until server (lambda () (search "60" (dumped pane)))))
+      (is-true (step-until server (lambda () (and (search "60" (dumped pane)) (published-p pane)))))
       (mux::session-compose session one)
       (mux::session-compose session two)
       (mux::handle-wheel one :up 4 4 nil)
