@@ -36,7 +36,7 @@ opens the first session. Answers its path."
 aside first. It cannot be done to a server that is running."
   (let ((path (server-socket-path)))
     (when (server-alive-p path)
-      (error "a server is running; atty kill-server or atty restart-server first"))
+      (error "a server is running; atty stop-server or atty restart-server first"))
     (put-down-wedged-server path)
     (ignore-errors (delete-file path))
     (let ((aside (move-state-aside)))
@@ -210,7 +210,7 @@ they are told so."
   (clrhash *adopted*))
 
 (defun kill-server ()
-  "atty kill-server: stop every session, saying what was kept."
+  "atty stop-server: stop every session, saying what was kept."
   (if (or (stop-server (server-socket-path))
           (put-down-wedged-server (server-socket-path)))
       (let ((saved (saved-sessions)))

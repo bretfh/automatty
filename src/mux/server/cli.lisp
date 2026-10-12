@@ -90,7 +90,7 @@ when a server is running and is another."
       (destructuring-bind (name path legacyp) other
         (declare (ignore path))
         (if legacyp
-            (format t "~&~12A a server from before one held them all; atty stop ~A~%" name name)
+            (format t "~&~12A a server from before one held them all; atty close-session ~A~%" name name)
             (format t "~&~12A another server; atty -L ~A list~%" name name))))))
 
 (defcommand (list-clients :group sessions) ()
@@ -118,8 +118,8 @@ when a server is running and is another."
                           (event-line kind actor text)))
         (format t "~&nothing has happened yet~%"))))
 
-(defcommand (stop-session :group sessions) (name)
-  "stop the session called NAME and the programs in it"
+(defcommand (close-session :group sessions) (name)
+  "close the session called NAME and the programs in it"
   (let* ((server (here-server))
          (it (session-named server name)))
     (unless it (error "nothing called ~A is running" name))

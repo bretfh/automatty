@@ -119,8 +119,8 @@ atty gui [<name>]       # the same as atty <name>, in a window of its own (macOS
 atty list               # the sessions: windows, panes, what needs you, who is attached
 atty clients            # every terminal attached, and what each is looking at
 atty rename <old> <new> # call a session something else
-atty stop <name>        # stop a session, and the programs in it
-atty kill-server        # stop every session
+atty close-session <name> # close a session, and the programs in it
+atty stop-server        # stop every session
 atty -L <server> ...    # any of these against a server other than your own
 #+end_src
 
