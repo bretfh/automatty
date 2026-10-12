@@ -55,11 +55,11 @@
         (atty/mode:undefine-key 'mux::scroll-mode "C-wheel-up")))))
 
 (test a-command-of-ones-own-can-be-defined-and-run-by-name
-  (with-init-file (file "(defcommand wave () (setf (symbol-value 'atty/user::*waved*) t))")
+  (with-init-file (file "(defcommand wave () (setf (symbol-value 'automatty/user::*waved*) t))")
     (is-true (mux:load-user-init file))
     (is-true (gethash "wave" mux:*commands*))
     (mux:run-command "wave" nil)
-    (is-true (symbol-value (find-symbol "*WAVED*" '#:atty/user)))
+    (is-true (symbol-value (find-symbol "*WAVED*" '#:automatty/user)))
     (remhash "wave" mux:*commands*)))
 
 (test a-broken-init-file-is-said-kept-and-passed-over

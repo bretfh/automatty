@@ -9,7 +9,7 @@ exec ros -Q -- $0 "$@"
   (:use :cl))
 (in-package :ros.script.atty)
 
-(asdf:load-system :atty :verbose nil)
+(asdf:load-system :automatty :verbose nil)
 
 (defun main (&rest argv)
   (atty:main argv))

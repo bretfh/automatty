@@ -112,6 +112,7 @@
    #:+restore-command+ #:+restore-programs+ #:+saved-scrollback+ #:+save-quiet-after+ #:+save-at-most-every+
    #:bind-prefix-keys
    #:*init-error* #:load-user-init #:user-init-file #:config-dir #:init-help
+   #:*declared* #:declare-server #:declared-servers #:make-declared
    #:*state-home* #:state-dir #:encode-pane #:decode-pane #:encode-tree #:restore-state
    #:save-tree #:save-pane #:save-all #:save-due #:move-state-aside #:saved-sessions #:delete-saved-session
    #:write-form-atomically #:read-state-file

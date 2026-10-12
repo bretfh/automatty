@@ -94,6 +94,7 @@
                                            (:file "serialize")
                                            (:file "persist")
                                            (:file "windows")
+                                           (:file "declared")
                                            (:file "updates")
                                            (:file "actions")
                                            (:file "mouse")
@@ -137,7 +138,7 @@
 (asdf:defsystem #:atty/all
                 :description "Everything here"
                 :depends-on (#:libatty #:atty/pty #:atty/tty #:atty/mode #:atty/ui #:atty/cells
-                                  #:atty/agent #:atty))
+                                  #:atty/agent #:atty #:automatty))
 
 (asdf:defsystem #:atty/test
                 :description "Atty's test suite"
@@ -180,6 +181,7 @@
                              (:file "settings")
                              (:file "init")
                              (:file "state")
+                             (:file "declared")
                              (:file "release"))
                 :perform (asdf:test-op (o c)
                                        (uiop:symbol-call :atty/test :run-them)))

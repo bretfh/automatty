@@ -54,6 +54,7 @@
   (pending-prompt nil)
   (command nil)
   (directory nil)
+  (env nil :type list)
   (agent nil)
   (group nil)
   (programs nil)

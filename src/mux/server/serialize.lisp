@@ -212,6 +212,7 @@ log, and every row it holds, oldest first, with the faces said once."
                      (pane-kept-front pane))
           :label (pane-label pane)
           :named (pane-named pane)
+          :env (pane-env pane)
           :rows (term:term-height term)
           :cols (term:term-width term)
           :alt-screen (and in-front t)
@@ -252,7 +253,7 @@ log, and every row it holds, oldest first, with the faces said once."
 (defun adopt-pane (form now fd pid)
   "The pane FORM saved, around the program still running on FD as PID: its
 screen and its terminal's modes as they were, and nothing started."
-  (destructuring-bind (&key id command directory here label named rows cols programs
+  (destructuring-bind (&key id command directory here label named env rows cols programs
                             queued told since-clock states log faces behind screen over
                             alt-screen modes &allow-other-keys)
       (nthcdr 2 form)
@@ -271,6 +272,7 @@ screen and its terminal's modes as they were, and nothing started."
             (pane-here pane) here
             (pane-label pane) label
             (pane-named pane) named
+            (pane-env pane) env
             (pane-programs pane) programs
             (pane-pending-prompt pane) queued
             (pane-log pane) (moments log now)
@@ -447,7 +449,7 @@ it could not be as it was."
     (when kept
       (remhash (getf (nthcdr 2 form) :id) *adopted*)
       (return-from decode-pane (adopt-pane form now (first kept) (second kept)))))
-  (destructuring-bind (&key id saved command directory here label named rows cols
+  (destructuring-bind (&key id saved command directory here label named env rows cols
                             programs title queued told since-clock states log
                             faces behind screen over &allow-other-keys)
       (nthcdr 2 form)
@@ -494,6 +496,7 @@ it could not be as it was."
               (pane-kept-front pane) (and typed (front-of form))
               (pane-label pane) label
               (pane-named pane) named
+              (pane-env pane) env
               (pane-programs pane) programs
               (pane-pending-prompt pane) (and (or same entered) queued)
               (pane-log pane) (moments log now)

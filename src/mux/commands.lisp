@@ -242,7 +242,8 @@ windows), the window shown being WATCHER's."
 
 (defcommand (reload-init :group asking) ()
   "have the server read the init file again"
-  (on-server (here-server) #'load-user-init)
+  (let ((server (here-server)))
+    (on-server server (lambda () (load-user-init) (make-declared server))))
   (destructuring-bind (text face) (init-load-note)
     (show-note *client* "atty" text :face face))
   (dolist (w (all-watchers (here-server))) (draw-again w)))

@@ -1,20 +1,5 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-;;; What somebody's own init.lisp is read in: the keys and modes, the commands,
-;;; the settings and the hooks, with nothing else of atty's in the way. The
-;;; server loads it, from source, when it starts and when asked to again.
-
-(defpackage #:atty/user
-  (:use #:cl #:atty/mode)
-  (:import-from #:atty
-                #:defcommand #:run-command #:show-note #:*client*
-                #:configure #:setting #:settings
-                #:add-hook #:remove-hook
-                #:pane-mode #:scroll-mode #:board-mode #:note-mode)
-  (:export #:defcommand #:run-command #:show-note #:*client*
-           #:configure #:setting #:settings #:add-hook #:remove-hook
-           #:pane-mode #:scroll-mode #:board-mode #:note-mode))
-
 (in-package #:atty)
 
 (defun config-dir ()
@@ -37,14 +22,15 @@
     (:command *commands*)
     (:doc *command-docs*)
     (:group *command-groups*)
-    (:unlisted *unlisted*)))
+    (:unlisted *unlisted*)
+    (:server *declared*)))
 
 (defun init-places ()
   (let ((places (make-hash-table :test 'equal)))
     (dolist (mode (atty/mode:modes))
       (loop :for (chord . does) :in (atty/mode:mode-bindings mode)
             :do (setf (gethash (list :key mode chord) places) does)))
-    (dolist (kind '(:command :doc :group :unlisted))
+    (dolist (kind '(:command :doc :group :unlisted :server))
       (let ((table (place-table kind)))
         (sb-ext:with-locked-hash-table (table)
           (maphash (lambda (name value) (setf (gethash (list kind name) places) value))
@@ -74,7 +60,7 @@
         (:key (atty/mode:set-binding name chord (unless absent value)))
         (:setting (unless absent (setf (setting name) value)))
         (:hook (unless absent (setf (symbol-value (hook-symbol name)) value)))
-        ((:command :doc :group :unlisted)
+        ((:command :doc :group :unlisted :server)
          (if absent
              (remhash name (place-table kind))
              (setf (gethash name (place-table kind)) value)))))))
@@ -97,7 +83,8 @@ not a reason not to start."
   (let ((before (init-places))
         (loaded nil))
     (when (probe-file file)
-      (handler-case (let ((*package* (find-package '#:atty/user)))
+      (handler-case (let ((*package* (or (find-package '#:automatty/user)
+                                         (error "automatty is not loaded"))))
                       (load file)
                       (setf loaded t))
         (error (e)
@@ -126,7 +113,7 @@ not a reason not to start."
 (defun init-help (s &optional (rows (encode-settings)) (from :server))
   "What an init file can say, with every setting there is and what it is now."
   (format s "~&~A is loaded by the server when it starts, as source, in the~%~
-             package atty/user.~%~%" (user-init-file))
+             package automatty/user.~%~%" (user-init-file))
   (format s "  (define-key 'pane-mode \"M-wheel-up\" \"scroll page up\")   a key or button to a command~%")
   (format s "  (undefine-key 'pane-mode \"C-b t\")~%")
   (format s "  (defcommand say-hello () (show-note *client* \"hi\" \"hello\"))  a command of your own~%")

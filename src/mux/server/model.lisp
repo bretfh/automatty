@@ -590,8 +590,9 @@ becomes, rather than letting them go.")
   "What a program is told about where it is: its address as it starts. A pane
 moved to another window keeps the address it was born with; the server answers
 either."
-  (list (format nil "ATTY_PANE=~A" (pane-address-of session pane))
-        (format nil "ATTY_SOCKET=~A" (or (session-socket session) ""))))
+  (list* (format nil "ATTY_PANE=~A" (pane-address-of session pane))
+         (format nil "ATTY_SOCKET=~A" (or (session-socket session) ""))
+         (pane-env pane)))
 
 (defun watcher-sees-p (watcher pane)
   (and (watcher-interactive watcher)
