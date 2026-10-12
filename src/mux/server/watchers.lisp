@@ -236,6 +236,8 @@
   (on-server server (lambda ()
                       (sb-ext:atomic-update (server-pending-watchers server)
                                             (lambda (all) (remove watcher all)))))
+  (when (watcher-session watcher)
+    (let ((*client* watcher)) (run-hook 'client-detached watcher)))
   (leave-session watcher)
   (stop-following server watcher)
   (when (watcher-interactive watcher) (send-client-list server)))

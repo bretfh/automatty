@@ -268,8 +268,10 @@ says so to the next client to attach. Nil never reaches the network for it."
               (format *error-output* "~&atty: the ~(~A~) hook came apart: ~A~%" name e)))))))
 
 (defhook session-made "A session was made: (session).")
+(defhook window-made "A window was made: (session window).")
 (defhook pane-started "A pane's program was started: (session pane).")
 (defhook pane-ended "A pane was closed: (session pane).")
 (defhook client-attached "This client is attached and has been greeted: (client).")
-(defhook before-save "The server is about to save its state to disk: (server).")
+(defhook client-detached "This client has left: (client).")
+(defhook server-saving "The server is about to save its state to disk: (server).")
 (defhook server-restored "The server brought its sessions back from disk: (server sessions).")

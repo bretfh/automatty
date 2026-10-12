@@ -21,6 +21,7 @@ Nobody is shown it: whoever asked for it shows it themselves."
                                                    (subseq windows (1+ at)))))))
                  (session-start-pane session pane)
                  (run-hook 'pane-started session pane)
+                 (run-hook 'window-made session window)
                  window))))
 
 (defun session-nth-window (session n)

@@ -70,7 +70,8 @@
         (laid-size session (make-view) pane (window-layout window))
       (pane-resize pane rows cols))
     (session-start-pane session pane)
-    (run-hook 'pane-started session pane)))
+    (run-hook 'pane-started session pane))
+  (run-hook 'window-made session window))
 
 (defun make-declared-session (server form directory env)
   (destructuring-bind (&key ((:directory here)) ((:env more)) windows) (cddr form)

@@ -60,7 +60,7 @@ the files of panes that are in no session any more. Answers whether it was
 written."
   (let ((tree (encode-tree server)))
     (when (or force (not (equal tree (server-tree-saved server))))
-      (run-hook 'before-save server)
+      (run-hook 'server-saving server)
       (when (write-form-atomically (tree-file dir)
                                    (list* :atty-state +state-version+
                                           :saved (get-universal-time)

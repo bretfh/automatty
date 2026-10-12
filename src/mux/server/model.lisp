@@ -630,6 +630,7 @@ either."
                      (sb-ext:atomic-update (server-sessions server) (lambda (all) (append all (list session))))
                      (setf (server-had-sessions server) t)
                      (run-hook 'pane-started session pane)
+                     (run-hook 'window-made session (first (session-windows session)))
                      (run-hook 'session-made session)
                      session)))))
 

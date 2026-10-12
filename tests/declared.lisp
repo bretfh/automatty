@@ -173,3 +173,22 @@
       (run-by-name server wire "new session" '("--name" "other" "sleep 33"))
       (is-true (mux:session-named server "other"))
       (mux:wire-close wire))))
+
+(test a-window-made-says-so
+  (let ((path (socket-path))
+        (made nil))
+    (flet ((note (session window) (push (list (mux:session-name session) (mux:window-name window)) made)))
+      (declared-here path
+                     (automatty:session "work"
+                       (automatty:window "edit" (automatty:pane "sleep 30"))
+                       (automatty:window "logs" (automatty:pane "sleep 30"))))
+      (mux:add-hook 'mux::window-made #'note)
+      (let ((server (mux:make-server path)))
+        (unwind-protect
+             (progn
+               (mux:make-declared server)
+               (is (equal '(("work" "edit") ("work" "logs")) (reverse made))))
+          (mux:remove-hook 'mux::window-made #'note)
+          (mux:server-close server)
+          (remhash (file-namestring path) mux:*declared*)
+          (ignore-errors (delete-file path)))))))
