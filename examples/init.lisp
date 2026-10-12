@@ -6,54 +6,49 @@
 (define-key 'pane-mode "C-b |" "split right")
 (define-key 'pane-mode "C-b -" "split below")
 
-;;; Your servers and everything in them. After a restart each server makes
-;;; whatever of its tree is missing, by name, and leaves what came back alone;
-;;; starting one starts the rest.
+;;; Your servers and what is in them. Each server makes whatever of its own is
+;;; missing, by name, when it starts and when this file is loaded again, and
+;;; leaves what is there alone. atty -L ops starts the second.
 
 (defserver default
   :directory "~/code/"
-  (session "site"
-    :directory "site/"
+  (session "site" :directory "site/"
     (window "edit"
-      (columns (pane "zsh" :label "repl")
-               (pane "claude" :label "claude" :size 1/3)))
+      (columns (pane "zsh" :name "repl")
+               (pane "claude" :name "claude")))
     (window "test"
-      (rows (pane "zsh" :label "suite" :then "make test" :hold t)
-            (columns :size 12
-                     (pane "zsh" :label "logs" :then "tail -f log/development.log")
-                     (pane "zsh" :label "db" :then "psql site_development")))))
+      (rows (pane "zsh" :name "suite")
+            (columns (pane "tail -f log/development.log" :name "logs")
+                     (pane "psql site_development" :name "db")))))
   (session "notes"
     (window "today"
-      (pane "${EDITOR:-vi} ~/notes/today.md" :label "today"))))
+      (pane "${EDITOR:-vi} ~/notes/today.md" :name "today"))))
 
 (defserver ops
   :directory "~/infra/"
-  :env '(("AWS_PROFILE" . "dev"))
+  :env '("AWS_PROFILE=dev")
   (session "k8s"
     (window "watch"
-      (columns (pane "k9s" :label "k9s")
-               (rows :size 1/3
-                     (pane "zsh" :label "kubectl")
-                     (pane "zsh" :label "tf" :directory "terraform/")))))
-  (session "prod"
-    :env '(("AWS_PROFILE" . "prod"))
-    (window "careful" (pane "zsh" :label "prod"))))
+      (columns (pane "k9s" :name "k9s")
+               (rows (pane "zsh" :name "kubectl")
+                     (pane "zsh" :name "tf" :directory "terraform/")))))
+  (session "prod" :env '("AWS_PROFILE=prod")
+    (window "careful" (pane "zsh" :name "prod"))))
 
-;;; A command that says what it takes: `: worktree feat/x` makes it at once,
-;;; `: worktree` asks which branch and offers yours.
+;;; atty worktree feat/x: a worktree for the branch, and a window in it with
+;;; claude beside a shell.
 
-(defcommand worktree ((branch :string "branch"
-                              :from (run-program "git" "-C" "~/code/site" "branch" "--format=%(refname:short)")))
+(defcommand worktree (branch)
   "a worktree for BRANCH, and a window in it"
-  (run-program "git" "-C" "~/code/site" "worktree" "add" (format nil "~~/code/wt/~A" branch) branch)
-  (window branch
-    (columns (pane "zsh" :label branch :directory (format nil "~~/code/wt/~A/" branch))
-             (pane "claude" :size 1/3 :directory (format nil "~~/code/wt/~A/" branch)))))
+  (uiop:run-program (list "git" "-C" (namestring (merge-pathnames "code/site/" (user-homedir-pathname)))
+                          "worktree" "add" (format nil "../wt/~A" branch) branch))
+  (new-window :name branch :directory (format nil "~~/code/wt/~A/" branch) :command "zsh")
+  (split-right :name "claude" :command "claude"))
 
-;;; ^-b k stops whatever the suite is running.
+;;; ^-b k stops whatever the suite is running, from any pane.
 
 (defcommand stop-suite ()
   "C-c into the suite"
-  (send-keys (pane-labelled "suite") "C-c"))
+  (send-keys "site:test.suite" "C-c"))
 
 (define-key 'pane-mode "C-b k" "stop suite")

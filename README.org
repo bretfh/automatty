@@ -17,9 +17,9 @@ The server also knows what the program in each pane is doing. It holds every
 pane as a grid of cells, not a stream of bytes, so it can tell a coding agent's
 prompt box from its permission dialog from its spinner, and it says so on the
 bar and over the socket. =atty agent list= names every pane and whether it is
-idle, working or blocked. =wait= blocks until one is. =read= answers what is on
-its screen, as text. =prompt= gives it new work, =say= answers what it is
-asking, and =explain= names the rule that decided. A program inside a pane can
+idle, working or blocked. =wait= blocks until one is. =atty read-pane= answers
+what is on its screen, as text. =prompt= gives it new work, =answer= answers
+what it is asking, and =explain= names the rule that decided. A program inside a pane can
 say its own state with =atty agent signal=. There is nothing to install and no
 protocol to speak: an agent that can run a shell command can watch another
 pane, wait until it is stuck, read why, and answer it, through the terminal it
@@ -227,13 +227,20 @@ and carries a =⌕ find= button; a click on the =↓ N to live= chip is back to
 live.
 
 These are defaults. =~/.config/atty/init.lisp= (or under =$XDG_CONFIG_HOME=)
-is Lisp the server loads when it starts. Keys, modes, commands and everything
+is Lisp the server loads when it starts, in the package =automatty/user=, which
+uses =cl= and =automatty= and nothing else. Keys, modes, commands and everything
 drawn over the panes live in the server; a terminal attached only sends what
-is typed and draws what it is sent. The file binds a key, a button or the
-wheel to any command by name, defines commands, sets settings, and hooks what
-happens:
+is typed and draws what it is sent. The file declares the sessions, windows and
+panes a server holds, binds a key, a button or the wheel to any command by
+name, defines commands, sets settings, and hooks what happens:
 
 #+begin_src lisp
+(defserver default :directory "~/code/"
+  (session "site" :directory "site/"
+    (window "edit"
+      (columns (pane "zsh" :name "repl")
+               (pane "claude")))))
+
 (define-key 'pane-mode "M-wheel-up" "scroll page up")
 (undefine-key 'pane-mode "C-b t")
 (defcommand say-hello () (show-note *client* "hi" "hello"))
@@ -241,16 +248,25 @@ happens:
 (add-hook 'pane-started (lambda (session pane) ...))
 #+end_src
 
-[[file:examples/init.lisp][examples/init.lisp]] is one to start from: two servers and the sessions,
-windows and panes in each, a command that asks for a branch and makes a
-worktree window for it.
+A =defserver= is what the server of that name (=-L=, or =default=) makes when
+it starts and each time the file is loaded again: whatever session or window is
+missing, by name. A window that is there is left as it is, and nothing the file
+does not name is closed. =session= and =window= take a name, =:directory= and
+=:env= (a list of ="NAME=value"=), and what they hold; =columns= and =rows= lay
+panes side by side or one under another; =pane= takes the command it runs,
+=:name=, =:directory= and =:env=. A directory is taken from the one around it.
 
-A command is called from Lisp, from a key, from =^-b := or by name from a shell,
-dashes for spaces: =atty say-hello=, =atty split-right=. =atty help init= lists
-every setting with what the server has it as now. A file that does not load is
-said in the log and shown as a note to whoever attaches next; atty starts
-anyway. =^-b R= has the server load it again, undoing what the last load did
-first.
+[[file:examples/init.lisp][examples/init.lisp]] is one to start from: two servers and the sessions,
+windows and panes in each, and commands that make a worktree window and stop
+the suite from any pane.
+
+Every command is a function of the same name, so the file calls =split-right=
+or =send-keys= the way a key or a command line does. A command is called from
+Lisp, from a key, from =^-b := or by name from a shell, dashes for spaces:
+=atty say-hello=, =atty split-right=. =atty help init= lists every setting with
+what the server has it as now. A file that does not load is said in the log and
+shown as a note to whoever attaches next; atty starts anyway. =^-b R= has the
+server load it again, undoing what the last load did first.
 
 ** What is kept when the server stops
 
@@ -286,14 +302,16 @@ atty start --fresh      # start with nothing; what was saved is moved aside, not
 The same from a shell, for a program driving other panes:
 
 #+begin_src sh
-atty agent spawn work --name impl -- claude    # a pane beside the focus; prints work:1.2
-atty agent spawn work --new-window -- claude   # in a window of its own; --window 2 puts it in that one
+atty split-right --name impl -- claude         # a pane beside this one; prints work:1.2
+atty new-window --name agents --directory ~/code/site -- claude   # in a window of its own
+atty send-keys work:agents.impl C-c            # keys by name, or text as it is
+atty read-pane work:1.2 --plain                # its screen, without what is only suggested
+atty read-log work:1.2                         # who typed into it: a client, a pane, the command line
+atty rename-pane work:1.2 impl                 # what to call it
 atty agent list --blocked                      # or --json, --session <name>; each with its window
-atty agent read work:1.2 --plain               # its screen, without what is only suggested
 atty agent answer work:1.2 1                   # exits 3 if it is asking nothing
-atty agent prompt work:1.2 'run the suite'
+atty agent prompt impl 'run the suite'         # a pane by its name alone, from its own session
 atty agent wait work:1.2 idle --after-prompt   # only once it has taken the prompt up
-atty agent log work:1.2                        # who typed into it: a client, a pane, the command line
 #+end_src
 
 ** Depending on libatty

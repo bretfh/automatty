@@ -200,3 +200,14 @@
       (is (eq :external (nth-value 1 (find-symbol (symbol-name symbol) '#:automatty))))
       (is (fboundp symbol))))
   (is (null (find-symbol "PRESS" '#:automatty/user)) "the keymap's insides reach a config"))
+
+(test the-example-init-file-loads
+  (unwind-protect
+       (progn
+         (is-true (mux:load-user-init (namestring (asdf:system-relative-pathname :atty "examples/init.lisp"))))
+         (is (null mux:*init-error*) "~A" mux:*init-error*)
+         (is-true (gethash "default" mux:*declared*))
+         (is-true (gethash "ops" mux:*declared*))
+         (is-true (gethash "worktree" mux:*commands*))
+         (is-true (gethash "stop suite" mux:*commands*)))
+    (init-forgotten)))
