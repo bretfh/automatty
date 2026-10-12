@@ -7,15 +7,23 @@
 ;;; keyboard. Each says what it has to say, and that is what is printed.
 
 (defun pane-at-address (server address)
-  "The pane ADDRESS names, session:window.pane or session:id, and its session."
+  "The pane ADDRESS names, by numbers or by names, and its session. A pane named
+alone is looked for in the caller's session first."
   (multiple-value-bind (name id window n) (parse-pane-address address)
-    (let ((session (find name (server-sessions server) :key #'session-name :test #'equal)))
-      (when session
-        (let ((pane (if id
-                        (find id (session-panes session) :key #'pane-id)
-                        (let ((w (session-nth-window session window)))
-                          (and w (nth (1- n) (window-panes w)))))))
-          (and pane (values pane session)))))))
+    (let* ((here (and *caller* (ignore-errors (values (parse-pane-address *caller*)))))
+           (found (loop :for session :in (server-sessions server)
+                        :append (loop :for w :in (session-windows session)
+                                      :for k :from 1
+                                      :append (loop :for p :in (window-panes w)
+                                                    :for i :from 1
+                                                    :when (address-fits-p name id window n
+                                                                          (session-name session) k (window-name w)
+                                                                          i (pane-name p) (pane-id p))
+                                                      :collect (cons p session)))))
+           (it (one-fitting address found
+                            (lambda (f) (equal here (session-name (cdr f))))
+                            (lambda (f) (pane-address-of (cdr f) (car f))))))
+      (and it (values (car it) (cdr it))))))
 
 (defun address-pane (address)
   (unless address (error "which pane? <session>:<window>.<pane>, as atty agent list says"))
@@ -95,14 +103,7 @@
 
 (defcommand (agent-name :unlisted) (&rest args)
   "what to call a pane: <pane> <name>, or from inside a pane <name>"
-  (multiple-value-bind (address name)
-      (if (second args)
-          (values (first args) (second args))
-          (values (or *caller* (error "atty agent name <session>:<pane> <name>")) (first args)))
-    (multiple-value-bind (pane session) (address-pane address)
-      (name-pane (here-server) (session-name session) (pane-id pane) (or name ""))
-      (format t "~&~A:~D is ~A~%" (session-name session) (pane-id pane)
-              (if (plusp (length (or name ""))) name "unnamed")))))
+  (apply #'rename-pane args))
 
 (defcommand (agent-answer :unlisted) (address n)
   "answer N to what the pane is asking; exits 3, having typed nothing, when it is not asking"
@@ -122,28 +123,12 @@
 
 (defcommand (agent-log :unlisted) (address &optional n)
   "who typed into the pane, newest first"
-  (let* ((pane (address-pane address))
-         (n (or (and n (parse-integer (princ-to-string n) :junk-allowed t)) 20))
-         (now (now-ms))
-         (entries (mapcar (lambda (e) (encode-log-entry e now))
-                          (subseq (pane-log pane) 0 (min n (length (pane-log pane)))))))
-    (if entries
-        (loop :for (nil actor verb summary outcome clock) :in entries
-              :do (format t "~&~A  ~12A ~(~7A~) ~A~:[~;  refused~]~%"
-                          (format-clock-hms clock) (caller-actor actor) verb
-                          (if (eq verb :keys) (format nil "~D bytes" summary) (or summary ""))
-                          (eq outcome :refused)))
-        (format t "~&nobody has typed into ~A~%" address))))
+  (read-log address n))
 
 (defcommand (agent-read :unlisted) (&rest args)
   "what is on the pane's screen: <pane> [<lines>] [--plain]"
-  (let* ((words (positional-args args))
-         (pane (address-pane (first words)))
-         (n (or (and (second words) (parse-integer (second words) :junk-allowed t)) 24)))
-    (dolist (line (if (flag-p args "--plain")
-                      (with-term (term pane) (plain-lines term n))
-                      (with-term (term pane) (agent:last-lines term n))))
-      (format t "~&~A~%" line))))
+  (let ((address (first (positional-args args))))
+    (apply #'read-pane address (remove address args :count 1 :test #'equal))))
 
 (defcommand (agent-explain :unlisted) (address)
   "which rule says what the pane is doing"

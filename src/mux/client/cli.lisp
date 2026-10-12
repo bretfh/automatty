@@ -2,22 +2,38 @@
 
 (in-package #:atty)
 
+(defun address-part (text)
+  (if (every #'digit-char-p text) (parse-integer text) text))
+
 (defun parse-pane-address (said)
-  "SAID taken apart: the session, and either the window and the pane's number
-in it (todo:1.2) or, from before there were windows, the pane's id (todo:4).
-Answers (values session id window n): id when it was an id, window and n when
-it was those."
+  "SAID taken apart: the session, and either the window and the pane in it
+(todo:1.2, todo:agents.impl) or the pane alone (todo:4, todo:impl, impl).
+Answers (values session id window n), a number for a number and a name for a
+name; session is nil when SAID names a pane alone."
   (let* ((colon (position #\: said :from-end t))
-         (rest (and colon (subseq said (1+ colon))))
-         (dot (and rest (position #\. rest))))
-    (unless (and colon (plusp (length rest))
-                 (parse-integer rest :junk-allowed t :end (or dot (length rest)))
-                 (or (null dot) (parse-integer rest :start (1+ dot) :junk-allowed t)))
-      (error "~S is not a pane: a pane is <session>:<window>.<pane>, as ATTY_PANE says" said))
-    (if dot
-        (values (subseq said 0 colon) nil
-                (parse-integer rest :end dot) (parse-integer rest :start (1+ dot)))
-        (values (subseq said 0 colon) (parse-integer rest) nil nil))))
+         (rest (if colon (subseq said (1+ colon)) said))
+         (dot (position #\. rest)))
+    (when (or (zerop (length rest))
+              (and dot (or (zerop dot) (= (1+ dot) (length rest)))))
+      (error "~S is not a pane: a pane is <session>:<window>.<pane>, by number or by name" said))
+    (let ((session (and colon (subseq said 0 colon))))
+      (if dot
+          (values session nil
+                  (address-part (subseq rest 0 dot)) (address-part (subseq rest (1+ dot))))
+          (values session (address-part rest) nil nil)))))
+
+(defun address-fits-p (session id window n session-name window-number window-name pane-number pane-name pane-id)
+  (and (or (null session) (equal session session-name))
+       (if id
+           (if (integerp id) (and session (eql id pane-id)) (equal id pane-name))
+           (and (if (integerp window) (eql window window-number) (equal window window-name))
+                (if (integerp n) (eql n pane-number) (equal n pane-name))))))
+
+(defun one-fitting (said found here-p address-of)
+  (let ((found (or (and (rest found) (remove-if-not here-p found)) found)))
+    (when (rest found)
+      (error "~A names ~D panes: ~{~A~^, ~}" said (length found) (mapcar address-of found)))
+    (first found)))
 
 (defun parse-state (said)
   (let ((state (intern (string-upcase said) :keyword)))
@@ -43,15 +59,18 @@ it was those."
 kind. Either form of address finds it."
   (unless address (error "which pane? <session>:<window>.<pane>, as atty agent list says"))
   (multiple-value-bind (session id window n) (parse-pane-address address)
-    (let ((row (find-if (lambda (r)
-                          (and (equal session (getf r :session))
-                               (if id
-                                   (eql id (getf r :id))
-                                   (and (eql window (getf r :window))
-                                        (eql (1- n) (getf r :at))))))
-                        (request-pane-rows))))
+    (let* ((here (let ((pane (sb-ext:posix-getenv "ATTY_PANE")))
+                   (and pane (plusp (length pane)) (subseq pane 0 (position #\: pane :from-end t)))))
+           (row (one-fitting address
+                             (remove-if-not (lambda (r)
+                                              (address-fits-p session id window n
+                                                              (getf r :session) (getf r :window) (getf r :window-name)
+                                                              (and (getf r :at) (1+ (getf r :at))) (getf r :name) (getf r :id)))
+                                            (request-pane-rows))
+                             (lambda (r) (equal here (getf r :session)))
+                             #'row-address)))
       (unless row (error "there is no pane called ~A running" address))
-      (values (server-socket-path) session (getf row :id) (getf row :kind)))))
+      (values (server-socket-path) (getf row :session) (getf row :id) (getf row :kind)))))
 
 (defun unescape (said)
   (with-output-to-string (out)
@@ -270,8 +289,8 @@ paste itself makes before the program has started on it."
                       "signal" "observe")
                :test #'string=)
        (ran (run-in-server (format nil "agent ~A" what) (rest args))))
-      (t (error "atty agent list, spawn, name, wait, read, prompt, answer, say, log, ~
-                 explain, trace, snapshot, act, observe or signal; not ~A" what)))))
+      (t (error "atty agent list, spawn, wait, prompt, answer, explain, trace, snapshot, ~
+                 act, observe or signal; not ~A" what)))))
 
 (defun format-reason (state reason)
   (cond ((and (eq state :blocked) (getf reason :question)) (getf reason :question))

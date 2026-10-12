@@ -119,3 +119,38 @@
     (write-init "(configure :wheel-rows 3)")
     (is-true (mux:load-user-init))
     (is (null (gethash "gone" mux:*declared*)))))
+
+(test a-pane-is-found-by-its-names-and-told-keys-and-read
+  (let ((path (socket-path)))
+    (declared-here path
+                   (automatty:session "work"
+                     (automatty:window "edit" (automatty:pane "sh" :name "shell"))
+                     (automatty:window "logs"
+                       (automatty:columns (automatty:pane "sleep 30" :name "tail")
+                                          (automatty:pane "sleep 30" :name "shell")))))
+    (let ((server (mux:make-server path)))
+      (unwind-protect
+           (let* ((work (first (mux:make-declared server)))
+                  (shell (first (mux:session-panes work)))
+                  (wire (wire-to path)))
+             (is (eq shell (mux::pane-at-address server "work:edit.shell")))
+             (is (eq shell (mux::pane-at-address server "work:1.1")))
+             (is (eq (third (mux:session-panes work)) (mux::pane-at-address server "work:logs.shell")))
+             (is (eq (second (mux:session-panes work)) (mux::pane-at-address server "tail")))
+             (signals error (mux::pane-at-address server "work:shell"))
+             (is (null (mux::pane-at-address server "work:nothing")))
+             (multiple-value-bind (said status)
+                 (run-by-name server wire "send keys" '("work:edit.shell" "echo sent-by-name" "RET"))
+               (is (eq t status) "~S" said))
+             (is-true (screen-has server shell "sent-by-name"))
+             (is (search "sent-by-name" (run-by-name server wire "read pane" '("work:edit.shell" "--plain"))))
+             (is (search "keys" (run-by-name server wire "read log" '("work:edit.shell"))))
+             (run-by-name server wire "rename pane" '("work:logs.tail" "follow"))
+             (is (equal "follow" (mux::pane-name (second (mux:session-panes work)))))
+             (multiple-value-bind (said status) (run-by-name server wire "send keys" '("work:shell" "x"))
+               (is (eql 1 status))
+               (is (search "names 2 panes" said) "~S" said))
+             (mux:wire-close wire))
+        (mux:server-close server)
+        (remhash (file-namestring path) mux:*declared*)
+        (ignore-errors (delete-file path))))))

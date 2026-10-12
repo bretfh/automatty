@@ -149,13 +149,53 @@ windows), the window shown being WATCHER's."
   "send the prefix itself to the pane"
   (type-into-pane *client* (string +prefix+)))
 
-(defcommand (rename-pane :group panes) ()
-  "what to call this pane; TAB names the window instead"
-  (let* ((session (here))
-         (pane (watcher-focus *client*)))
-    (prompt-pane-name *client* (session-name session) (pane-id pane)
-                      (pane-name pane) (pane-title pane)
-                      :address (pane-address-of session pane))))
+(defcommand (rename-pane :group panes) (&optional address name)
+  "what to call a pane: this one, asked for; <pane> <name>; or from inside a pane <name>"
+  (cond ((and address name)
+         (multiple-value-bind (pane session) (address-pane address)
+           (name-pane (here-server) (session-name session) (pane-id pane) name)
+           (format t "~&~A is ~A~%" (pane-address-of session pane)
+                   (if (plusp (length (string-trim " " name))) (string-trim " " name) "unnamed"))))
+        (address
+         (rename-pane (or *caller* (refuse 1 "which pane? atty rename-pane <pane> <name>")) address))
+        (t
+         (let* ((session (here))
+                (pane (watcher-focus *client*)))
+           (prompt-pane-name *client* (session-name session) (pane-id pane)
+                             (pane-name pane) (pane-title pane)
+                             :address (pane-address-of session pane))))))
+
+(defcommand (send-keys :group panes) (address &rest keys)
+  "keys into a pane: RET, TAB, ESC, SPC, Up, Down, Left, Right and C-x by name, anything else as it is"
+  (let ((pane (address-pane address))
+        (text (format nil "~{~A~}" (mapcar (lambda (k) (if (find #\Space k) k (agent:press-keys k))) keys))))
+    (pane-push-log pane (now-ms) (actor-of *client* *caller*) :keys (length text))
+    (pane-write pane text)))
+
+(defcommand (read-pane :group panes) (address &rest args)
+  "what is on a pane's screen: <pane> [<lines>] [--plain]"
+  (let* ((pane (address-pane address))
+         (words (positional-args args))
+         (n (or (and (first words) (parse-integer (first words) :junk-allowed t)) 24)))
+    (dolist (line (if (flag-p args "--plain")
+                      (with-term (term pane) (plain-lines term n))
+                      (with-term (term pane) (agent:last-lines term n))))
+      (format t "~&~A~%" line))))
+
+(defcommand (read-log :group panes) (address &optional n)
+  "who typed into a pane, newest first"
+  (let* ((pane (address-pane address))
+         (n (or (and n (parse-integer (princ-to-string n) :junk-allowed t)) 20))
+         (now (now-ms))
+         (entries (mapcar (lambda (e) (encode-log-entry e now))
+                          (subseq (pane-log pane) 0 (min n (length (pane-log pane)))))))
+    (if entries
+        (loop :for (nil actor verb summary outcome clock) :in entries
+              :do (format t "~&~A  ~12A ~(~7A~) ~A~:[~;  refused~]~%"
+                          (format-clock-hms clock) (caller-actor actor) verb
+                          (if (eq verb :keys) (format nil "~D bytes" summary) (or summary ""))
+                          (eq outcome :refused)))
+        (format t "~&nobody has typed into ~A~%" address))))
 
 (declaim (ftype (function (watcher string) t) prompt-session-name))
 (defun prompt-session-name (watcher session)
