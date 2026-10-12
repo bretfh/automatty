@@ -7,4 +7,5 @@
                 :serial t
                 :pathname "src/automatty/"
                 :components ((:file "package")
-                             (:file "tree")))
+                             (:file "tree")
+                             (:file "commands")))

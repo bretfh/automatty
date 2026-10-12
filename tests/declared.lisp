@@ -192,3 +192,11 @@
           (mux:server-close server)
           (remhash (file-namestring path) mux:*declared*)
           (ignore-errors (delete-file path)))))))
+
+(test every-command-offered-is-a-function-of-the-language
+  (dolist (name (mux::command-names))
+    (let ((symbol (find-symbol (string-upcase (substitute #\- #\Space name)) '#:automatty/user)))
+      (is-true symbol "~A is not in automatty/user" name)
+      (is (eq :external (nth-value 1 (find-symbol (symbol-name symbol) '#:automatty))))
+      (is (fboundp symbol))))
+  (is (null (find-symbol "PRESS" '#:automatty/user)) "the keymap's insides reach a config"))
