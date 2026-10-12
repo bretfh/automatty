@@ -11,6 +11,8 @@
   "The attached terminal a command is running for, the way a command in an
 editor reads which buffer it is in.")
 
+(defvar *command-line* nil)
+
 (defvar *commands* (make-hash-table :test 'equal :synchronized t)
   "Every command, by the name it is asked for by.")
 

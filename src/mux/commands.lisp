@@ -59,13 +59,32 @@
   "run any command by name; the palette's first tab"
   (open-palette *client* :commands))
 
-(defcommand (split-right :group panes) ()
-  "another pane beside this one"
-  (watcher-split *client* :across))
+(defun made-options (args)
+  (if (keywordp (first args))
+      (destructuring-bind (&key command directory name) args
+        (values command (declared-directory *caller-directory* directory) name))
+      (let* ((dashes (member "--" args :test #'string=))
+             (before (ldiff args dashes))
+             (words (or (rest dashes) (positional-args before "--name" "--directory" "--cwd"))))
+        (values (and words (format nil "~{~A~^ ~}" words))
+                (declared-directory *caller-directory*
+                                    (or (option-value before "--directory") (option-value before "--cwd")))
+                (option-value before "--name")))))
 
-(defcommand (split-below :group panes) ()
-  "another pane under this one"
-  (watcher-split *client* :down))
+(defun made-pane (session pane)
+  (when (and *command-line* pane)
+    (format t "~&~A~%" (pane-address-of session pane)))
+  pane)
+
+(defcommand (split-right :group panes) (&rest options)
+  "another pane beside this one: [--name <name>] [--directory <dir>] [<command>]"
+  (multiple-value-bind (command directory name) (made-options options)
+    (made-pane (here) (watcher-split *client* :across command directory name))))
+
+(defcommand (split-below :group panes) (&rest options)
+  "another pane under this one: [--name <name>] [--directory <dir>] [<command>]"
+  (multiple-value-bind (command directory name) (made-options options)
+    (made-pane (here) (watcher-split *client* :down command directory name))))
 
 (defcommand (next-pane :group panes) ()
   "the focus to the next pane in this window"
@@ -81,21 +100,26 @@
 
 (defun open-session (server watcher &optional name command directory)
   "A new session, joined by WATCHER, started where its pane is."
-  (let ((focus (watcher-focus watcher)))
-    (join-session server watcher
-                  (add-session server (or command (server-command server))
+  (let* ((focus (watcher-focus watcher))
+         (session (add-session server (or command (server-command server))
                                :name (or name (unused-session-name server))
                                :rows (watcher-rows watcher)
                                :cols (watcher-cols watcher)
-                               :directory (or directory (and focus (pane-directory focus)))))))
+                               :directory (or directory (and focus (pane-directory focus))))))
+    (join-session server watcher session)
+    session))
 
-(defcommand (new-session :group sessions) ()
-  "another session, started where this pane is"
-  (open-session (here-server) *client*))
+(defcommand (new-session :group sessions) (&rest options)
+  "another session, started where this pane is: [--name <name>] [--directory <dir>] [<command>]"
+  (multiple-value-bind (command directory name) (made-options options)
+    (let ((session (open-session (here-server) *client* name command directory)))
+      (made-pane session (first (session-panes session)))
+      session)))
 
-(defcommand (new-window :group windows) ()
-  "another window in this session, after this one"
-  (watcher-add-window *client*))
+(defcommand (new-window :group windows) (&rest options)
+  "another window in this session, after this one: [--name <name>] [--directory <dir>] [<command>]"
+  (multiple-value-bind (command directory name) (made-options options)
+    (made-pane (here) (first (window-panes (watcher-add-window *client* command directory name))))))
 
 (defcommand (next-window :group windows) ()
   "show the next window"

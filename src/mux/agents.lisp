@@ -81,21 +81,24 @@ alone is looked for in the caller's session first."
                            (getf (getf r :asks) :subject))))))))
 
 (defcommand (agent-spawn :unlisted) (&rest args)
-  "a new pane: <session> [--name <name>] [--cwd <dir>] [--window <n> | --new-window] -- <command>"
+  "a new pane: <session> [--name <name>] [--directory <dir>] [--window <n> | --new-window] -- <command>"
   (let* ((dashes (member "--" args :test #'string=))
          (before (ldiff args dashes))
-         (session (first (positional-args before "--name" "--cwd" "--window")))
-         (command (format nil "~{~A~^ ~}" (or (rest dashes) (rest (positional-args before "--name" "--cwd" "--window")))))
+         (session (first (positional-args before "--name" "--directory" "--cwd" "--window")))
+         (command (format nil "~{~A~^ ~}" (or (rest dashes) (rest (positional-args before "--name" "--directory" "--cwd" "--window")))))
          (window (cond ((flag-p before "--new-window") :new)
                        ((option-value before "--window")
                         (or (parse-integer (option-value before "--window") :junk-allowed t)
                             (error "--window wants a number, as atty agent list says them"))))))
     (unless session
-      (error "atty agent spawn <session> [--name <name>] [--cwd <dir>] [--window <n> | --new-window] -- <command>"))
+      (error "atty agent spawn <session> [--name <name>] [--directory <dir>] [--window <n> | --new-window] -- <command>"))
     (let* ((server (here-server))
            (pane (spawn-pane server session
                              (if (plusp (length command)) command (default-shell))
-                             (or (option-value before "--cwd") *caller-directory*)
+                             (or (declared-directory *caller-directory*
+                                                     (or (option-value before "--directory")
+                                                         (option-value before "--cwd")))
+                                 *caller-directory*)
                              (option-value before "--name")
                              window)))
       (when (pane-failed pane) (error "~A" (pane-failed pane)))

@@ -31,7 +31,7 @@
   (format s "  atty rename-pane <pane> <name>   what to call it; from inside a pane, <name> alone~%")
   (format s "  a pane is <session>:<window>.<pane> by number or by name, or a pane's name alone~%")
   (format s "  atty agent list [--blocked] [--session <s>] [--json]   what every pane is doing~%")
-  (format s "  atty agent spawn <session> [--name <n>] [--cwd <d>] [--window <n> | --new-window] -- <command>   a new pane~%")
+  (format s "  atty agent spawn <session> [--name <n>] [--directory <d>] [--window <n> | --new-window] -- <command>   a new pane~%")
   (format s "  atty agent wait <pane> [<state>...] [--after-prompt]   until it is~%")
   (format s "                       blocked or idle; after a prompt, only once it took it up~%")
   (format s "  atty agent prompt <pane> <text> [--until <state>...]   new work~%")
