@@ -40,7 +40,7 @@
 (defun row-name (row)
   "What to call a pane on the board: what somebody called it, else its
 program. Not its title: a shell's title is a path nobody wants forty of."
-  (or (getf row :label) (getf row :command) (getf row :says) ""))
+  (or (getf row :name) (getf row :command) (getf row :says) ""))
 
 (defun row-pane (watcher row)
   (let ((server (watcher-server watcher)))
@@ -75,7 +75,7 @@ shown being WATCHER's own."
          (loop :for w :in (session-windows it)
                :for n :from 1
                :collect (let ((focus (if mine (view-focus-in it view w) (first (window-panes w)))))
-                          (list n (window-label w) (encode-layout (window-layout w))
+                          (list n (window-name w) (encode-layout (window-layout w))
                                 (and focus (pane-id focus))
                                 (and mine (same-window-p w (watcher-window watcher)))))))))
 

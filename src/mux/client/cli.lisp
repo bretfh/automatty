@@ -317,8 +317,8 @@ the server that comes back is another build, this becomes it first."
     (t (when why (format t "~&~A~%" why))))
   why)
 
-(defun attach-or-create (&key (name "0") (command (default-shell)) label)
+(defun attach-or-create (&key (name "0") (command (default-shell)) pane-name)
   "Join NAME in this user's server, making the server and the session when
 they are not there, its first pane called LABEL."
   (report-exit-reason name (attach-through-restarts (if *fresh-start* (start-fresh-server) (ensure-server))
-                                         :name name :open (list command (cwd) label))))
+                                         :name name :open (list command (cwd) pane-name))))

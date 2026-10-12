@@ -38,7 +38,7 @@
   (mux:declare-server (automatty::server-form (file-namestring path) sessions)))
 
 (defun window-names (session)
-  (mapcar #'mux:window-label (mux:session-windows session)))
+  (mapcar #'mux:window-name (mux:session-windows session)))
 
 (defun screen-has (server pane text)
   (step-until server
@@ -64,10 +64,10 @@
                (let ((work (mux:session-named server "work")))
                  (is-true work)
                  (is (equal '("edit" "logs") (window-names work)))
-                 (is (equal '("left" "top" "shell") (mapcar #'mux::pane-label
+                 (is (equal '("left" "top" "shell") (mapcar #'mux::pane-name
                                                             (mux:window-panes (first (mux:session-windows work))))))
                  (is (every #'mux:pane-started (mux:session-panes work)))
-                 (let ((shell (find "shell" (mux:session-panes work) :key #'mux::pane-label :test #'equal)))
+                 (let ((shell (find "shell" (mux:session-panes work) :key #'mux::pane-name :test #'equal)))
                    (is (equal "/tmp" (mux::pane-directory shell)))
                    (is (equal '("WHERE=work" "WHAT=shell") (mux::pane-env shell)))
                    (mux:pane-write shell (format nil "echo $WHERE-$WHAT; pwd~C" #\Return))
@@ -104,7 +104,7 @@
                (mux:make-declared server)
                (is (eql 1 (length (mux:server-sessions server))))
                (is (equal '("edit" "logs") (window-names work)))
-               (is (equal '("a") (mapcar #'mux::pane-label
+               (is (equal '("a") (mapcar #'mux::pane-name
                                          (mux:window-panes (first (mux:session-windows work)))))
                    "the window that came back was changed"))
           (mux:server-close server)

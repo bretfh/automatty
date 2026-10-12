@@ -4,7 +4,7 @@
   (:use #:cl)
   (:import-from #:atty
                 #:defcommand #:run-command #:*client*
-                #:pane-mode #:scroll-mode #:board-mode #:note-mode
+                #:pane-mode #:scroll-mode #:switchboard-mode #:note-mode
                 #:configure #:setting #:settings
                 #:add-hook #:remove-hook
                 #:session-made #:pane-started #:pane-ended #:client-attached
@@ -16,7 +16,7 @@
    #:defserver #:session #:window #:columns #:rows #:pane
    #:defcommand #:run-command #:*client*
    #:define-key #:undefine-key #:global-set-key #:global-unset-key #:define-mode
-   #:pane-mode #:scroll-mode #:board-mode #:note-mode
+   #:pane-mode #:scroll-mode #:switchboard-mode #:note-mode
    #:configure #:setting #:settings
    #:add-hook #:remove-hook
    #:session-made #:pane-started #:pane-ended #:client-attached

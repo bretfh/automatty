@@ -210,8 +210,8 @@ log, and every row it holds, oldest first, with the faces said once."
                      (front-with-session (list* :alt (and in-front t)
                                                 (pane-front pane)))
                      (pane-kept-front pane))
-          :label (pane-label pane)
-          :named (pane-named pane)
+          :name (pane-name pane)
+          :named (pane-title pane)
           :env (pane-env pane)
           :rows (term:term-height term)
           :cols (term:term-width term)
@@ -253,7 +253,7 @@ log, and every row it holds, oldest first, with the faces said once."
 (defun adopt-pane (form now fd pid)
   "The pane FORM saved, around the program still running on FD as PID: its
 screen and its terminal's modes as they were, and nothing started."
-  (destructuring-bind (&key id command directory here label named env rows cols programs
+  (destructuring-bind (&key id command directory here name label named env rows cols programs
                             queued told since-clock states log faces behind screen over
                             alt-screen modes &allow-other-keys)
       (nthcdr 2 form)
@@ -270,8 +270,8 @@ screen and its terminal's modes as they were, and nothing started."
       (setf (pane-fd pane) (pty:nonblocking fd)
             (pane-pid pane) pid
             (pane-here pane) here
-            (pane-label pane) label
-            (pane-named pane) named
+            (pane-name pane) (or name label)
+            (pane-title pane) named
             (pane-env pane) env
             (pane-programs pane) programs
             (pane-pending-prompt pane) queued
@@ -449,7 +449,7 @@ it could not be as it was."
     (when kept
       (remhash (getf (nthcdr 2 form) :id) *adopted*)
       (return-from decode-pane (adopt-pane form now (first kept) (second kept)))))
-  (destructuring-bind (&key id saved command directory here label named env rows cols
+  (destructuring-bind (&key id saved command directory here name label named env rows cols
                             programs title queued told since-clock states log
                             faces behind screen over &allow-other-keys)
       (nthcdr 2 form)
@@ -494,8 +494,8 @@ it could not be as it was."
         (setf (pane-here pane) start
               (pane-typed pane) (and typed (list typed entered))
               (pane-kept-front pane) (and typed (front-of form))
-              (pane-label pane) label
-              (pane-named pane) named
+              (pane-name pane) (or name label)
+              (pane-title pane) named
               (pane-env pane) env
               (pane-programs pane) programs
               (pane-pending-prompt pane) (and (or same entered) queued)
@@ -515,7 +515,7 @@ it could not be as it was."
 ;;; The tree as data, and back.
 
 (defun encode-window (window)
-  (list :label (window-label window)
+  (list :name (window-name window)
         :layout (encode-layout (window-layout window))))
 
 (defun encode-view (session view)
@@ -560,10 +560,10 @@ that is not there is left out, and a split left with one part is that part."
         (t nil)))
 
 (defun decode-window (form panes)
-  (destructuring-bind (&key label layout &allow-other-keys) form
+  (destructuring-bind (&key name label layout &allow-other-keys) form
     (let ((layout (decode-layout layout panes)))
       (when layout
-        (%make-window :label label :layout layout)))))
+        (%make-window :name (or name label) :layout layout)))))
 
 (defun decode-view (form windows)
   (destructuring-bind (&key window spots (bar t) (rail t) (scrollbars t) search-kind &allow-other-keys) form

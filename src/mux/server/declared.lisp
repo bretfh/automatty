@@ -43,7 +43,7 @@
   (destructuring-bind (command &key name ((:directory here)) ((:env more))) (rest form)
     (let ((pane (make-pane (or command (server-command server) (default-shell))
                            :directory (declared-directory directory here))))
-      (setf (pane-label pane) name
+      (setf (pane-name pane) name
             (pane-env pane) (declared-env env more))
       pane)))
 
@@ -59,7 +59,7 @@
 
 (defun declared-window (server form directory env)
   (destructuring-bind (&key ((:directory here)) ((:env more)) layout) (cddr form)
-    (%make-window :label (second form)
+    (%make-window :name (second form)
                   :layout (declared-layout server layout
                                            (declared-directory directory here)
                                            (declared-env env more)))))
@@ -90,7 +90,7 @@
     (let ((directory (declared-directory directory here))
           (env (declared-env env more)))
       (loop :for w :in windows
-            :unless (find (second w) (session-windows session) :key #'window-label :test #'equal)
+            :unless (find (second w) (session-windows session) :key #'window-name :test #'equal)
               :collect (let ((window (declared-window server w directory env)))
                          (change-session session
                                          (lambda (s)

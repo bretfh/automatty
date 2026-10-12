@@ -66,11 +66,11 @@
       (pump seer :seconds 1/4))))
 
 (test the-windows-kind-previews-the-panes-of-the-window-chosen
-  (with-world (client server (list (list :session "todo" :id 2 :window 1 :at 0 :label "impl" :kind "claude-code"
+  (with-world (client server (list (list :session "todo" :id 2 :window 1 :at 0 :name "impl" :kind "claude-code"
                                          :state :blocked :for 42000 :asks '(:subject "Bash command" :options ((1 "Yes"))))
                                    (list :session "todo" :id 4 :window 1 :at 1 :says "ctl" :kind "shell" :known nil
                                          :doing "atty agent wait")))
-    (let* ((tree (mux::window-preview '(:session "todo" :window 1 :label "agents") client))
+    (let* ((tree (mux::window-preview '(:session "todo" :window 1 :window-name "agents") client))
            (screen (painted tree 70 4))
            (all (format nil "~{~A~%~}" (loop :for y :below 4 :collect (shown screen y)))))
       (is (search "todo › 1 agents" all) "~A" all)

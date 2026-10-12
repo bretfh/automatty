@@ -2,13 +2,13 @@
 
 (in-package #:atty)
 
-(defun prompt-pane-name (watcher session id label title &key address)
+(defun prompt-pane-name (watcher session id name title &key address)
   "Ask what to call pane ID of SESSION, on the line at the foot, starting
 from what it is called now. TAB goes over to naming the window it is in."
   (entry watcher "name"
          (format nil "pane ~A~@[ · ~A~]" (or address (format nil "~A:~D" session id))
-                 (and (null label) title (plusp (length title)) title))
-         (or label "")
+                 (and (null name) title (plusp (length title)) title))
+         (or name "")
          :keep (lambda (typed w) (name-pane (watcher-server w) session id typed))
          :swap (lambda (w) (run-command "rename window" w))
          :swap-says "window instead"))
@@ -18,7 +18,7 @@ from what it is called now. TAB goes over to naming the window it is in."
   "Ask what to call WINDOW of SESSION. TAB goes over to naming the pane."
   (entry watcher "name"
          (format nil "window ~A › ~D" (session-name session) (window-number session window))
-         (or (window-label window) "")
+         (or (window-name window) "")
          :keep (lambda (typed w)
                  (declare (ignore w))
                  (when (window-now session window)
@@ -50,11 +50,11 @@ watcher is on: the window it shows is marked."
       (destructuring-bind (name panes watching &optional (blocked 0) windows) row
         (declare (ignore panes watching blocked))
         (if windows
-            (loop :for (n label npanes asking shownp) :in windows
-                  :do (push (list :session name :window n :label label :panes npanes
+            (loop :for (n window-name npanes asking shownp) :in windows
+                  :do (push (list :session name :window n :window-name window-name :panes npanes
                                   :asking asking :here (and shownp (equal name here)))
                             out))
-            (push (list :session name :window nil :label nil :panes 0 :asking 0
+            (push (list :session name :window nil :window-name nil :panes 0 :asking 0
                         :here (equal name here))
                   out))))
     (stable-sort (nreverse out) #'> :key (lambda (c) (getf c :asking)))))
@@ -65,7 +65,7 @@ is asking, how many panes."
   (let ((here (if (getf c :here) "◆ here" "      "))
         (session (getf c :session))
         (window (if (getf c :window)
-                    (format nil "› ~D ~A" (getf c :window) (or (getf c :label) ""))
+                    (format nil "› ~D ~A" (getf c :window) (or (getf c :window-name) ""))
                     ""))
         (asking (if (plusp (getf c :asking)) (format nil "▲ ~D" (getf c :asking)) ""))
         (panes (format nil "~D pane~:P" (getf c :panes))))
@@ -80,7 +80,7 @@ what it is doing."
                                     (pane-rows-of watcher))
                      #'< :key (lambda (r) (or (getf r :at) 0)))))
     (apply #'atty/ui:column :align :stretch
-           (band (list (atty/ui:label (format nil " ~A › ~D~@[ ~A~]" (getf c :session) (getf c :window) (getf c :label))
+           (band (list (atty/ui:label (format nil " ~A › ~D~@[ ~A~]" (getf c :session) (getf c :window) (getf c :window-name))
                                       :face :quiet))
                  nil)
            (if panes
@@ -89,7 +89,7 @@ what it is doing."
                                 (atty/ui:row :spacing 0
                                              (atty/ui:label (format nil " ~A " (state-glyph state))
                                                             :face (if state (number-face state) :number-unknown))
-                                             (atty/ui:label (format nil " ~D ~A" (1+ (or (getf r :at) 0)) (or (getf r :label) (getf r :says) ""))
+                                             (atty/ui:label (format nil " ~D ~A" (1+ (or (getf r :at) 0)) (or (getf r :name) (getf r :says) ""))
                                                             :face :strong)
                                              (atty/ui:label (format nil " ~A" (or (getf r :kind) "")) :face :quiet)
                                              (atty/ui:label (format nil "  ~A" (truncate-string (or (getf (getf r :asks) :subject) (getf r :doing) "") 40))

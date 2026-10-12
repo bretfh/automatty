@@ -137,7 +137,7 @@
 
 (test the-drawer-is-in-sections-and-answers-from-its-foot
   (with-world (client server (list (list :session "todo" :id 2 :window 1 :window-name "agents" :at 1 :says "impl"
-                                         :label "impl" :kind "claude-code" :state :blocked :for 42000 :focus t
+                                         :name "impl" :kind "claude-code" :state :blocked :for 42000 :focus t
                                          :asks '(:subject "Bash command" :options ((1 "Yes") (2 "No"))))))
     (let* ((d (mux::%make-drawer))
            (key (cons "todo" 2))

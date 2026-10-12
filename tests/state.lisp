@@ -311,7 +311,7 @@ and the terminal."
             (is-true seen "what the terminal showed was not kept")
             (is (eql 3 (length (mux:session-windows b))))
             (is (eql 2 (mux:window-number b (mux::view-shown-window b seen))))
-            (is (equal "third" (mux:window-label (mux:session-nth-window b 3))))
+            (is (equal "third" (mux:window-name (mux:session-nth-window b 3))))
             (is (equal (mapcar (lambda (w) (mux::encode-layout (mux:window-layout w)))
                                (mux:session-windows one))
                        (mapcar (lambda (w) (mux::encode-layout (mux:window-layout w)))

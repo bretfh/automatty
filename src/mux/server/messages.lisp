@@ -38,7 +38,7 @@ here handles, or one that needs a session the watcher has not joined."
         (join-session server watcher want)
         (drop-watcher server watcher :no-such-session))))
 
-(define-message-handler :open (name command directory rows cols takes &optional label)
+(define-message-handler :open (name command directory rows cols takes &optional pane-name)
   ;; join NAME, making it first when it is not there. One message, so the
   ;; asking and the making are one step here: two clients opening the same
   ;; new name get one session, not two, and not an error
@@ -50,9 +50,9 @@ here handles, or one that needs a session the watcher has not joined."
                                                   :rows (watcher-rows watcher)
                                                   :cols (watcher-cols watcher)
                                                   :directory directory)))
-                           (when label
+                           (when pane-name
                              (let ((pane (first (session-panes made))))
-                               (on-pane pane (lambda () (setf (pane-label pane) label)))))
+                               (on-pane pane (lambda () (setf (pane-name pane) pane-name)))))
                            made)
                        (error (e)
                          (drop-watcher server watcher (princ-to-string e))
@@ -129,7 +129,7 @@ here handles, or one that needs a session the watcher has not joined."
     (dolist (session (server-sessions server))
       (dolist (pane (session-panes session))
         (on-pane pane (lambda ()
-                        (agent:agent-become (pane-agent pane) :title (pane-named pane)
+                        (agent:agent-become (pane-agent pane) :title (pane-title pane)
                                                               :command (pane-command pane)
                                                               :programs (pane-programs pane)
                                                               :paths (pane-paths pane))))))

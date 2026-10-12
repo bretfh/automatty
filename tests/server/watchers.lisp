@@ -16,7 +16,7 @@
   (is (equal "todo:9" (mux::row-address '(:session "todo" :id 9)))
       "a row from a server without windows is still said by its id")
   (is (equal "todo › 1 agents › impl"
-             (mux::row-path '(:session "todo" :id 9 :window 1 :window-name "agents" :label "impl")))))
+             (mux::row-path '(:session "todo" :id 9 :window 1 :window-name "agents" :name "impl")))))
 
 (test whoever-is-attached-is-listed-and-can-be-let-go
   (with-stepped-server (server path)

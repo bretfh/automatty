@@ -154,7 +154,7 @@ windows), the window shown being WATCHER's."
   (let* ((session (here))
          (pane (watcher-focus *client*)))
     (prompt-pane-name *client* (session-name session) (pane-id pane)
-                      (pane-label pane) (pane-named pane)
+                      (pane-name pane) (pane-title pane)
                       :address (pane-address-of session pane))))
 
 (declaim (ftype (function (watcher string) t) prompt-session-name))

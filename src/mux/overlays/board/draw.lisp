@@ -19,7 +19,7 @@
   (let ((state (row-state row)))
     (if state (format-duration (row-duration row now)) "")))
 
-(defun pane-title (b watcher row width &key ruled)
+(defun board-pane-title (b watcher row width &key ruled)
   "One line naming a pane inside a card: number, name, kind, and its state
 and how long at the right. RULED draws it as a rule with the title in it,
 for a pane under another."
@@ -66,7 +66,7 @@ is doing when the board is not showing screens."
 (defun pane-block (b watcher row width &key (title t) ruled)
   "A pane inside a card: its title line and its rows."
   (apply #'atty/ui:column :align :stretch :expand 1
-         (remove nil (list (and title (pane-title b watcher row width :ruled ruled))
+         (remove nil (list (and title (board-pane-title b watcher row width :ruled ruled))
                            (pane-rows-view b watcher row)))))
 
 (defun tree-block (b watcher session tree width &key (first t))
@@ -117,7 +117,7 @@ footer row."
                                                  (atty/ui:label (if picked " ✓" "") :face :state-idle)
                                                  (atty/ui:label (format nil " ~D " n)
                                                                 :face (if state (number-face state) :number-unknown))
-                                                 (atty/ui:label (format nil " ~A" (truncate-string (window-name watcher session window) 14))
+                                                 (atty/ui:label (format nil " ~A" (truncate-string (board-window-name watcher session window) 14))
                                                                 :face (if cursor :cursor :strong))
                                                  (atty/ui:label (if single
                                                                     (format nil " · ~A " (truncate-string (or (getf single :kind) "") 12))
@@ -148,10 +148,10 @@ and on a wide card the rest of what acts on it."
   (atty/ui:row :spacing 0
                (atty/ui:label " ")
                (if wide
-                   (hints 'board-mode 'switchboard-goto "go" 'switchboard-close-pane "close"
+                   (hints 'switchboard-mode 'switchboard-goto "go" 'switchboard-close-pane "close"
                           'switchboard-name "name" 'switchboard-prompt "prompt"
                           'switchboard-select "pick" 'switchboard-explain "details")
-                 (hints 'board-mode 'switchboard-goto "go"))))
+                 (hints 'switchboard-mode 'switchboard-goto "go"))))
 
 (defun overview-chip (b watcher session window)
   "A window as a chip, for the overview: its number and name, yellow when a
@@ -163,7 +163,7 @@ pane in it asks, lit where the cursor is."
          (state (and worst (row-state worst))))
     (bar-button (list :cursor session n)
                 (atty/ui:row :spacing 0
-                             (atty/ui:label (format nil " ~D ~A " n (truncate-string (window-name watcher session window) 12))
+                             (atty/ui:label (format nil " ~D ~A " n (truncate-string (board-window-name watcher session window) 12))
                                             :face (cond ((eq state :blocked) :chip-blocked)
                                                         (cursor :cursor)
                                                         (t :key))
@@ -226,7 +226,7 @@ when it is quiet and quiet lanes are folded and the cursor is not in it."
     (if (eq :overview (board-zoom b))
         (+ 2 (loop :for w :in windows
                    :sum (+ 7 (length (format nil "~D" (first w)))
-                           (length (truncate-string (window-name watcher session w) 12)))))
+                           (length (truncate-string (board-window-name watcher session w) 12)))))
       (+ 2 (* (length windows) (1+ width))))))
 
 ;;; The pulses, rolled up: a pane's cells are the server's; a window is its
@@ -248,7 +248,7 @@ cursor's lane what can be pressed here. Answers the tree and the rail."
                      (t (let ((from (min (1- n) (floor x0 (1+ cw))))
                               (to (min (1- n) (floor (+ x0 wide -2) (1+ cw)))))
                           (format nil "windows ~D–~D of ~D" (1+ from) (1+ to) n)))))
-         (keys (and cursor (hints 'board-mode "← →" "window" 'switchboard-new-window "new window"
+         (keys (and cursor (hints 'switchboard-mode "← →" "window" 'switchboard-new-window "new window"
                                   'switchboard-rename "rename"
                                   'switchboard-fold (if folded "unfold" "fold")))))
     (values (foot r text keys) r)))
@@ -431,9 +431,9 @@ clients, in ROOM rows."
   "The keys that work anywhere on the board, for its footer. The lane's keys
 are on the lane's foot and the card's on the card."
   (if (eq :one (board-zoom b))
-      (hints 'board-mode "↑↓" "session" 'switchboard-next-blocked "next ▲" 'switchboard-zoom-out "every session"
+      (hints 'switchboard-mode "↑↓" "session" 'switchboard-next-blocked "next ▲" 'switchboard-zoom-out "every session"
              'switchboard-filter "filter" 'switchboard-toggle-side "side pane")
-    (hints 'board-mode "↑↓" "session" 'switchboard-next-blocked "next ▲" "- +" "zoom"
+    (hints 'switchboard-mode "↑↓" "session" 'switchboard-next-blocked "next ▲" "- +" "zoom"
            'switchboard-filter "filter" 'switchboard-toggle-side "side pane")))
 
 ;;; Drawing. The side pane, the header, the status and the footer are laid

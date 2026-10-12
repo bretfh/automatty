@@ -114,7 +114,7 @@ for it, so they are worked out once.")
       (case (watcher-mode watcher)
         (scroll-mode (values "SCROLL" :mode-scroll))
         ((prompt-mode entry-mode) (values "PROMPT" :mode-prompt))
-        ((board-mode board-type-mode) (values "BOARD" :mode-board))
+        ((switchboard-mode board-type-mode) (values "BOARD" :mode-board))
         ((queue-mode queue-filter-mode) (values "QUEUE" :mode-queue))
         (t (values "PANE" :mode-pane)))))
 

@@ -152,7 +152,7 @@
 
 (test a-foot-is-a-rail-with-where-the-view-is-and-the-keys-on-it
   (let* ((r (mux::rail 0 3 5 :upright nil :expand 1))
-         (screen (painted (mux::foot r "windows 1–3 of 5" (mux::hints 'mux::board-mode "⇥" "fold")) 60 1))
+         (screen (painted (mux::foot r "windows 1–3 of 5" (mux::hints 'mux::switchboard-mode "⇥" "fold")) 60 1))
          (line (shown screen 0)))
     (is (search "‹━" line) "~S" line)
     (is (search "─› windows 1–3 of 5" line) "~S" line)

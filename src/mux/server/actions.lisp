@@ -299,7 +299,7 @@ pane that is asking something is refused as a prompt to it now would be."
       (when queued
         (prompt-pane server pane (first queued) (second queued))))))
 
-(defun spawn-pane (server name command directory label &optional window)
+(defun spawn-pane (server name command directory pane-name &optional window)
   "A pane running COMMAND in the session called NAME, beside the pane the
 command line was run in when that is there, else beside the focus of whoever
 was there last, or the first pane of that session when there is no such session
@@ -333,7 +333,7 @@ pane."
                                                 :directory (or directory (pane-directory beside)))))
                     (or (session-split session beside :across it)
                         (error "~A changed under the pane being made" name)))))))
-    (when label (on-pane pane (lambda () (setf (pane-label pane) label))))
+    (when pane-name (on-pane pane (lambda () (setf (pane-name pane) pane-name))))
     pane))
 
 (defun go-to (watcher name &optional n)
@@ -349,13 +349,13 @@ pane."
       (when n (watcher-select-window watcher n)))
     session))
 
-(defun name-pane (server name id label)
+(defun name-pane (server name id pane-name)
   (let ((pane (find-pane server name id)))
     (when pane
       (on-pane pane (lambda ()
-                      (setf (pane-label pane) (and (stringp label)
-                                                   (plusp (length (string-trim " " label)))
-                                                   (string-trim " " label))
+                      (setf (pane-name pane) (and (stringp pane-name)
+                                                   (plusp (length (string-trim " " pane-name)))
+                                                   (string-trim " " pane-name))
                             (pane-touched pane) (now-ms))))
       (dolist (w (session-watchers (session-named server name)))
         (draw-again w)))

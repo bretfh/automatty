@@ -2,14 +2,14 @@
 
 (in-package #:atty)
 
-(atty/mode:define-mode board-mode ())
+(atty/mode:define-mode switchboard-mode ())
 
 (atty/mode:define-mode board-type-mode ()
   (:documentation "Typing a filter or a prompt: every letter is what is typed."))
 
 (defmethod mode-of ((b board))
   (cond ((or (board-filtering b) (board-composing b)) 'board-type-mode)
-        (t 'board-mode)))
+        (t 'switchboard-mode)))
 
 (defun current-board ()
   (let ((it (first (watcher-overlays *client*))))
@@ -421,85 +421,85 @@ slides"
 (defcommand (switchboard-page-down :unlisted) ()
   (let ((b (current-board))) (when b (board-scroll b *client* (board-height *client*)))))
 
-(atty/mode:define-key 'board-mode "Left"   #'switchboard-left)
+(atty/mode:define-key 'switchboard-mode "Left"   #'switchboard-left)
 
-(atty/mode:define-key 'board-mode "Right"  #'switchboard-right)
+(atty/mode:define-key 'switchboard-mode "Right"  #'switchboard-right)
 
-(atty/mode:define-key 'board-mode "Up"     #'switchboard-up)
+(atty/mode:define-key 'switchboard-mode "Up"     #'switchboard-up)
 
-(atty/mode:define-key 'board-mode "Down"   #'switchboard-down)
+(atty/mode:define-key 'switchboard-mode "Down"   #'switchboard-down)
 
-(atty/mode:define-key 'board-mode "Home"   #'switchboard-first-window)
+(atty/mode:define-key 'switchboard-mode "Home"   #'switchboard-first-window)
 
-(atty/mode:define-key 'board-mode "End"    #'switchboard-last-window)
+(atty/mode:define-key 'switchboard-mode "End"    #'switchboard-last-window)
 
-(atty/mode:define-key 'board-mode "TAB"    #'switchboard-fold)
+(atty/mode:define-key 'switchboard-mode "TAB"    #'switchboard-fold)
 
-(atty/mode:define-key 'board-mode "o"      #'switchboard-next-pane)
+(atty/mode:define-key 'switchboard-mode "o"      #'switchboard-next-pane)
 
-(atty/mode:define-key 'board-mode "SPC"    #'switchboard-select)
+(atty/mode:define-key 'switchboard-mode "SPC"    #'switchboard-select)
 
-(atty/mode:define-key 'board-mode "RET"    #'switchboard-goto)
+(atty/mode:define-key 'switchboard-mode "RET"    #'switchboard-goto)
 
-(atty/mode:define-key 'board-mode "+"      #'switchboard-zoom-in)
+(atty/mode:define-key 'switchboard-mode "+"      #'switchboard-zoom-in)
 
-(atty/mode:define-key 'board-mode "="      #'switchboard-zoom-in)
+(atty/mode:define-key 'switchboard-mode "="      #'switchboard-zoom-in)
 
-(atty/mode:define-key 'board-mode "-"      #'switchboard-zoom-out)
+(atty/mode:define-key 'switchboard-mode "-"      #'switchboard-zoom-out)
 
-(atty/mode:define-key 'board-mode "\\"     #'switchboard-toggle-side)
+(atty/mode:define-key 'switchboard-mode "\\"     #'switchboard-toggle-side)
 
-(atty/mode:define-key 'board-mode "c"      #'switchboard-new-window)
+(atty/mode:define-key 'switchboard-mode "c"      #'switchboard-new-window)
 
-(atty/mode:define-key 'board-mode "C"      #'switchboard-new-session)
+(atty/mode:define-key 'switchboard-mode "C"      #'switchboard-new-session)
 
-(atty/mode:define-key 'board-mode "p"      #'switchboard-prompt)
+(atty/mode:define-key 'switchboard-mode "p"      #'switchboard-prompt)
 
-(atty/mode:define-key 'board-mode "n"      #'switchboard-next-blocked)
+(atty/mode:define-key 'switchboard-mode "n"      #'switchboard-next-blocked)
 
-(atty/mode:define-key 'board-mode "r"      #'switchboard-rename)
+(atty/mode:define-key 'switchboard-mode "r"      #'switchboard-rename)
 
-(atty/mode:define-key 'board-mode ","      #'switchboard-name)
+(atty/mode:define-key 'switchboard-mode ","      #'switchboard-name)
 
-(atty/mode:define-key 'board-mode "e"      #'switchboard-explain)
+(atty/mode:define-key 'switchboard-mode "e"      #'switchboard-explain)
 
-(atty/mode:define-key 'board-mode "x"      #'switchboard-close-pane)
+(atty/mode:define-key 'switchboard-mode "x"      #'switchboard-close-pane)
 
-(atty/mode:define-key 'board-mode "s"      #'switchboard-sort)
+(atty/mode:define-key 'switchboard-mode "s"      #'switchboard-sort)
 
-(atty/mode:define-key 'board-mode "f"      #'switchboard-fold-quiet)
+(atty/mode:define-key 'switchboard-mode "f"      #'switchboard-fold-quiet)
 
-(atty/mode:define-key 'board-mode "l"      #'switchboard-toggle-live)
+(atty/mode:define-key 'switchboard-mode "l"      #'switchboard-toggle-live)
 
-(atty/mode:define-key 'board-mode "/"      #'switchboard-filter)
+(atty/mode:define-key 'switchboard-mode "/"      #'switchboard-filter)
 
-(atty/mode:define-key 'board-mode "?"      "describe mode")
+(atty/mode:define-key 'switchboard-mode "?"      "describe mode")
 
-(atty/mode:define-key 'board-mode "Escape" #'switchboard-close)
+(atty/mode:define-key 'switchboard-mode "Escape" #'switchboard-close)
 
-(atty/mode:define-key 'board-mode "C-g"    #'switchboard-close)
+(atty/mode:define-key 'switchboard-mode "C-g"    #'switchboard-close)
 
-(atty/mode:define-key 'board-mode "mouse-1" #'switchboard-click)
+(atty/mode:define-key 'switchboard-mode "mouse-1" #'switchboard-click)
 
-(atty/mode:define-key 'board-mode "mouse-1-up" #'switchboard-release)
+(atty/mode:define-key 'switchboard-mode "mouse-1-up" #'switchboard-release)
 
-(atty/mode:define-key 'board-mode "mouse-1-drag" #'switchboard-drag)
+(atty/mode:define-key 'switchboard-mode "mouse-1-drag" #'switchboard-drag)
 
-(atty/mode:define-key 'board-mode "wheel-left"  #'switchboard-wheel-left)
+(atty/mode:define-key 'switchboard-mode "wheel-left"  #'switchboard-wheel-left)
 
-(atty/mode:define-key 'board-mode "wheel-right" #'switchboard-wheel-right)
+(atty/mode:define-key 'switchboard-mode "wheel-right" #'switchboard-wheel-right)
 
-(atty/mode:define-key 'board-mode "PageUp" #'switchboard-page-up)
+(atty/mode:define-key 'switchboard-mode "PageUp" #'switchboard-page-up)
 
-(atty/mode:define-key 'board-mode "PageDown" #'switchboard-page-down)
+(atty/mode:define-key 'switchboard-mode "PageDown" #'switchboard-page-down)
 
-(atty/mode:define-key 'board-mode "wheel-up"   #'switchboard-wheel-up)
+(atty/mode:define-key 'switchboard-mode "wheel-up"   #'switchboard-wheel-up)
 
-(atty/mode:define-key 'board-mode "wheel-down" #'switchboard-wheel-down)
+(atty/mode:define-key 'switchboard-mode "wheel-down" #'switchboard-wheel-down)
 
-(atty/mode:define-key 'board-mode "S-wheel-up"   #'switchboard-wheel-left)
+(atty/mode:define-key 'switchboard-mode "S-wheel-up"   #'switchboard-wheel-left)
 
-(atty/mode:define-key 'board-mode "S-wheel-down" #'switchboard-wheel-right)
+(atty/mode:define-key 'switchboard-mode "S-wheel-down" #'switchboard-wheel-right)
 
 (atty/mode:define-key 'board-type-mode "RET"    #'switchboard-typed)
 

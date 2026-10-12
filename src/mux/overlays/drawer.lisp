@@ -158,7 +158,7 @@ and its log."
                               (state (and (getf row :known) (getf row :state)))
                               (rows (third explained))
                               (asks (and (eq state :blocked) (getf row :asks)))
-                              (name (or (getf row :label) (getf row :says) (cdr key)))
+                              (name (or (getf row :name) (getf row :says) (cdr key)))
                               (session (car key)) (id (cdr key)))
                          (flet ((open-p (what) (not (member what (drawer-folded d)))))
                                (sheet :drawer
@@ -180,8 +180,8 @@ and its log."
                                                       (keycap "n" "name" :runs (lambda ()
                                                                                  (let ((pane (find-pane (here-server) session id)))
                                                                                    (when pane
-                                                                                     (prompt-pane-name *client* session id (pane-label pane)
-                                                                                                       (pane-named pane))))))
+                                                                                     (prompt-pane-name *client* session id (pane-name pane)
+                                                                                                       (pane-title pane))))))
                                                       (keycap "x" "close" :runs (list :confirm-close session id)))
                                              (section-head d "what it is" :what))
                                        (when (open-p :what) (identity-section info row))

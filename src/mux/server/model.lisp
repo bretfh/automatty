@@ -118,7 +118,7 @@ command line."
 
 (defstruct (window (:constructor %make-window))
   (id (sb-ext:atomic-incf (car *windows-made*)) :type fixnum)
-  (label nil)
+  (name nil)
   (layout nil))
 
 (defstruct (session-state (:conc-name state-) (:copier copy-state))

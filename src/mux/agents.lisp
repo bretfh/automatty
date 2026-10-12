@@ -39,7 +39,7 @@
                           (list :address (row-address r)
                                 :session (getf r :session) :id (getf r :id)
                                 :window (getf r :window) :window-name (getf r :window-name)
-                                :name (getf r :label) :says (getf r :says) :kind (getf r :kind)
+                                :name (getf r :name) :says (getf r :says) :kind (getf r :kind)
                                 :state (getf r :state) :for-ms (getf r :for)
                                 :asks (let ((asks (getf r :asks)))
                                         (and asks
@@ -59,7 +59,7 @@
       ((null rows) (format t "~&nothing is running~%"))
       (t
        (let* ((addresses (mapcar #'row-address rows))
-              (names (mapcar (lambda (r) (or (getf r :label) "-")) rows))
+              (names (mapcar (lambda (r) (or (getf r :name) "-")) rows))
               (wa (reduce #'max addresses :key #'length))
               (wn (reduce #'max names :key #'length))
               (wk (reduce #'max rows :key (lambda (r) (length (getf r :kind))))))
@@ -95,14 +95,14 @@
 
 (defcommand (agent-name :unlisted) (&rest args)
   "what to call a pane: <pane> <name>, or from inside a pane <name>"
-  (multiple-value-bind (address label)
+  (multiple-value-bind (address name)
       (if (second args)
           (values (first args) (second args))
           (values (or *caller* (error "atty agent name <session>:<pane> <name>")) (first args)))
     (multiple-value-bind (pane session) (address-pane address)
-      (name-pane (here-server) (session-name session) (pane-id pane) (or label ""))
+      (name-pane (here-server) (session-name session) (pane-id pane) (or name ""))
       (format t "~&~A:~D is ~A~%" (session-name session) (pane-id pane)
-              (if (plusp (length (or label ""))) label "unnamed")))))
+              (if (plusp (length (or name ""))) name "unnamed")))))
 
 (defcommand (agent-answer :unlisted) (address n)
   "answer N to what the pane is asking; exits 3, having typed nothing, when it is not asking"

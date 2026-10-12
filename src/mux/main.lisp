@@ -145,7 +145,7 @@ is an error, and a command that did not go through exits with its status."
              (let ((words (positional-args (rest args) "--name")))
                (attach-or-create :name (or (first words) "0")
                                  :command (or (second words) (default-shell))
-                                 :label (option-value args "--name"))))
+                                 :pane-name (option-value args "--name"))))
             ((string= what "agent") (agent-command (rest args)))
             ((string= what "bench") (bench-atty (rest args)))
             ((string= what "record") (record-reader args))

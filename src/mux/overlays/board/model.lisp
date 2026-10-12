@@ -76,7 +76,7 @@ as the sort says; narrowed to the ones with a pane the filter matches."
 (defun window-worst-row (watcher session window)
   (first (sort (copy-list (window-rows watcher session window)) #'< :key #'state-rank)))
 
-(defun window-name (watcher session window)
+(defun board-window-name (watcher session window)
   "What to call WINDOW: its label, else its first pane's name."
   (or (second window)
       (let ((rows (window-rows watcher session window))) (and rows (row-name (first rows))))

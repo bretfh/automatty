@@ -8,8 +8,8 @@
 (defun pane-display-name (pane)
   "What to call PANE: the name somebody gave it, else the title its program
 gave itself, else the program."
-  (or (pane-label pane)
-      (and (pane-named pane) (plusp (length (pane-named pane))) (pane-named pane))
+  (or (pane-name pane)
+      (and (pane-title pane) (plusp (length (pane-title pane))) (pane-title pane))
       (program-display-name (pane-command pane))
       ""))
 
@@ -80,8 +80,8 @@ asking. The one shown is a pill on the ground of the panes. A click shows it."
          ;; as the focus moves about in it, and by what somebody called it or
          ;; what it runs, never the title its program set
          (first-pane (first panes))
-         (name (or (window-label window)
-                   (and first-pane (pane-label first-pane))
+         (name (or (window-name window)
+                   (and first-pane (pane-name first-pane))
                    (and first-pane (program-display-name (pane-command first-pane)))
                    ""))
          (width (if narrow +narrow-chip-width+ +chip-width+))

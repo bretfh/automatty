@@ -50,7 +50,7 @@ from a server that has no windows."
   "Where a pane is, as the queue and the drawer say it: session › window › pane."
   (let ((window (getf row :window))
         (wname (getf row :window-name))
-        (pane (or (getf row :label) (getf row :says) (getf row :id))))
+        (pane (or (getf row :name) (getf row :says) (getf row :id))))
     (if window
         (format nil "~A › ~D~@[ ~A~] › ~A" (getf row :session) window
                 (and wname (plusp (length wname)) wname) pane)

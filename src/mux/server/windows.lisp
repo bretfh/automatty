@@ -63,15 +63,15 @@ Answers t, or :empty or :taken."
     (send-message watcher (list :session-named old new outcome))
     outcome))
 
-(defun session-rename-window (session window label)
+(defun session-rename-window (session window name)
   (on-server (session-server session)
              (lambda ()
                (change-window session window
-                              (lambda (w) (setf (window-label w) (and label (plusp (length label)) label)))))))
+                              (lambda (w) (setf (window-name w) (and name (plusp (length name)) name)))))))
 
 (defun window-display-name (session window)
   "What to call WINDOW: its name, else its number."
-  (or (window-label window) (princ-to-string (window-number session window))))
+  (or (window-name window) (princ-to-string (window-number session window))))
 
 (defun encode-layout (it)
   "A layout as it goes out: a pane's id, or a split as its way and its parts."
@@ -85,7 +85,7 @@ many of them are asking, and whether it is the one WATCHER shows."
   (let ((shown (and watcher (eq session (watcher-session watcher)) (watcher-window watcher))))
     (loop :for w :in (session-windows session)
           :for n :from 1
-          :collect (list n (window-label w) (length (window-panes w))
+          :collect (list n (window-name w) (length (window-panes w))
                          (count :blocked (window-panes w)
                                 :key (lambda (p) (agent:agent-state (pane-agent p))))
                          (same-window-p w shown)))))

@@ -45,8 +45,8 @@
   (running t :type boolean)
   (failed nil)
   (rang 0 :type fixnum)
-  (named nil)
-  (label nil)
+  (title nil)
+  (name nil)
   (log nil)
   (log-count 0 :type fixnum)
   (moved-at 0 :type integer)
@@ -167,7 +167,7 @@ made now takes the next."
                                    (incf (pane-rang pane)))
                         :title-fn (lambda (term title)
                                     (declare (ignore term))
-                                    (setf (pane-named pane) title
+                                    (setf (pane-title pane) title
                                           (pane-touched pane) (now-ms)
                                           (pane-titled-at pane) (now-ms))
                                     (agent:agent-become (pane-agent pane) :title title
@@ -256,7 +256,7 @@ made now takes the next."
                    (pane-push-event pane now :finished nil was))
                  (when (and (plusp (length is)) (not (member is +shells+ :test #'string=)))
                    (pane-push-event pane now :started nil is))))
-             (agent:agent-become (pane-agent pane) :title (pane-named pane)
+             (agent:agent-become (pane-agent pane) :title (pane-title pane)
                                                    :command (pane-command pane)
                                                    :programs (pane-programs pane)
                                                    :paths (pane-paths pane)))

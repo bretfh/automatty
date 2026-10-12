@@ -56,7 +56,7 @@
    #:session-panes
    #:session-windows
    #:window-panes
-   #:window-label
+   #:window-name
    #:window-layout
    #:window-number
    #:window-of
