@@ -41,7 +41,14 @@ command line."
   (pushed 0 :type fixnum)
   (find nil)
   (selecting nil)
+  (marked nil)
   (shot nil))
+
+(defun marked-ends (marked)
+  (destructuring-bind (one . two) marked
+    (if (or (< (car one) (car two)) (and (= (car one) (car two)) (<= (cdr one) (cdr two))))
+        (values one two)
+        (values two one))))
 
 (defstruct (view (:copier nil))
   (window -1 :type fixnum)

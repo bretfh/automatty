@@ -140,7 +140,9 @@ the thumb has come to where the pointer is."
 On the scrollbar it is the scrollbar's. On the chip it is back to live. Anywhere
 else a press of the left button is what a click has always been, and whichever
 button it was, a program that asked for the mouse is told, from the press to
-the release, wherever the pointer went in between."
+the release, wherever the pointer went in between. Over a pane whose program
+did not ask, or with shift held, the left button dragged marks text, and what
+is marked when it comes up is copied."
   (let ((held (watcher-held watcher)))
     (ecase what
       (:press
@@ -162,13 +164,19 @@ the release, wherever the pointer went in between."
            ((typep hit 'live-chip)
             (when (eq button :left) (scroll-to watcher pane 0)))
            (t
+            (unmark watcher)
             (when (eq button :left) (handle-click watcher x y))
-            (when (and (typep hit 'pane-view)
-                       (send-mouse-to-program watcher pane :press x y :button button
-                                         :shift (and (member :shift mods) t)
-                                         :meta (and (member :meta mods) t)
-                                         :ctrl (and (member :ctrl mods) t)))
-              (setf (watcher-held watcher) (list :pane pane button)))))))
+            (cond ((not (typep hit 'pane-view)))
+                  ((and (not (member :shift mods))
+                        (send-mouse-to-program watcher pane :press x y :button button
+                                               :meta (and (member :meta mods) t)
+                                               :ctrl (and (member :ctrl mods) t)))
+                   (setf (watcher-held watcher) (list :pane pane button)))
+                  ((eq button :left)
+                   (let ((at (pane-cell-at watcher pane x y)))
+                     (when at
+                       (setf (look-marked (watcher-look watcher pane)) (cons at at)
+                             (watcher-held watcher) (list :mark pane))))))))))
       (:drag
        (case (first held)
          (:thumb
@@ -178,8 +186,55 @@ the release, wherever the pointer went in between."
               (scroll-to watcher pane (scrollbar-back-at bar y (third held))))))
          (:bar (setf (fourth held) y))
          (:pane
-          (send-mouse-to-program watcher (second held) :drag x y :button (third held)))))
+          (send-mouse-to-program watcher (second held) :drag x y :button (third held)))
+         (:mark (mark-to watcher (second held) x y))))
       (:release
-       (when (eq (first held) :pane)
-         (send-mouse-to-program watcher (second held) :release x y :button (third held)))
+       (case (first held)
+         (:pane
+          (send-mouse-to-program watcher (second held) :release x y :button (third held)))
+         (:mark
+          (let* ((pane (second held))
+                 (look (watcher-look watcher pane))
+                 (marked (look-marked look)))
+            (if (and marked (not (equal (car marked) (cdr marked))))
+                (send-message watcher (list :copied (marked-text pane marked)))
+                (unmark watcher)))))
        (setf (watcher-held watcher) nil)))))
+
+(defun pane-cell-at (watcher pane x y)
+  (let* ((tree (watcher-geometry watcher))
+         (view (and tree (view-of tree pane))))
+    (when view
+      (cons (+ (top-row watcher pane)
+               (max 0 (min (1- (min (atty/ui:height view) (pane-height pane)))
+                           (- y (atty/ui:top view)))))
+            (max 0 (min (1- (min (atty/ui:width view) (pane-width pane)))
+                        (- x (atty/ui:left view))))))))
+
+(defun mark-to (watcher pane x y)
+  (let* ((tree (watcher-geometry watcher))
+         (view (and tree (view-of tree pane)))
+         (look (watcher-look watcher pane)))
+    (when (and view (look-marked look))
+      (cond ((< y (atty/ui:top view)) (scroll-back-by watcher pane 1))
+            ((>= y (atty/ui:bottom view)) (scroll-back-by watcher pane -1)))
+      (setf (cdr (look-marked look)) (pane-cell-at watcher pane x y)
+            (watcher-behind watcher) t))))
+
+(defun marked-text (pane marked)
+  (multiple-value-bind (from to) (marked-ends marked)
+    (on-pane pane
+             (lambda ()
+               (format nil "~{~A~^~%~}"
+                       (loop :for a :from (car from) :to (car to)
+                             :for text := (pane-row-text pane a)
+                             :collect (string-right-trim
+                                       " " (subseq text
+                                                   (min (length text) (if (= a (car from)) (cdr from) 0))
+                                                   (if (= a (car to)) (min (length text) (1+ (cdr to))) (length text))))))))))
+
+(defun unmark (watcher)
+  (dolist (it (view-looks (watcher-view watcher)))
+    (when (look-marked (cdr it))
+      (setf (look-marked (cdr it)) nil
+            (watcher-behind watcher) t))))

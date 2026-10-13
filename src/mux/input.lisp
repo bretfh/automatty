@@ -158,6 +158,7 @@ arrived yet is kept until it has."
               (watcher-keyed-at watcher) (monotonic-ns))
         (when (watcher-following watcher) (stop-following (watcher-server watcher) watcher))
         (scroll-to watcher pane 0)
+        (unmark watcher)
         (on-pane pane (lambda ()
                         (pane-note-log pane now actor :keys (length text) t)
                         (when (and (pane-running pane) (pane-started pane))
