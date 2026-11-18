@@ -14,6 +14,7 @@
              #:fill-rect
              #:blit
              #:face-of
+             #:on-ground
              #:draw))
 (in-package #:atty/cells)
 
@@ -134,11 +135,17 @@ already sent and repaint nothing ever again."
                              (- cols (max has at)) 1 (term:make-face)))))
     m))
 
+(defun ground-of (w)
+  (let ((fill (or (ui:background-color w) (getf (ui:style-of w) :background-color))))
+    (and (consp fill) (subseq fill 0 3))))
+
+(defmacro on-ground ((w) &body body)
+  `(let ((*under* (or (ground-of ,w) *under*))) ,@body))
+
 (defmethod ui:paint :around ((w ui:widget) (m cells))
-           (let* ((style (ui:style-of w))
-                  (fill (or (ui:background-color w) (getf style :background-color))))
-             (if (consp fill)
-                 (let ((*under* (subseq fill 0 3)))
+           (let ((ground (ground-of w)))
+             (if ground
+                 (let ((*under* ground))
                    (when (and (plusp (ui:width w)) (plusp (ui:height w)))
                      (fill-rect m (ui:left w) (ui:top w) (ui:width w) (ui:height w)
                                 (term:make-face :bg *under*)))

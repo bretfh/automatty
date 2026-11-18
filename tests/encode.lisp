@@ -80,7 +80,7 @@
     (let ((bytes (sent screen (tty:screen-diff was screen))))
       (is (search (format nil "~C[K" #\Escape) bytes)
           "the tail was written out as spaces: ~S" bytes)
-      (is (< (length bytes) 40))
+      (is (< (- (length bytes) (length tty::+frame-begins+) (length tty::+frame-ends+)) 40))
       (say host bytes))
     (is (null (difference screen host)) "~A" (difference screen host))))
 

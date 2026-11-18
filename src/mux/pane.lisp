@@ -101,6 +101,7 @@
   (urgent nil)
   (kept 0 :type fixnum)
   (written-at 0 :type integer)
+  (synced-at 0 :type integer)
   (echoed 0 :type integer))
 
 (defun pane-roll-pulse (pane now state)
@@ -433,11 +434,22 @@ made now takes the next."
   (let ((woken (pane-woken pane)))
     (if woken (funcall woken ended) (tty:wake))))
 
+(defparameter +sync-patience+ 150000000)
+
+(defun pane-sync-due (pane)
+  (if (term:term-synchronized-output (pane-term pane))
+      (+ (if (zerop (pane-synced-at pane))
+             (setf (pane-synced-at pane) (monotonic-ns))
+             (pane-synced-at pane))
+         +sync-patience+)
+      (setf (pane-synced-at pane) 0)))
+
 (defun pane-show-due (pane)
   (let ((shown (pane-shown pane)))
-    (if (> (pane-echoed pane) (shown-echoed shown))
-        (shown-at shown)
-        (+ (shown-at shown) (pane-gap pane)))))
+    (max (pane-sync-due pane)
+         (if (> (pane-echoed pane) (shown-echoed shown))
+             (shown-at shown)
+             (+ (shown-at shown) (pane-gap pane))))))
 
 (defun pane-watched-p (pane)
   (let ((watched (pane-watched pane)))

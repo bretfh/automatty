@@ -140,7 +140,15 @@ carry on from it."
   (write-char #\? s) (write-char #\2 s) (write-char #\5 s)
   (write-char (if (screen-cursor-visible screen) #\h #\l) s))
 
+(defparameter +frame-begins+ (format nil "~C[?2026h~C[?25l" #\Escape #\Escape))
+
+(defparameter +frame-ends+ (format nil "~C[?2026l" #\Escape))
+
 (defun encode-frame (screen runs s &key (takes t))
+  (when runs
+    (write-string +frame-begins+ s))
   (encode-runs screen runs s :takes takes)
   (term:write-sgr nil s)
-  (encode-cursor screen s))
+  (encode-cursor screen s)
+  (when runs
+    (write-string +frame-ends+ s)))

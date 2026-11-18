@@ -174,7 +174,7 @@ and none is an agent, whose frame reads its screen."
          (every (lambda (pane)
                   (let ((look (cdr (assoc pane (view-looks view)))))
                     (and (zerop (view-back view pane))
-                         (not (and look (or (look-find look) (look-selecting look))))
+                         (not (and look (or (look-find look) (look-selecting look) (look-marked look))))
                          (< (pane-titled-at pane) since)
                          (not (pane-known-p pane)))))
                 (window-panes window)))))
@@ -194,11 +194,12 @@ that changed. Answers the screen, or nil when it takes a compose."
       (let ((m (atty/cells:make-cells (tty:screen-grid screen) cols rows)))
         (atty/ui:with-pass
           (labels ((walk (w)
-                     (typecase w
-                       (pane-area (atty/ui:paint (area-view w) m)
-                                  (when (area-bar w) (atty/ui:paint (area-bar w) m)))
-                       (pane-position (atty/ui:paint w m))
-                       (t (dolist (part (atty/ui:parts w)) (walk part))))))
+                     (atty/cells:on-ground (w)
+                       (typecase w
+                         (pane-area (atty/ui:paint (area-view w) m)
+                                    (when (area-bar w) (atty/ui:paint (area-bar w) m)))
+                         (pane-position (atty/ui:paint w m))
+                         (t (dolist (part (atty/ui:parts w)) (walk part)))))))
             (walk tree))))
       (place-cursor watcher screen tree)
       screen)))
